@@ -454,6 +454,26 @@ input[type="file"] {
   transition: width 0.2s;
 }
 
+/* ---------- Beträge ---------- */
+
+/* Zahlen rechtsbündig und in gleicher Zeichenbreite -- sonst lassen sich
+   Spalten mit Beträgen nicht überfliegen. */
+td.betrag, .betrag-anzeige {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.betrag-anzeige {
+  padding: 8px 10px;
+  font-weight: 600;
+  font-size: 16px;
+  text-align: left;
+}
+tr.summenzeile td {
+  font-weight: 700;
+  border-top: 2px solid var(--line);
+  background: #f7f9fc;
+}
+
 .bericht-zahlen {
   display: flex;
   gap: 8px;

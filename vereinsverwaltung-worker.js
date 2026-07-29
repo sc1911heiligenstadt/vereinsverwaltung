@@ -475,7 +475,16 @@ const PERSON_FELDER = ["vorname", "nachname", "geburtsdatum", "geschlecht",
 // Verein und nicht die Abteilung.
 const MITGLIEDSCHAFT_FELDER = ["art", "eintritt", "status", "ermaessigt",
                                "ermaessigt_grund", "nachweis_geprueft_am",
-                               "nachweis_gueltig_bis"];
+                               "nachweis_gueltig_bis",
+                               "beitragsklasse_id", "familienbeitrag"];
+
+// familienbeitrag ist NOT NULL. Die allgemeine Regel "leerer Text wird
+// NULL" wuerde die Spalte verletzen, deshalb hier eine eigene Umsetzung.
+function feldWert(feld, wert) {
+  if (feld === "familienbeitrag") return (wert === 1 || wert === "1" || wert === true) ? 1 : 0;
+  if (feld === "ermaessigt") return (wert === 1 || wert === "1" || wert === true) ? 1 : 0;
+  return wert === "" ? null : wert;
+}
 
 async function protokolliere(env, username, aktion, typ, id, detail) {
   try {
@@ -503,9 +512,10 @@ async function handleMitgliedDetail(body, env, me, corsHeaders) {
     "SELECT m.id, m.mitgliedsnummer, m.art, m.eintritt, m.austritt, m.austritt_grund, " +
     "       m.kuendigung_am, m.status, m.beschluss_am, m.beschluss_von, " +
     "       m.ermaessigt, m.ermaessigt_grund, m.nachweis_geprueft_am, m.nachweis_gueltig_bis, " +
+    "       m.beitragsklasse_id, m.familienbeitrag, " +
     "       p.id AS person_id, p.vorname, p.nachname, p.geburtsdatum, p.geschlecht, " +
     "       p.strasse, p.plz, p.ort, p.email, p.telefon, p.mobil, p.bemerkung, " +
-    "       p.haushalt_id " +
+    "       p.zusatz_json, p.haushalt_id " +
     "FROM mitgliedschaft m JOIN person p ON p.id = m.person_id WHERE m.id = ?"
   ).bind(id).first();
   if (!zeile) return json({ error: "Nicht gefunden" }, 404, corsHeaders);
@@ -524,9 +534,27 @@ async function handleMitgliedDetail(body, env, me, corsHeaders) {
   const sp = await env.VV_DB.prepare(spSql)
     .bind(id, ...(nurEigene ? rolle.sparten : [])).all();
 
+  // Beitragsklassen nur fuer die, die sie auch aendern duerfen. Ein
+  // Abteilungsleiter bekommt die Liste gar nicht erst geliefert.
+  const klassen = rolle.darfSchreiben
+    ? await ladeKlassenMitSatz(env, new Date().getUTCFullYear() + "-01-01")
+    : [];
+
+  // Die Beitragsart aus dem Altbestand mitgeben: sie erklaert, warum ein
+  // Mitglied in seiner Klasse steht, und ist die einzige Quelle fuer die
+  // Faelle, in denen Klasse und Alter auseinandergehen.
+  let altBeitragsart = null;
+  try {
+    const z = JSON.parse(zeile.zusatz_json || "{}");
+    altBeitragsart = z.Beitragsart || null;
+  } catch { altBeitragsart = null; }
+  delete zeile.zusatz_json;
+
   return json({
     mitglied: zeile,
     sparten: sp.results || [],
+    beitragsklassen: klassen,
+    altBeitragsart,
     darfMitgliedschaftAendern: rolle.darfSchreiben,
     darfKontaktAendern: rolle.darfSchreiben || rolle.rollen.includes("abteilungsleiter"),
     eingeschraenkt: nurEigene
@@ -577,7 +605,7 @@ async function handleMitgliedSpeichern(body, env, me, corsHeaders) {
     MITGLIEDSCHAFT_FELDER.forEach((f) => {
       if (Object.prototype.hasOwnProperty.call(body, f)) {
         mSetz.push(f + " = ?");
-        mWerte.push(body[f] === "" ? null : body[f]);
+        mWerte.push(feldWert(f, body[f]));
         geaendert.push("mitgliedschaft." + f);
       }
     });
@@ -1189,6 +1217,391 @@ async function handleImport(body, env, me, corsHeaders) {
 }
 
 // ---------------------------------------------------------------------
+// STUFE 2 (Anfang) -- Beitragsklassen
+// ---------------------------------------------------------------------
+//
+// Die Beitragsordnung des Vereins, aus 621 Zeilen des Altbestands
+// zurueckgerechnet (die Summen gehen exakt auf 39.972 EUR auf):
+//
+//   Erwachsener          96,00 EUR    im Familienverbund 48,00 EUR
+//   Kinder/Jugendliche   72,00 EUR    im Familienverbund 36,00 EUR
+//   Rentner              72,00 EUR    im Familienverbund 36,00 EUR
+//
+// ZWEI Festlegungen, die aus den echten Daten kommen und nicht aus einer
+// Annahme:
+//
+//   1. Der Beitrag faellt EINMAL JE MITGLIED an, nicht je Sparte.
+//      Von Michel am 29.07. bestaetigt. Der Vereinsmeister druckt ihn auf
+//      jeder Spartenzeile, aber bei 85 von 86 Mehrfach-Mitgliedern steht
+//      dort derselbe Betrag -- es ist eine Wiederholung, keine Addition.
+//      Deshalb traegt sparte.zuschlag_cent hier ueberall 0.
+//
+//   2. Die Klasse haengt NICHT am Alter, sondern ist eine gepflegte
+//      Angabe. Im Bestand gibt es einen 75-Jaehrigen mit Kinderbeitrag,
+//      Rentner ab 48 Jahren und 71-Jaehrige, die als Erwachsene gefuehrt
+//      werden. Wer die Klasse aus dem Geburtsdatum berechnet, wirft ueber
+//      hundert Mitglieder in eine andere Klasse als heute -- und stellt
+//      damit ungefragt Beitraege um. Die Klasse wird deshalb uebernommen
+//      und ist von Hand aenderbar; das Alter liefert beim Neuanlegen nur
+//      einen VORSCHLAG.
+//
+// Der Familienverbund kommt ebenfalls aus der Altdatei und NICHT aus der
+// Haushaltsbildung: 87 Mitglieder haben dort einen Familienbeitrag, die
+// Adressheuristik findet aber nur 58 in Mehrpersonenhaushalten. Wer den
+// Rabatt aus dem Haushalt ableitet, verteuert 29 Mitgliedschaften.
+
+const BEITRAGSKLASSEN = [
+  { schluessel: "erwachsener", name: "Erwachsener",        voll: 9600, familie: 4800, sortierung: 10 },
+  { schluessel: "jugend",      name: "Kinder/Jugendliche", voll: 7200, familie: 3600, sortierung: 20 },
+  { schluessel: "rentner",     name: "Rentner",            voll: 7200, familie: 3600, sortierung: 30 }
+];
+
+// Aus dem Freitext der Altsoftware. Der Bestand kennt zehn Schreibweisen
+// derselben drei Klassen, darunter "Kinder,Jugendliche",
+// "Kinder, Jugendlicher" und den Tippfehler "Famileinbeitrag" -- beide
+// Familien-Schreibweisen enthalten "famil", das reicht als Test.
+//
+// ⚠️ Bei Mitgliedern in zwei Sparten steht im Auffangfeld unter Umstaenden
+// mehr als eine Art, durch Semikolon getrennt: "Erwachsener;Rentner".
+// Es wird deshalb NUR der erste Eintrag ausgewertet -- so, wie der
+// Vereinsmeister ihn auch zuerst druckt. Eine Suche ueber den ganzen
+// Text haette hier stillschweigend "Rentner" gewonnen, weil die Pruefung
+// darauf zuerst kommt: 24 EUR Abweichung in der Jahressumme, entstanden
+// aus einer Reihenfolge im Code statt aus den Daten.
+function klasseAusText(text) {
+  const roh = String(text || "").trim();
+  if (!roh) return null;
+
+  const teile = roh.split(";").map((x) => x.trim()).filter(Boolean);
+  const t = (teile[0] || "").toLowerCase();
+  if (!t) return null;
+
+  const familie = t.indexOf("famil") > -1;
+  let schluessel = "erwachsener";
+  if (t.indexOf("rentner") > -1) schluessel = "rentner";
+  else if (t.indexOf("kind") > -1 || t.indexOf("jugend") > -1) schluessel = "jugend";
+
+  // Uneinheitlich heisst: die Sparten des Mitglieds nennen verschiedene
+  // Beitragsarten. Das ist kein Fehler dieser Funktion, sondern eine
+  // Rueckfrage an die Geschaeftsstelle -- und wird deshalb gemeldet.
+  const eindeutig = teile.length < 2
+    || teile.every((x) => x.toLowerCase() === t);
+
+  return { schluessel, familie, eindeutig, alleArten: teile };
+}
+
+// Altersvorschlag fuer NEUE Mitglieder. Ausdruecklich nur ein Vorschlag:
+// die Grenze 19/20 ist aus dem Bestand abgelesen und dort selbst nicht
+// sauber (es gibt 20- bis 22-Jaehrige in beiden Klassen).
+function klassenVorschlag(geburtsdatum) {
+  const g = String(geburtsdatum || "").slice(0, 10).split("-").map(Number);
+  if (g.length !== 3 || !g[0]) return "erwachsener";
+  const heute = new Date();
+  let alter = heute.getUTCFullYear() - g[0];
+  const monat = heute.getUTCMonth() + 1;
+  if (monat < g[1] || (monat === g[1] && heute.getUTCDate() < g[2])) alter--;
+  return alter < 20 ? "jugend" : "erwachsener";
+}
+
+// Fehlende Spalten nachziehen. D1 ist SQLite, ALTER TABLE ADD COLUMN
+// geht -- aber nicht zweimal. Deshalb erst nachsehen, was schon da ist:
+// die Aktion muss beliebig oft aufrufbar sein, sonst traut sich niemand,
+// sie zu druecken.
+async function handleMigration(env, me, corsHeaders) {
+  if (!me.isAdmin) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+
+  const spalten = await env.VV_DB.prepare("PRAGMA table_info(mitgliedschaft)").all();
+  const da = new Set((spalten.results || []).map((s) => s.name));
+
+  const fehlend = [];
+  if (!da.has("beitragsklasse_id")) {
+    fehlend.push("ALTER TABLE mitgliedschaft ADD COLUMN beitragsklasse_id TEXT REFERENCES beitragsklasse(id)");
+  }
+  if (!da.has("familienbeitrag")) {
+    fehlend.push("ALTER TABLE mitgliedschaft ADD COLUMN familienbeitrag INTEGER NOT NULL DEFAULT 0");
+  }
+
+  for (const sql of fehlend) await env.VV_DB.prepare(sql).run();
+
+  return json({ ok: true, ergaenzt: fehlend.length, spalten: Array.from(da) }, 200, corsHeaders);
+}
+
+// Klassen und Saetze anlegen. Ebenfalls beliebig oft aufrufbar: bereits
+// vorhandene Klassen werden nicht angefasst, damit ein spaeter von Hand
+// geaenderter Satz nicht durch einen zweiten Klick zurueckfaellt.
+async function handleBeitragInit(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin && !rolle.darfBuchen && !rolle.darfSchreiben) {
+    return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+  }
+
+  const gueltigAb = istIsoDatum(body.gueltig_ab) ? body.gueltig_ab
+                                                 : (new Date().getUTCFullYear() + "-01-01");
+  const jetzt = new Date().toISOString();
+
+  const vorhanden = await env.VV_DB.prepare("SELECT id, name FROM beitragsklasse").all();
+  const nachName = new Map();
+  for (const k of vorhanden.results || []) nachName.set(k.name, k.id);
+
+  const anweisungen = [];
+  const angelegt = [];
+
+  BEITRAGSKLASSEN.forEach((k) => {
+    // Zwei Klassen je Stufe: der Familienverbund ist ein eigener Satz,
+    // kein Rabatt-Prozentwert. So steht in der Datenbank genau das, was
+    // die Mitgliederversammlung beschlossen hat.
+    [{ suffix: "", betrag: k.voll }, { suffix: " (Familie)", betrag: k.familie }].forEach((v, i) => {
+      const name = k.name + v.suffix;
+      if (nachName.has(name)) return;
+      const id = uuid();
+      nachName.set(name, id);
+      angelegt.push(name);
+      anweisungen.push(env.VV_DB.prepare(
+        "INSERT INTO beitragsklasse (id, name, sortierung, aktiv, erstellt_am, erstellt_von) VALUES (?,?,?,1,?,?)"
+      ).bind(id, name, k.sortierung + i, jetzt, me.username));
+      anweisungen.push(env.VV_DB.prepare(
+        "INSERT INTO beitragssatz (id, beitragsklasse_id, gueltig_ab, betrag_cent, beschluss_notiz, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?,?)"
+      ).bind(uuid(), id, gueltigAb, v.betrag,
+             "Uebernommen aus GLS Vereinsmeister, Stand 29.07.2026", jetzt, me.username));
+    });
+  });
+
+  if (anweisungen.length) await env.VV_DB.batch(anweisungen);
+  return json({ ok: true, angelegt, vorhanden: nachName.size }, 200, corsHeaders);
+}
+
+// Klassen mit dem aktuell gueltigen Satz. Eine Abfrage, kein N+1:
+// der gueltige Satz ist der mit dem juengsten gueltig_ab, das nicht in
+// der Zukunft liegt.
+async function ladeKlassenMitSatz(env, stichtag) {
+  const r = await env.VV_DB.prepare(
+    "SELECT k.id, k.name, k.sortierung, k.aktiv, " +
+    "  (SELECT s.betrag_cent FROM beitragssatz s WHERE s.beitragsklasse_id = k.id " +
+    "     AND s.gueltig_ab <= ? AND (s.gueltig_bis IS NULL OR s.gueltig_bis >= ?) " +
+    "   ORDER BY s.gueltig_ab DESC LIMIT 1) AS betrag_cent " +
+    "FROM beitragsklasse k ORDER BY k.sortierung, k.name"
+  ).bind(stichtag, stichtag).all();
+  return r.results || [];
+}
+
+// Ordnet jedem Mitglied die Klasse zu, die im Altbestand hinterlegt war.
+// Mengenbasiert: EINE Leseabfrage, dann ein UPDATE je Klasse mit einer
+// IN-Liste, alles in einem batch. Bei 540 Mitgliedern sind das drei
+// Rundlaeufe statt 540.
+async function handleBeitragZuordnen(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfSchreiben) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+
+  const nurPruefen = !!body.pruefen;
+  // Ohne dieses Kennzeichen wird eine bereits gesetzte Klasse NICHT
+  // angefasst. Ein zweiter Lauf darf keine von Hand korrigierte
+  // Zuordnung zurueckdrehen.
+  const auchVorhandene = !!body.ueberschreiben;
+
+  const stichtag = istIsoDatum(body.stichtag) ? body.stichtag
+                                              : (new Date().getUTCFullYear() + "-01-01");
+  const klassen = await ladeKlassenMitSatz(env, stichtag);
+  if (!klassen.length) {
+    return json({ error: "Es sind noch keine Beitragsklassen angelegt" }, 400, corsHeaders);
+  }
+  const nachName = new Map();
+  for (const k of klassen) nachName.set(k.name, k);
+
+  function findeKlasse(schluessel, familie) {
+    const b = BEITRAGSKLASSEN.find((x) => x.schluessel === schluessel);
+    if (!b) return null;
+    return nachName.get(b.name + (familie ? " (Familie)" : "")) || null;
+  }
+
+  const zeilen = await env.VV_DB.prepare(
+    "SELECT m.id, m.beitragsklasse_id, m.familienbeitrag, p.zusatz_json " +
+    "FROM mitgliedschaft m JOIN person p ON p.id = m.person_id " +
+    "WHERE m.status IN ('aktiv','ruhend','antrag')"
+  ).all();
+
+  // Eine Sammelliste je Zielklasse -- daraus wird je ein UPDATE.
+  const nachKlasse = new Map();
+  let ohneAngabe = 0, schonGesetzt = 0;
+  const uneindeutig = [];
+
+  for (const z of zeilen.results || []) {
+    if (z.beitragsklasse_id && !auchVorhandene) { schonGesetzt++; continue; }
+
+    let art = null;
+    try {
+      const zusatz = JSON.parse(z.zusatz_json || "{}");
+      art = zusatz.Beitragsart || zusatz.beitragsart || null;
+    } catch { art = null; }
+
+    const erkannt = klasseAusText(art);
+    if (!erkannt) { ohneAngabe++; continue; }
+
+    const klasse = findeKlasse(erkannt.schluessel, erkannt.familie);
+    if (!klasse) { ohneAngabe++; continue; }
+
+    if (!erkannt.eindeutig) {
+      uneindeutig.push({ id: z.id, arten: erkannt.alleArten, genommen: klasse.name });
+    }
+
+    const schluessel = klasse.id + "|" + (erkannt.familie ? 1 : 0);
+    if (!nachKlasse.has(schluessel)) {
+      nachKlasse.set(schluessel, { klasse, familie: erkannt.familie, ids: [] });
+    }
+    nachKlasse.get(schluessel).ids.push(z.id);
+  }
+
+  const jetzt = new Date().toISOString();
+  const anweisungen = [];
+  const verteilung = [];
+  let summeCent = 0, zugeordnet = 0;
+
+  for (const eintrag of nachKlasse.values()) {
+    verteilung.push({
+      klasse: eintrag.klasse.name,
+      anzahl: eintrag.ids.length,
+      betrag_cent: eintrag.klasse.betrag_cent,
+      summe_cent: (eintrag.klasse.betrag_cent || 0) * eintrag.ids.length
+    });
+    summeCent += (eintrag.klasse.betrag_cent || 0) * eintrag.ids.length;
+    zugeordnet += eintrag.ids.length;
+
+    // Bloecke zu 50 wegen der Parametergrenze. Alle Anweisungen gehen
+    // trotzdem in EINEN batch, das bleibt ein Rundlauf.
+    for (let i = 0; i < eintrag.ids.length; i += 50) {
+      const block = eintrag.ids.slice(i, i + 50);
+      anweisungen.push(env.VV_DB.prepare(
+        "UPDATE mitgliedschaft SET beitragsklasse_id = ?, familienbeitrag = ?, " +
+        "geaendert_am = ?, geaendert_von = ? WHERE id IN (" + block.map(() => "?").join(",") + ")"
+      ).bind(eintrag.klasse.id, eintrag.familie ? 1 : 0, jetzt, me.username, ...block));
+    }
+  }
+
+  if (!nurPruefen && anweisungen.length) {
+    await env.VV_DB.batch(anweisungen);
+    await protokolliere(env, me.username, "beitragsklassen-zugeordnet", "mitgliedschaft", null,
+                        { zugeordnet, summeCent });
+  }
+
+  verteilung.sort((a, b) => b.anzahl - a.anzahl);
+  return json({
+    ok: true, pruefung: nurPruefen,
+    zugeordnet, ohneAngabe, schonGesetzt,
+    summeCent, verteilung,
+    // Mitglieder, deren Sparten verschiedene Beitragsarten nennen.
+    // Genommen wurde die erste; die Entscheidung gehoert der
+    // Geschaeftsstelle, deshalb stehen sie im Bericht.
+    uneindeutig: uneindeutig.slice(0, 50),
+    uneindeutigGesamt: uneindeutig.length
+  }, 200, corsHeaders);
+}
+
+// Uebersicht fuer den Beitrags-Reiter: Klassen mit Satz, wie viele
+// Mitglieder darin stehen, die Jahressumme -- und die Faelle, die eine
+// Rueckfrage verdienen.
+async function handleBeitragUebersicht(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin && !rolle.darfSchreiben && !rolle.darfBuchen) {
+    return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+  }
+
+  const stichtag = istIsoDatum(body.stichtag) ? body.stichtag
+                                              : (new Date().getUTCFullYear() + "-01-01");
+  const klassen = await ladeKlassenMitSatz(env, stichtag);
+
+  const zaehlung = await env.VV_DB.prepare(
+    "SELECT beitragsklasse_id, COUNT(*) AS n FROM mitgliedschaft " +
+    "WHERE status IN ('aktiv','ruhend') GROUP BY beitragsklasse_id"
+  ).all();
+  const anzahlNach = new Map();
+  let ohneKlasse = 0;
+  for (const z of zaehlung.results || []) {
+    if (!z.beitragsklasse_id) { ohneKlasse = z.n; continue; }
+    anzahlNach.set(z.beitragsklasse_id, z.n);
+  }
+
+  let summeCent = 0;
+  const zeilen = klassen.map((k) => {
+    const anzahl = anzahlNach.get(k.id) || 0;
+    const summe = (k.betrag_cent || 0) * anzahl;
+    summeCent += summe;
+    return { id: k.id, name: k.name, betrag_cent: k.betrag_cent, anzahl, summe_cent: summe };
+  });
+
+  // Auffaellige Zuordnungen. Bewusst als HINWEIS, nicht als Korrektur:
+  // im Altbestand ist ein 75-Jaehriger mit Kinderbeitrag gefuehrt, und
+  // ob das ein Pflegefehler oder eine Sonderregelung ist, entscheidet
+  // die Geschaeftsstelle -- nicht dieser Code.
+  const auffaellig = await env.VV_DB.prepare(
+    "SELECT m.id, m.mitgliedsnummer, p.vorname, p.nachname, p.geburtsdatum, k.name AS klasse, " +
+    "       CAST((julianday(?) - julianday(p.geburtsdatum)) / 365.25 AS INTEGER) AS alter_jahre " +
+    "FROM mitgliedschaft m JOIN person p ON p.id = m.person_id " +
+    "JOIN beitragsklasse k ON k.id = m.beitragsklasse_id " +
+    "WHERE m.status IN ('aktiv','ruhend') AND p.geburtsdatum IS NOT NULL AND ( " +
+    "   (k.name LIKE 'Kinder%' AND (julianday(?) - julianday(p.geburtsdatum)) / 365.25 >= 20) " +
+    "OR (k.name LIKE 'Erwachsener%' AND (julianday(?) - julianday(p.geburtsdatum)) / 365.25 < 18) ) " +
+    "ORDER BY alter_jahre DESC LIMIT 50"
+  ).bind(stichtag, stichtag, stichtag).all();
+
+  return json({
+    ok: true, stichtag,
+    klassen: zeilen,
+    ohneKlasse,
+    summeCent,
+    auffaellig: auffaellig.results || []
+  }, 200, corsHeaders);
+}
+
+// Beitragssatz aendern. Nie den bestehenden Satz ueberschreiben: ein
+// Beschluss der Mitgliederversammlung gilt ab einem Datum, und was
+// davor gerechnet wurde, muss nachvollziehbar bleiben. Deshalb wird der
+// alte Satz beendet und ein neuer angelegt.
+async function handleBeitragssatzSetzen(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin && !rolle.darfBuchen) {
+    return json({ error: "Nur der Schatzmeister kann Beitragssaetze aendern" }, 403, corsHeaders);
+  }
+
+  const klasseId = String(body.beitragsklasse_id || "");
+  const betrag = parseInt(body.betrag_cent, 10);
+  const gueltigAb = String(body.gueltig_ab || "").slice(0, 10);
+
+  if (!klasseId) return json({ error: "Keine Beitragsklasse angegeben" }, 400, corsHeaders);
+  if (!Number.isFinite(betrag) || betrag < 0 || betrag > 100000000) {
+    return json({ error: "Betrag nicht plausibel" }, 400, corsHeaders);
+  }
+  if (!istIsoDatum(gueltigAb)) return json({ error: "Gueltig-ab-Datum erforderlich" }, 400, corsHeaders);
+
+  const klasse = await env.VV_DB.prepare("SELECT id, name FROM beitragsklasse WHERE id = ?")
+    .bind(klasseId).first();
+  if (!klasse) return json({ error: "Beitragsklasse nicht gefunden" }, 404, corsHeaders);
+
+  const jetzt = new Date().toISOString();
+  // Vortag als Ende des alten Satzes -- ueber Date.UTC, damit die
+  // Sommerzeit die Grenze nicht um einen Tag verschiebt.
+  const t = gueltigAb.split("-").map(Number);
+  const vortag = new Date(Date.UTC(t[0], t[1] - 1, t[2] - 1));
+  const vortagIso = vortag.getUTCFullYear() + "-" +
+    String(vortag.getUTCMonth() + 1).padStart(2, "0") + "-" +
+    String(vortag.getUTCDate()).padStart(2, "0");
+
+  await env.VV_DB.batch([
+    env.VV_DB.prepare(
+      "UPDATE beitragssatz SET gueltig_bis = ? WHERE beitragsklasse_id = ? AND gueltig_bis IS NULL AND gueltig_ab < ?"
+    ).bind(vortagIso, klasseId, gueltigAb),
+    env.VV_DB.prepare(
+      "INSERT INTO beitragssatz (id, beitragsklasse_id, gueltig_ab, betrag_cent, beschluss_am, beschluss_notiz, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?,?,?)"
+    ).bind(uuid(), klasseId, gueltigAb, betrag,
+           istIsoDatum(body.beschluss_am) ? body.beschluss_am : null,
+           sauber(body.beschluss_notiz, 300), jetzt, me.username)
+  ]);
+
+  await protokolliere(env, me.username, "beitragssatz-geaendert", "beitragsklasse", klasseId,
+                      { betrag, gueltigAb });
+
+  return json({ ok: true }, 200, corsHeaders);
+}
+
+// ---------------------------------------------------------------------
 // Belastungstest (Stufe 0) -- misst, ob der kostenlose Cloudflare-Tarif
 // den Beitragslauf traegt. Kann nach der Tarifentscheidung raus.
 //
@@ -1529,6 +1942,11 @@ export default {
         case "vv-rollen":          return handleRollenListe(env, me, request.headers.get("Authorization"), corsHeaders);
         case "vv-rolle-setzen":    return handleRolleSetzen(body, env, me, corsHeaders);
         case "vv-rolle-loeschen":  return handleRolleLoeschen(body, env, me, corsHeaders);
+        case "vv-migration":       return handleMigration(env, me, corsHeaders);
+        case "vv-beitrag-init":    return handleBeitragInit(body, env, me, corsHeaders);
+        case "vv-beitrag-zuordnen": return handleBeitragZuordnen(body, env, me, corsHeaders);
+        case "vv-beitrag-uebersicht": return handleBeitragUebersicht(body, env, me, corsHeaders);
+        case "vv-beitragssatz-setzen": return handleBeitragssatzSetzen(body, env, me, corsHeaders);
         case "vv-sparten-init":    return handleSpartenInit(env, me, corsHeaders);
         case "vv-seed":            return handleSeed(body, env, me, corsHeaders);
         case "vv-messlauf":        return handleMesslauf(body, env, me, corsHeaders);

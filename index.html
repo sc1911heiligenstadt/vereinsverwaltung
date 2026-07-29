@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vereinsverwaltung &mdash; 1. SC 1911 Heiligenstadt</title>
-<link rel="stylesheet" href="style.css?v=1.3">
+<link rel="stylesheet" href="style.css?v=1.4">
 </head>
 <body>
 
@@ -19,6 +19,7 @@
 
 <nav id="haupt-nav" hidden>
   <button data-tab="tab-mitglieder" class="aktiv">Mitglieder</button>
+  <button data-tab="tab-beitraege" id="nav-beitraege" hidden>Beiträge</button>
   <button data-tab="tab-import" id="nav-import" hidden>Import</button>
   <button data-tab="tab-rollen" id="nav-rollen" hidden>Rollen</button>
   <button data-tab="tab-info">Info</button>
@@ -143,6 +144,70 @@
       <div class="karte" id="imp-karte-bericht" hidden>
         <h2>Bericht</h2>
         <div id="imp-bericht"></div>
+      </div>
+
+    </section>
+
+    <!-- Beiträge. Die Sätze stehen in der Datenbank, nicht im Code:
+         ein Beschluss der Mitgliederversammlung darf kein Deploy sein. -->
+    <section id="tab-beitraege" class="tab">
+
+      <div class="karte">
+        <h2>Beitragsordnung</h2>
+        <p class="fussnote">Der Beitrag fällt <strong>einmal je Mitglied</strong> an, nicht je Sparte.
+        Wer in zwei Abteilungen aktiv ist, zahlt einmal.</p>
+        <div id="b-status" class="hinweis info" hidden></div>
+        <div id="b-klassen"></div>
+        <div class="knopfreihe">
+          <button class="btn grau" id="btn-b-neu-laden">Neu berechnen</button>
+          <button class="btn grau" id="btn-b-init" hidden>Beitragsordnung anlegen</button>
+          <button class="btn" id="btn-b-zuordnen" hidden>Mitglieder zuordnen</button>
+        </div>
+      </div>
+
+      <div class="karte" id="b-karte-pruefen" hidden>
+        <h2>Zu prüfen</h2>
+        <p class="fussnote">Klasse und Alter passen hier nicht zusammen. Das ist <strong>kein Fehler
+        der App</strong>, sondern so aus dem Vereinsmeister übernommen — es kann eine Sonderregelung
+        sein oder ein Pflegefehler. Die Entscheidung trifft die Geschäftsstelle, nicht die Software.</p>
+        <div id="b-auffaellig"></div>
+      </div>
+
+      <div class="karte" id="b-karte-uneindeutig" hidden>
+        <h2>Verschiedene Beitragsarten je Sparte</h2>
+        <p class="fussnote">Bei diesen Mitgliedern nennt der Vereinsmeister in den einzelnen Sparten
+        <strong>unterschiedliche</strong> Beitragsarten. Übernommen wurde jeweils die erste. Wenn das
+        nicht stimmt, hier anklicken und die Klasse von Hand setzen.</p>
+        <div id="b-uneindeutig"></div>
+      </div>
+
+      <div class="karte">
+        <h2>Beitragssatz ändern</h2>
+        <p class="fussnote">Ein neuer Satz ersetzt den alten nicht, sondern gilt ab einem Stichtag.
+        Was davor gerechnet wurde, bleibt nachvollziehbar.</p>
+        <div class="filterleiste">
+          <div class="feld suchfeld">
+            <label for="b-satz-klasse">Beitragsklasse</label>
+            <select id="b-satz-klasse"></select>
+          </div>
+          <div class="feld">
+            <label for="b-satz-betrag">Jahresbeitrag (€)</label>
+            <input id="b-satz-betrag" inputmode="decimal" placeholder="96,00">
+          </div>
+          <div class="feld">
+            <label for="b-satz-ab">Gültig ab</label>
+            <input type="date" id="b-satz-ab">
+          </div>
+          <div class="feld">
+            <label for="b-satz-beschluss">Beschlossen am</label>
+            <input type="date" id="b-satz-beschluss">
+          </div>
+          <div class="feld">
+            <label>&nbsp;</label>
+            <button class="btn" id="btn-b-satz">Satz eintragen</button>
+          </div>
+        </div>
+        <div id="b-satz-status" class="hinweis info" hidden></div>
       </div>
 
     </section>
@@ -276,6 +341,19 @@
         <button class="btn grau" id="btn-sparte-hinzu">Sparte hinzufügen</button>
       </div>
 
+      <h3>Beitrag</h3>
+      <div id="d-beitrag-bereich">
+        <div class="formraster">
+          <div class="feld"><label for="d-beitragsklasse">Beitragsklasse</label>
+            <select id="d-beitragsklasse"></select>
+          </div>
+          <div class="feld"><label>Jahresbeitrag</label>
+            <div class="betrag-anzeige" id="d-beitrag-betrag">—</div>
+          </div>
+        </div>
+        <p class="fussnote" id="d-beitrag-hinweis"></p>
+      </div>
+
       <div id="d-austritt-bereich" class="austritt-kasten" hidden>
         <h3>Austritt erfassen</h3>
         <p class="fussnote">Nach § 5 Abs. 2 der Satzung ist ein Austritt nur zum 30.06. oder 31.12.
@@ -374,10 +452,11 @@
 
 <footer>1. SC 1911 Heiligenstadt &mdash; interne Vereinsverwaltung</footer>
 
-<script src="config.js?v=1.2"></script>
+<script src="config.js?v=1.3"></script>
 <script src="db.js?v=1.1"></script>
 <script src="import.js?v=1.1"></script>
 <script src="rollen.js?v=1.0"></script>
-<script src="app.js?v=1.3"></script>
+<script src="beitraege.js?v=1.0"></script>
+<script src="app.js?v=1.4"></script>
 </body>
 </html>

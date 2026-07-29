@@ -39,6 +39,17 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Beitragsordnung",
+    datum: "2026-07-29",
+    punkte: [
+      "Neuer Reiter Beiträge: die drei Beitragsklassen mit ihren Sätzen, wie viele Mitglieder darin stehen und die Jahressumme.",
+      "Der Beitrag fällt einmal je Mitglied an, nicht je Sparte — wer in zwei Abteilungen aktiv ist, zahlt einmal.",
+      "Die Klassen werden aus dem übernommenen Bestand zugeordnet und sind je Mitglied von Hand änderbar. Sie werden bewusst NICHT aus dem Alter berechnet: im Bestand gibt es einen 75-Jährigen mit Kinderbeitrag und Rentner ab 48.",
+      "Beitragssätze liegen in der Datenbank und gelten ab einem Stichtag. Ein Beschluss der Mitgliederversammlung ändert den Satz, ohne dass Vergangenes umgerechnet wird.",
+      "Zwei Prüflisten: Mitglieder, deren Klasse nicht zum Alter passt, und solche, deren Sparten verschiedene Beitragsarten nennen."
+    ]
+  },
+  {
     version: "Sortierbare Liste",
     datum: "2026-07-29",
     punkte: [

@@ -116,10 +116,12 @@ async function start() {
   // Administrator -- sonst koennte sich die Geschaeftsstelle selbst zum
   // Schatzmeister machen und damit an die Bankdaten.
   $("nav-rollen").hidden = !meineRechte.isAdmin;
+  $("nav-beitraege").hidden = !(meineRechte.darfSchreiben || meineRechte.darfBuchen);
 
   await ladeSpartenAuswahl();
   await ladeUndZeige();
   if (meineRechte.isAdmin) ladeRollen();
+  if (meineRechte.darfSchreiben || meineRechte.darfBuchen) ladeBeitraege();
 }
 
 async function ladeSpartenAuswahl() {
@@ -426,9 +428,48 @@ async function oeffneDetail(mitgliedschaftId) {
       "Mitgliedschaftsdaten wie Art, Eintritt und Status ändert die Geschäftsstelle.");
   }
 
+  zeichneBeitrag(antwort, !!mitgl);
   zeichneSparten(antwort.sparten || [], !!mitgl);
   $("d-austritt-vorschau").hidden = true;
   $("d-kuendigung").value = "";
+}
+
+// Beitrag im Mitglied-Detail. Der Bereich ist für Abteilungsleitungen
+// ganz weg -- sie bekommen die Klassenliste vom Server gar nicht erst.
+function zeichneBeitrag(antwort, darfAendern) {
+  const bereich = $("d-beitrag-bereich");
+  const klassen = antwort.beitragsklassen || [];
+  const m = antwort.mitglied;
+
+  if (!darfAendern || !klassen.length) {
+    bereich.hidden = true;
+    return;
+  }
+  bereich.hidden = false;
+
+  const sel = $("d-beitragsklasse");
+  sel.innerHTML = '<option value="">— keine Klasse —</option>' +
+    klassen.map((k) => '<option value="' + esc(k.id) + '"' +
+      (m.beitragsklasse_id === k.id ? " selected" : "") + ">" +
+      esc(k.name) + "</option>").join("");
+
+  const zeigeBetrag = () => {
+    const k = klassen.find((x) => x.id === sel.value);
+    $("d-beitrag-betrag").textContent = k ? beitragText(k.betrag_cent) : "—";
+  };
+  sel.onchange = zeigeBetrag;
+  zeigeBetrag();
+
+  // Die alte Beitragsart erklärt, warum jemand in seiner Klasse steht.
+  // Ohne sie wirkt eine ungewöhnliche Zuordnung wie ein Fehler der App.
+  $("d-beitrag-hinweis").textContent = antwort.altBeitragsart
+    ? "Aus dem Vereinsmeister übernommen als: " + antwort.altBeitragsart
+    : "Keine Beitragsangabe aus dem alten Bestand vorhanden.";
+}
+
+function beitragText(cent) {
+  if (cent === null || cent === undefined) return "kein Satz hinterlegt";
+  return (cent / 100).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " € / Jahr";
 }
 
 function zeichneSparten(liste, darfAendern) {
@@ -560,6 +601,17 @@ async function speichereDetail() {
   }
   if (offenesMitglied.darfMitgliedschaftAendern) {
     Object.entries(MITGLIEDSFELDER).forEach(([id, feld]) => { nutzlast[feld] = $(id).value; });
+    // Nur mitschicken, wenn der Bereich überhaupt sichtbar war -- sonst
+    // würde ein Speichern die Klasse eines Mitglieds löschen, dessen
+    // Beitragsordnung noch gar nicht angelegt ist.
+    if (!$("d-beitrag-bereich").hidden) {
+      nutzlast.beitragsklasse_id = $("d-beitragsklasse").value;
+      // Der Familienbeitrag steckt in der gewählten Klasse selbst
+      // (eigene Klasse "… (Familie)"), das Kennzeichen zieht mit.
+      const gewaehlt = (offenesMitglied.beitragsklassen || [])
+        .find((k) => k.id === $("d-beitragsklasse").value);
+      nutzlast.familienbeitrag = gewaehlt && /\(Familie\)/.test(gewaehlt.name) ? 1 : 0;
+    }
   }
 
   $("detail-status").textContent = "Wird gespeichert …";
@@ -677,6 +729,7 @@ function init() {
 
   impVerdrahten();
   rollenVerdrahten();
+  beitraegeVerdrahten();
 
   // Klick auf die abgedunkelte Flaeche schliesst, Klick im Dialog nicht.
   $("detail-overlay").addEventListener("click", (e) => {
