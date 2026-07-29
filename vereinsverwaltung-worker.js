@@ -279,6 +279,45 @@ async function handleRolleLoeschen(body, env, me, corsHeaders) {
 //     wird, steht auch nicht im Netzwerk-Tab.
 //   - Vorstand bekommt 403: die Rolle ist fuer Kennzahlen gedacht, nicht
 //     fuer Personendaten.
+// Sortierung als WEISSLISTE. Eine Spaltenangabe aus dem Browser darf nie
+// in ein ORDER BY wandern -- das waere eine offene SQL-Einschleusung.
+// Hier steht deshalb der fertige Ausdruck, nicht der Feldname.
+//
+// Zwei Feinheiten, die sonst falsch aussehen:
+//   - Die Mitgliedsnummer ist TEXT. Ohne CAST kaeme 1, 10, 100, 2.
+//   - Leere Werte gehoeren ans Ende, nicht an den Anfang. SQLite sortiert
+//     NULL sonst zuerst.
+// leer: Ausdruck, der leere Werte erkennt. Er wird IMMER aufsteigend
+// sortiert, damit sie in beiden Richtungen hinten stehen -- wer nach
+// Geburtsdatum absteigend sortiert, will die Aeltesten sehen und nicht
+// zuerst die 40 Saetze ohne Datum.
+// spalten: die eigentlichen Sortierfelder, sie folgen der Richtung.
+const SORTIERUNGEN = {
+  name:         { spalten: ["p.nachname COLLATE NOCASE", "p.vorname COLLATE NOCASE"] },
+  nummer:       { spalten: ["CASE WHEN m.mitgliedsnummer GLOB '[0-9]*' THEN CAST(m.mitgliedsnummer AS INTEGER) ELSE 2147483647 END",
+                            "m.mitgliedsnummer"] },
+  geburtsdatum: { leer: "p.geburtsdatum IS NULL OR p.geburtsdatum = ''", spalten: ["p.geburtsdatum"] },
+  sparten:      { leer: "sparten IS NULL", spalten: ["sparten COLLATE NOCASE"] },
+  ort:          { leer: "p.ort IS NULL OR p.ort = ''", spalten: ["p.ort COLLATE NOCASE"] },
+  eintritt:     { leer: "m.eintritt IS NULL OR m.eintritt = ''", spalten: ["m.eintritt"] },
+  status:       { spalten: ["m.status"] }
+};
+
+function baueSortierung(schluessel, absteigend) {
+  const s = SORTIERUNGEN[schluessel] || SORTIERUNGEN.name;
+  const richtung = absteigend ? " DESC" : " ASC";
+  const teile = [];
+  if (s.leer) teile.push("(" + s.leer + ") ASC");
+  s.spalten.forEach((sp) => teile.push(sp + richtung));
+  // Der Name als letzte Stufe macht die Reihenfolge eindeutig. Ohne das
+  // liefert dieselbe Abfrage beim Blaettern Zeilen doppelt und laesst
+  // andere aus -- SQLite darf gleichrangige Zeilen frei anordnen.
+  if (schluessel !== "name") {
+    teile.push("p.nachname COLLATE NOCASE ASC", "p.vorname COLLATE NOCASE ASC");
+  }
+  return teile.join(", ");
+}
+
 async function handleMitgliederListe(body, env, me, corsHeaders) {
   const rolle = await ladeRolle(env, me);
   if (!rolle.darfPersonenSehen) {
@@ -290,6 +329,10 @@ async function handleMitgliederListe(body, env, me, corsHeaders) {
   const sparteFilter = String(body.sparte || "").trim();
   const limit = Math.min(Math.max(parseInt(body.limit, 10) || 50, 1), 200);
   const offset = Math.max(parseInt(body.offset, 10) || 0, 0);
+
+  const sortSchluessel = SORTIERUNGEN[body.sortierung] ? body.sortierung : "name";
+  const absteigend = body.richtung === "ab";
+  const sortSql = baueSortierung(sortSchluessel, absteigend);
 
   const nurEigene = !rolle.istAdmin
     && rolle.rollen.includes("abteilungsleiter")
@@ -341,12 +384,14 @@ async function handleMitgliederListe(body, env, me, corsHeaders) {
     "LEFT JOIN mitgliedschaft_sparte ms ON ms.mitgliedschaft_id = m.id AND ms.austritt IS NULL" + spartenBedingung + " " +
     "LEFT JOIN sparte s ON s.id = ms.sparte_id" +
     woSql + " " +
-    "GROUP BY m.id ORDER BY p.nachname, p.vorname LIMIT ? OFFSET ?"
+    "GROUP BY m.id ORDER BY " + sortSql + " LIMIT ? OFFSET ?"
   ).bind(...(nurEigene ? rolle.sparten : []), ...werte, limit, offset).all();
 
   return json({
     gesamt: zaehler ? zaehler.n : 0,
     limit, offset,
+    sortierung: sortSchluessel,
+    richtung: absteigend ? "ab" : "auf",
     eingeschraenkt: nurEigene,
     zeilen: zeilen.results || []
   }, 200, corsHeaders);

@@ -10,6 +10,12 @@ let spartenListe = [];
 let seite = 0;
 let letzteGesamtzahl = 0;
 
+// Sortierung wird SERVERSEITIG gemacht. Im Browser lägen nur die 50
+// Zeilen der aktuellen Seite -- eine Sortierung darüber würde eine
+// Reihenfolge vortäuschen, die für die anderen 490 nicht gilt.
+let sortierung = "name";
+let sortRichtung = "auf";
+
 // ---------------------------------------------------------------------
 // Hilfen
 // ---------------------------------------------------------------------
@@ -158,6 +164,7 @@ async function ladeUndZeige() {
       suche: $("f-suche").value,
       sparte: $("f-sparte").value,
       status: $("f-status").value,
+      ...serverSortierung(),
       limit: SEITENGROESSE,
       offset: seite * SEITENGROESSE
     });
@@ -244,6 +251,42 @@ async function zeigeLeerGrund() {
   $("btn-zum-import").addEventListener("click", () => waehleTab("tab-import"));
 }
 
+// Spalten der Liste. "Alter" ist eine eigene Spalte in der Oberfläche,
+// serverseitig aber dasselbe Feld wie das Geburtsdatum -- nur andersherum:
+// der Älteste hat das früheste Datum. Die Umrechnung macht
+// serverSortierung(), damit in der Anzeige der Pfeil steht, den man
+// erwartet, und immer nur an EINER Spalte.
+const SPALTEN = [
+  { schluessel: "name",         text: "Name" },
+  { schluessel: "nummer",       text: "Nr." },
+  { schluessel: "geburtsdatum", text: "Geburtsdatum" },
+  { schluessel: "alter",        text: "Alter" },
+  { schluessel: "sparten",      text: "Sparten" },
+  { schluessel: "ort",          text: "Ort" },
+  { schluessel: "eintritt",     text: "Eintritt" },
+  { schluessel: "status",       text: "Status" }
+];
+
+function serverSortierung() {
+  if (sortierung !== "alter") return { sortierung, richtung: sortRichtung };
+  return { sortierung: "geburtsdatum", richtung: sortRichtung === "auf" ? "ab" : "auf" };
+}
+
+// Erster Klick auf eine neue Spalte sortiert aufsteigend, ein zweiter
+// Klick dreht um.
+function waehleSortierung(schluessel) {
+  if (sortierung === schluessel) {
+    sortRichtung = sortRichtung === "auf" ? "ab" : "auf";
+  } else {
+    sortierung = schluessel;
+    sortRichtung = "auf";
+  }
+  // Zurück auf Seite 1: Seite 6 einer anderen Sortierung zeigt ganz
+  // andere Leute, das wäre eher verwirrend als hilfreich.
+  seite = 0;
+  ladeUndZeige();
+}
+
 function zeichneTabelle(zeilen) {
   const bereich = $("liste-bereich");
 
@@ -258,8 +301,14 @@ function zeichneTabelle(zeilen) {
   }
 
   let html = '<div class="tabelle-scroll"><table><thead><tr>' +
-    "<th>Name</th><th>Nr.</th><th>Geburtsdatum</th><th>Alter</th>" +
-    "<th>Sparten</th><th>Ort</th><th>Eintritt</th><th>Status</th>" +
+    SPALTEN.map((s) => {
+      const aktiv = sortierung === s.schluessel;
+      return '<th class="sortierbar' + (aktiv ? " aktiv" : "") + '"' +
+        ' data-sort="' + s.schluessel + '" tabindex="0" role="button"' +
+        ' title="Nach ' + esc(s.text) + ' sortieren">' +
+        esc(s.text) + '<span class="pfeil">' +
+        (aktiv ? (sortRichtung === "ab" ? "▼" : "▲") : "") + "</span></th>";
+    }).join("") +
     "</tr></thead><tbody>";
 
   zeilen.forEach((z) => {
@@ -280,6 +329,14 @@ function zeichneTabelle(zeilen) {
 
   html += "</tbody></table></div>";
   bereich.innerHTML = html;
+
+  bereich.querySelectorAll("th.sortierbar").forEach((th) => {
+    const sortiere = () => waehleSortierung(th.dataset.sort);
+    th.addEventListener("click", sortiere);
+    th.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); sortiere(); }
+    });
+  });
 
   // Ein Handler auf dem Behaelter statt einem je Zeile -- bei 50 Zeilen
   // je Seite und haeufigem Neuzeichnen sonst unnoetig viele Registrierungen.

@@ -39,6 +39,16 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Sortierbare Liste",
+    datum: "2026-07-29",
+    punkte: [
+      "Jede Spalte der Mitgliederliste lässt sich durch Anklicken der Überschrift sortieren, ein zweiter Klick dreht die Richtung um.",
+      "Sortiert wird über den gesamten Bestand, nicht nur über die angezeigte Seite.",
+      "Mitgliedsnummern werden numerisch sortiert (1, 2, 3 … statt 1, 10, 100).",
+      "Einträge ohne Angabe stehen in beiden Richtungen am Ende."
+    ]
+  },
+  {
     version: "Bestandsübernahme und Rollen",
     datum: "2026-07-29",
     punkte: [

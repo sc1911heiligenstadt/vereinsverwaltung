@@ -184,6 +184,25 @@ th {
   position: sticky;
   top: 0;
 }
+
+th.sortierbar {
+  cursor: pointer;
+  user-select: none;
+  /* Platz für den Pfeil dauerhaft freihalten, sonst springt die
+     Spaltenbreite beim Umsortieren. */
+  padding-right: 26px;
+  position: sticky;
+}
+th.sortierbar:hover { background: #e3e8ef; color: var(--text); }
+th.sortierbar:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+th.sortierbar.aktiv { color: var(--blue); }
+
+th .pfeil {
+  position: absolute;
+  right: 8px;
+  font-size: 10px;
+  line-height: inherit;
+}
 tbody tr:hover { background: #f7f9fc; }
 tbody tr:last-child td { border-bottom: none; }
 
