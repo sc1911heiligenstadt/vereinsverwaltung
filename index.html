@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vereinsverwaltung &mdash; 1. SC 1911 Heiligenstadt</title>
+<link rel="stylesheet" href="style.css?v=1.0">
+</head>
+<body>
+
+<header>
+  <a class="dashboard-pille" href="https://tecko1985.github.io/ToolsUebersicht/">&larr; Zurück zum Dashboard</a>
+  <h1>Vereinsverwaltung</h1>
+  <div class="kopf-rechts">
+    <span class="rollen-pille" id="rollen-pille" hidden></span>
+    <span id="version-badge">v1.0</span>
+  </div>
+</header>
+
+<nav id="haupt-nav" hidden>
+  <button data-tab="tab-mitglieder" class="aktiv">Mitglieder</button>
+  <button data-tab="tab-info">Info</button>
+</nav>
+
+<main>
+
+  <!-- Anmelde-Schirm. Standardzustand im HTML, damit vor der ersten
+       Antwort nichts Falsches aufblitzt. Gate haengt ausschliesslich am
+       Vorhandensein des Tokens. -->
+  <section id="anmelde-schirm" class="karte">
+    <h2>Anmeldung erforderlich</h2>
+    <p>Diese Anwendung enthält Mitgliederdaten des Vereins und ist nur für angemeldete Personen zugänglich.</p>
+    <p><a class="btn" href="https://tecko1985.github.io/ToolsUebersicht/" style="display:inline-block;text-decoration:none;padding:10px 18px;background:#1f4e9c;color:#fff;border-radius:8px;">Zur Anmeldung</a></p>
+  </section>
+
+  <div id="app-bereich" hidden>
+
+    <section id="tab-mitglieder" class="tab aktiv">
+      <div class="karte">
+        <h2>Mitglieder</h2>
+
+        <div id="sicht-hinweis" hidden></div>
+
+        <div class="filterleiste">
+          <div class="feld suchfeld">
+            <label for="f-suche">Suche (Name oder Mitgliedsnummer)</label>
+            <input type="search" id="f-suche" placeholder="z. B. Müller oder T100042" autocomplete="off">
+          </div>
+          <div class="feld">
+            <label for="f-sparte">Sparte</label>
+            <select id="f-sparte"><option value="">Alle</option></select>
+          </div>
+          <div class="feld">
+            <label for="f-status">Status</label>
+            <select id="f-status">
+              <option value="aktiv">Aktiv</option>
+              <option value="">Alle</option>
+              <option value="antrag">Antrag</option>
+              <option value="ruhend">Ruhend</option>
+              <option value="gekuendigt">Gekündigt</option>
+              <option value="beendet">Beendet</option>
+            </select>
+          </div>
+          <div class="feld">
+            <label>&nbsp;</label>
+            <button class="btn" id="btn-suchen">Suchen</button>
+          </div>
+        </div>
+
+        <div class="zaehler">
+          <span id="zaehler-text">&nbsp;</span>
+          <span id="zaehler-seite"></span>
+        </div>
+
+        <div id="liste-bereich"></div>
+
+        <div class="blaetterleiste" id="blaetterleiste" hidden>
+          <button class="btn grau" id="btn-zurueck">Zurück</button>
+          <span id="seiten-info"></span>
+          <button class="btn grau" id="btn-weiter">Weiter</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-info" class="tab">
+      <div class="karte">
+        <h2>Über die Vereinsverwaltung</h2>
+        <p>Mitglieder-, Beitrags- und Finanzverwaltung des 1. SC 1911 Heiligenstadt. Ersetzt schrittweise die bisherige Windows-Software.</p>
+        <p><strong>Version:</strong> <span id="version-badge-2">1.0</span></p>
+        <h3>Rechte</h3>
+        <ul>
+          <li><strong>Geschäftsstelle und Schatzmeister</strong> sehen und bearbeiten alle Mitglieder.</li>
+          <li><strong>Abteilungsleiter</strong> sehen ausschließlich Mitglieder ihrer eigenen Sparte &mdash; ohne Bankdaten und ohne Einblick, in welchen weiteren Sparten eine Person aktiv ist. Diese Grenze wird auf dem Server durchgesetzt, nicht in der Anzeige.</li>
+          <li><strong>Vorstand</strong> sieht Kennzahlen, aber keine Personendaten.</li>
+        </ul>
+      </div>
+      <div class="karte">
+        <h2>Änderungen</h2>
+        <div id="changelog-liste"></div>
+      </div>
+    </section>
+
+  </div>
+</main>
+
+<footer>1. SC 1911 Heiligenstadt &mdash; interne Vereinsverwaltung</footer>
+
+<script src="config.js?v=1.0"></script>
+<script src="db.js?v=1.0"></script>
+<script src="app.js?v=1.0"></script>
+</body>
+</html>

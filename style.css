@@ -1,0 +1,278 @@
+:root {
+  --blue: #1f4e9c;
+  --blue-dark: #16386f;
+  --bg: #f4f6f9;
+  --card: #ffffff;
+  --text: #1c2330;
+  --muted: #667085;
+  --line: #dfe3e8;
+  --green: #1a7f4b;
+  --red: #b42318;
+  --amber: #b54708;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* ---------- Kopfzeile ---------- */
+
+header {
+  background: var(--blue);
+  color: #fff;
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  /* Ohne wrap laeuft die Kopfzeile am Handy seitlich ueber und reisst
+     die ganze Seite mit. Flottenregel seit 2026-07-28. */
+  flex-wrap: wrap;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+  flex: 1 1 auto;
+}
+
+.dashboard-pille {
+  display: inline-block;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  text-decoration: none;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.dashboard-pille:hover { background: rgba(255, 255, 255, 0.28); }
+
+.kopf-rechts {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.rollen-pille {
+  background: rgba(255, 255, 255, 0.15);
+  padding: 4px 12px;
+  border-radius: 999px;
+}
+
+/* ---------- Navigation ---------- */
+
+nav {
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 4px;
+  padding: 0 16px;
+  flex-wrap: wrap;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+nav button {
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  padding: 13px 16px;
+  font-size: 15px;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: inherit;
+}
+nav button:hover { color: var(--text); }
+nav button.aktiv {
+  color: var(--blue);
+  border-bottom-color: var(--blue);
+  font-weight: 600;
+}
+
+/* ---------- Inhalt ---------- */
+
+main { padding: 20px; max-width: 1400px; margin: 0 auto; }
+.tab { display: none; }
+.tab.aktiv { display: block; }
+
+.karte {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 18px;
+  margin-bottom: 18px;
+  max-width: 100%;
+}
+.karte h2 { margin: 0 0 12px; font-size: 17px; }
+.karte h3 { margin: 18px 0 8px; font-size: 15px; }
+
+/* ---------- Filterleiste ---------- */
+
+.filterleiste {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.feld { display: flex; flex-direction: column; gap: 4px; }
+.feld label { font-size: 12px; color: var(--muted); }
+
+input, select, textarea {
+  /* Nie unter 16px: kleinere Schrift laesst iOS beim Antippen
+     hineinzoomen. Flottenregel. */
+  font-size: 16px;
+  font-family: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--text);
+  max-width: 100%;
+}
+input:focus, select:focus { outline: 2px solid var(--blue); outline-offset: -1px; }
+
+.suchfeld { min-width: 240px; flex: 1 1 240px; }
+
+button.btn {
+  background: var(--blue);
+  color: #fff;
+  border: none;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  font-family: inherit;
+}
+button.btn:hover { background: var(--blue-dark); }
+button.btn.grau { background: #6b7280; }
+button.btn.grau:hover { background: #4b5563; }
+
+/* ---------- Tabelle ---------- */
+
+/* Die Tabelle scrollt in sich, statt die Seite seitlich zu sprengen. */
+.tabelle-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td {
+  text-align: left;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+th {
+  background: #eef1f5;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--muted);
+  position: sticky;
+  top: 0;
+}
+tbody tr:hover { background: #f7f9fc; }
+tbody tr:last-child td { border-bottom: none; }
+
+td.name { font-weight: 600; white-space: normal; min-width: 160px; }
+td.sparten { white-space: normal; min-width: 150px; color: var(--muted); }
+
+.chip {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.chip.aktiv { background: #e7f5ed; color: var(--green); }
+.chip.ruhend { background: #fdf2e3; color: var(--amber); }
+.chip.beendet, .chip.gekuendigt { background: #fdecea; color: var(--red); }
+.chip.antrag { background: #eaf0fb; color: var(--blue); }
+
+/* ---------- Hinweise ---------- */
+
+.hinweis {
+  padding: 11px 14px;
+  border-radius: 8px;
+  margin-bottom: 14px;
+  font-size: 14px;
+}
+.hinweis.info { background: #eaf0fb; color: var(--blue-dark); }
+.hinweis.warn { background: #fdf2e3; color: var(--amber); }
+.hinweis.fehler { background: #fdecea; color: var(--red); }
+
+.leer { padding: 32px; text-align: center; color: var(--muted); }
+
+.zaehler {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 10px 2px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.blaetterleiste {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+/* ---------- Anmelde-Schirm ---------- */
+
+#anmelde-schirm {
+  max-width: 460px;
+  margin: 60px auto;
+  text-align: center;
+}
+
+/* ---------- Info ---------- */
+
+#version-badge {
+  background: rgba(255, 255, 255, 0.15);
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.changelog-block { margin-bottom: 18px; }
+.changelog-block h3 { margin: 0 0 4px; font-size: 15px; }
+.changelog-datum { font-size: 12px; color: var(--muted); }
+.changelog-block ul { margin: 8px 0 0; padding-left: 20px; }
+.changelog-block li { margin-bottom: 5px; }
+
+footer {
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 24px 20px calc(24px + env(safe-area-inset-bottom));
+}
+
+/* ---------- Handy ---------- */
+
+@media (max-width: 720px) {
+  header { padding: 12px 14px; }
+  header h1 { font-size: 17px; flex: 1 1 100%; order: 2; }
+  main { padding: 14px; }
+  .karte { padding: 14px; }
+  .suchfeld { flex: 1 1 100%; }
+  .feld { flex: 1 1 100%; }
+  .feld select { width: 100%; }
+}

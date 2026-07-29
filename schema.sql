@@ -1,0 +1,541 @@
+-- =====================================================================
+-- Vereinsverwaltung 1. SC 1911 Heiligenstadt — D1-Schema
+-- Stufe 1 (Mitglieder) + Stufe 2 (Beiträge/SEPA)
+-- Die Buchhaltung (Stufe 4, ab 2027) kommt in einer eigenen Datei dazu.
+-- =====================================================================
+--
+-- KONVENTIONEN — gelten für jede Tabelle, bitte nicht abweichen:
+--
+--   Geld       INTEGER in CENT. Niemals REAL/FLOAT. Feldname endet auf _cent.
+--              (Bewusste Abweichung von der Float-Regel aus kassenbuch und
+--              sc-heiligenstadt-budget: eine prüfungsfähige Buchhaltung
+--              verträgt keine Rundungsdrift über zehntausende Buchungen.)
+--   Datum      TEXT 'YYYY-MM-DD'. SQLite kennt keinen DATE-Typ.
+--              ACHTUNG: im Client NIE über toISOString() bilden — das liefert
+--              in deutscher Sommerzeit vor 02:00 Uhr den Vortag. Immer lokal
+--              über getFullYear/getMonth/getDate (_heuteIsoDatum()-Muster).
+--   Zeitstempel TEXT ISO-8601 mit Zone, z. B. '2026-07-29T14:03:11+02:00'.
+--   IDs        TEXT UUID v4. Fachliche Nummern (Mitgliedsnummer,
+--              Mandatsreferenz, Belegnummer) sind eigene Felder.
+--   Löschen    Es wird nicht gelöscht. Stammdaten bekommen ein Ende-Datum,
+--              Vorgänge werden storniert (storniert_am/_von/_grund).
+--   Wer/Wann   Jede schreibende Tabelle führt erstellt_am/erstellt_von und
+--              geaendert_am/geaendert_von. _von ist der Gateway-username.
+--
+-- D1-Besonderheiten, die das Schema mitträgt:
+--   - Kein BEGIN/COMMIT über Requests. Atomar ist nur db.batch().
+--     Deshalb gibt es an jeder Stelle, an der ein Vorgang wiederholt werden
+--     könnte, einen UNIQUE-Index als Doppelausführungs-Sperre.
+--   - Fremdschlüssel sind aktiv; bei Migrationen PRAGMA defer_foreign_keys.
+--   - Zeilenlimit 2 MB. Deshalb liegen Unterschriften und PDFs als Datei in
+--     Nextcloud, in der Datenbank steht nur die Referenz.
+-- =====================================================================
+
+
+-- ---------------------------------------------------------------------
+-- 1) STAMMDATEN — Person, Haushalt, Sparte
+-- ---------------------------------------------------------------------
+
+-- Ein Mensch existiert genau EINMAL, unabhängig davon, ob und wie oft er
+-- Mitglied ist. Der Vater, der selbst bei den Alten Herren spielt und für
+-- drei Kinder zahlt, ist eine Zeile — nicht vier.
+CREATE TABLE person (
+  id                TEXT PRIMARY KEY,
+  haushalt_id       TEXT REFERENCES haushalt(id),
+
+  vorname           TEXT NOT NULL,
+  nachname          TEXT NOT NULL,
+  geburtsdatum      TEXT,                      -- 'YYYY-MM-DD'
+  geschlecht        TEXT,                      -- 'w' | 'm' | 'd' | NULL
+
+  -- Anschrift. Straße und Hausnummer bewusst in EINEM Feld — dieselbe
+  -- Entscheidung wie in Trainerdaten, damit die Flotte konsistent bleibt.
+  strasse           TEXT,
+  plz               TEXT,
+  ort               TEXT,
+
+  email             TEXT,
+  telefon           TEXT,
+  mobil             TEXT,
+
+  -- Verknüpfung ins Gateway, falls diese Person ein Konto hat (Trainer,
+  -- Funktionär). Leer bei den allermeisten Mitgliedern.
+  gateway_username  TEXT,
+
+  -- Auffangfeld für den Import: Spalten aus der Altsoftware, die beim
+  -- CSV-Import keiner Zielspalte zugeordnet werden konnten, landen hier
+  -- als JSON. Es geht beim Import nichts verloren, auch wenn wir das
+  -- Quellformat heute nicht kennen. Wird nirgends fachlich ausgewertet.
+  zusatz_json       TEXT,
+
+  bemerkung         TEXT,
+
+  -- Gestuftes Löschkonzept: Personendaten dürfen nach Austritt weg,
+  -- Buchungsbelege müssen zehn Jahre bleiben. Deshalb wird die Person
+  -- anonymisiert statt gelöscht — Forderungen und Zahlungen behalten
+  -- ihren Bezug, aber ohne Personendaten.
+  anonymisiert_am   TEXT,
+
+  erstellt_am       TEXT NOT NULL,
+  erstellt_von      TEXT NOT NULL,
+  geaendert_am      TEXT,
+  geaendert_von     TEXT
+);
+
+-- Klammer um Personen, die gemeinsam abgerechnet werden. Trägt Zahler,
+-- Mandat und Familienrabatt. Auch Alleinstehende bekommen einen Haushalt
+-- (mit sich selbst als Zahler) — sonst bräuchte die Beitragsrechnung zwei
+-- Wege statt einem.
+CREATE TABLE haushalt (
+  id                TEXT PRIMARY KEY,
+  bezeichnung       TEXT,                      -- z. B. 'Familie Müller', optional
+
+  -- Wer zahlt. Muss eine Person sein, muss NICHT Mitglied sein
+  -- (Elternteil ohne eigene Mitgliedschaft ist der Normalfall).
+  zahler_person_id  TEXT REFERENCES person(id),
+
+  -- Abweichende Rechnungsanschrift, falls der Zahler woanders wohnt
+  -- (getrennt lebende Eltern). Leer = Anschrift des Zahlers.
+  abw_empfaenger    TEXT,
+  abw_strasse       TEXT,
+  abw_plz           TEXT,
+  abw_ort           TEXT,
+
+  zahlungsweise     TEXT NOT NULL DEFAULT 'jaehrlich',   -- 'jaehrlich' | 'halbjaehrlich'
+  zahlungsart       TEXT NOT NULL DEFAULT 'lastschrift', -- 'lastschrift' | 'ueberweisung'
+
+  erstellt_am       TEXT NOT NULL,
+  erstellt_von      TEXT NOT NULL,
+  geaendert_am      TEXT,
+  geaendert_von     TEXT
+);
+
+-- Abteilungen des Vereins. Die Satzung kennt keine Abteilungen — das ist
+-- eine faktische Struktur, deshalb frei pflegbar statt hartkodiert.
+CREATE TABLE sparte (
+  id                TEXT PRIMARY KEY,
+  name              TEXT NOT NULL UNIQUE,
+  kurz              TEXT,
+  sortierung        INTEGER NOT NULL DEFAULT 100,
+  aktiv             INTEGER NOT NULL DEFAULT 1,   -- 0 = aufgelöst, Historie bleibt
+
+  -- Zuschlag zusätzlich zum Grundbeitrag, pro Jahr. 0 = kein Zuschlag.
+  zuschlag_cent     INTEGER NOT NULL DEFAULT 0,
+
+  erstellt_am       TEXT NOT NULL,
+  erstellt_von      TEXT NOT NULL,
+  geaendert_am      TEXT,
+  geaendert_von     TEXT
+);
+
+
+-- ---------------------------------------------------------------------
+-- 2) MITGLIEDSCHAFT
+-- ---------------------------------------------------------------------
+
+-- Hängt an einer Person. Eine Person kann im Lauf der Zeit mehrere
+-- Mitgliedschaften haben (Austritt, Jahre später Wiedereintritt) — dann
+-- gibt es zwei Zeilen mit unterschiedlicher Mitgliedsnummer.
+CREATE TABLE mitgliedschaft (
+  id                TEXT PRIMARY KEY,
+  person_id         TEXT NOT NULL REFERENCES person(id),
+  mitgliedsnummer   TEXT NOT NULL UNIQUE,
+
+  -- Satzung § 3 und § 4 Abs. 5. Genau diese drei, nichts anderes.
+  art               TEXT NOT NULL,   -- 'ordentlich' | 'ausserordentlich' | 'ehrenmitglied'
+
+  eintritt          TEXT NOT NULL,   -- 'YYYY-MM-DD'
+
+  -- Satzung § 5 Abs. 2: Austritt NUR zum 30.06. oder 31.12., vier Wochen
+  -- Frist. Der Client bietet kein freies Datum an; der Worker prüft es
+  -- zusätzlich, weil UI-Prüfungen keine Zusage sind.
+  austritt          TEXT,
+  austritt_grund    TEXT,            -- 'austritt' | 'ausschluss' | 'tod' | 'streichung'
+  kuendigung_am     TEXT,            -- Eingang der schriftlichen Erklärung
+
+  status            TEXT NOT NULL DEFAULT 'aktiv',
+                                     -- 'antrag' | 'aktiv' | 'ruhend' | 'gekuendigt' | 'beendet'
+
+  -- Satzung § 4: Aufnahme braucht Beschluss des Gesamtvorstands.
+  -- Ohne diese beiden Felder ist die Mitgliedschaft nicht wirksam.
+  beschluss_am      TEXT,
+  beschluss_von     TEXT,
+
+  -- Ermäßigung. Der NACHWEIS wird gesichtet, nicht gespeichert:
+  -- eine Ausweiskopie wäre ein Gesundheitsdatum nach Art. 9 DSGVO und
+  -- wird für die Beitragsrechnung nicht gebraucht.
+  ermaessigt        INTEGER NOT NULL DEFAULT 0,
+  ermaessigt_grund  TEXT,            -- 'schwerbehinderung' | 'schueler' | 'azubi' | 'rentner'
+  nachweis_geprueft_am  TEXT,
+  nachweis_gueltig_bis  TEXT,
+
+  erstellt_am       TEXT NOT NULL,
+  erstellt_von      TEXT NOT NULL,
+  geaendert_am      TEXT,
+  geaendert_von     TEXT
+);
+
+-- Mitglied in Sparte. Eigene Ein- und Austrittsdaten je Sparte, weil ein
+-- Spartenwechsel zur Jahresmitte anteilig gerechnet werden muss.
+CREATE TABLE mitgliedschaft_sparte (
+  id                TEXT PRIMARY KEY,
+  mitgliedschaft_id TEXT NOT NULL REFERENCES mitgliedschaft(id),
+  sparte_id         TEXT NOT NULL REFERENCES sparte(id),
+
+  eintritt          TEXT NOT NULL,
+  austritt          TEXT,
+
+  -- Abweichender Zuschlag für diesen Einzelfall (Vorstandsbeschluss,
+  -- Härtefall). NULL = Standardzuschlag der Sparte.
+  zuschlag_cent     INTEGER,
+
+  erstellt_am       TEXT NOT NULL,
+  erstellt_von      TEXT NOT NULL,
+  geaendert_am      TEXT,
+  geaendert_von     TEXT
+);
+
+
+-- ---------------------------------------------------------------------
+-- 3) BEITRAGSREGELN
+-- ---------------------------------------------------------------------
+
+-- Grundbeitrag nach Alter und Status. Beitragssätze liegen als DATEN in
+-- der Datenbank, nicht im Code — ein Beschluss der Mitgliederversammlung
+-- darf kein Deploy sein.
+CREATE TABLE beitragsklasse (
+  id                TEXT PRIMARY KEY,
+  name              TEXT NOT NULL,          -- 'Kind bis 14', 'Erwachsener', 'Ehrenmitglied'
+  alter_von         INTEGER,                -- Jahre, NULL = keine Untergrenze
+  alter_bis         INTEGER,                -- Jahre, NULL = keine Obergrenze
+  mitgliedsart      TEXT,                   -- NULL = gilt für alle Arten
+  nur_ermaessigt    INTEGER NOT NULL DEFAULT 0,
+  sortierung        INTEGER NOT NULL DEFAULT 100,
+  aktiv             INTEGER NOT NULL DEFAULT 1,
+
+  erstellt_am       TEXT NOT NULL,
+  erstellt_von      TEXT NOT NULL
+);
+
+-- Betrag je Klasse und Gültigkeitszeitraum. Historisiert, damit eine
+-- Beitragserhöhung alte Läufe nicht rückwirkend verändert.
+CREATE TABLE beitragssatz (
+  id                TEXT PRIMARY KEY,
+  beitragsklasse_id TEXT NOT NULL REFERENCES beitragsklasse(id),
+  gueltig_ab        TEXT NOT NULL,          -- 'YYYY-MM-DD'
+  gueltig_bis       TEXT,
+  betrag_cent       INTEGER NOT NULL,       -- Jahresbetrag
+  beschluss_am      TEXT,                   -- Mitgliederversammlung, § 7
+  beschluss_notiz   TEXT,
+
+  erstellt_am       TEXT NOT NULL,
+  erstellt_von      TEXT NOT NULL
+);
+
+-- Familienrabatt ab N zahlenden Mitgliedern im Haushalt. Wirkt auf die
+-- HAUSHALTSSUMME, nicht je Person — sonst entstehen Rundungsdifferenzen
+-- zwischen Forderungssumme und SEPA-Kontrollsumme.
+CREATE TABLE familienrabatt (
+  id                TEXT PRIMARY KEY,
+  ab_anzahl         INTEGER NOT NULL,
+  prozent           INTEGER,                -- entweder Prozent ...
+  betrag_cent       INTEGER,                -- ... oder Festbetrag, nicht beides
+  gueltig_ab        TEXT NOT NULL,
+  gueltig_bis       TEXT,
+
+  erstellt_am       TEXT NOT NULL,
+  erstellt_von      TEXT NOT NULL
+);
+
+
+-- ---------------------------------------------------------------------
+-- 4) SEPA
+-- ---------------------------------------------------------------------
+
+CREATE TABLE sepa_mandat (
+  id                TEXT PRIMARY KEY,
+  haushalt_id       TEXT NOT NULL REFERENCES haushalt(id),
+
+  -- Frei belegbar, weil unklar ist, ob die Referenzen aus der Altsoftware
+  -- übernommen werden können. Vorhandene werden unverändert übernommen;
+  -- fehlt eine, vergibt die App eine eigene. Solange Gläubiger-ID UND
+  -- Referenz gleich bleiben, bleibt ein Altmandat gültig.
+  referenz          TEXT NOT NULL UNIQUE,
+
+  kontoinhaber      TEXT NOT NULL,
+  iban              TEXT NOT NULL,
+  bic               TEXT,                   -- leer -> 'NOTPROVIDED' in der XML
+
+  erteilt_am        TEXT NOT NULL,          -- Unterschriftsdatum, muss in die XML
+  quelle            TEXT NOT NULL DEFAULT 'papier',  -- 'papier' | 'digital' | 'import'
+
+  -- Beweismittel für digital erteilte Mandate. Die Unterschrift selbst
+  -- liegt als Datei in Nextcloud (Zeilenlimit), hier nur die Referenz.
+  unterschrift_datei TEXT,
+  signatur_ip       TEXT,
+  signatur_agent    TEXT,
+  bestaetigung_gesendet_am TEXT,
+
+  -- Erste Nutzung entscheidet über SeqTp FRST vs. RCUR in der XML.
+  -- Ungenutzte Mandate verfallen nach 36 Monaten.
+  erste_nutzung_am  TEXT,
+  letzte_nutzung_am TEXT,
+
+  widerrufen_am     TEXT,
+  widerruf_grund    TEXT,
+
+  erstellt_am       TEXT NOT NULL,
+  erstellt_von      TEXT NOT NULL,
+  geaendert_am      TEXT,
+  geaendert_von     TEXT
+);
+
+
+-- ---------------------------------------------------------------------
+-- 5) BEITRAGSLAUF, FORDERUNGEN, ZAHLUNGEN
+-- ---------------------------------------------------------------------
+
+-- Ein Lauf erzeugt die Sollstellungen einer Periode. Die Zustandskette
+-- ersetzt die fehlende Transaktion: Der Lauf ist über viele Requests
+-- fortsetzbar und weiß, wo er stehen geblieben ist.
+CREATE TABLE beitragslauf (
+  id                TEXT PRIMARY KEY,
+  bezeichnung       TEXT NOT NULL,          -- 'Jahresbeitrag 2027'
+  jahr              INTEGER NOT NULL,
+  periode           TEXT NOT NULL,          -- 'jahr' | 'h1' | 'h2'
+  stichtag          TEXT NOT NULL,          -- Bestandsstichtag für die Berechnung
+  faelligkeit       TEXT NOT NULL,          -- Belastungsdatum der Lastschrift
+
+  status            TEXT NOT NULL DEFAULT 'entwurf',
+                    -- 'entwurf' | 'laeuft' | 'fertig' | 'festgeschrieben' | 'abgebrochen'
+
+  -- Wiederaufsetzpunkt: bis zu welcher Mitgliedschaft (sortiert) der Lauf
+  -- gekommen ist. Ein abgebrochener Lauf wird fortgesetzt, nicht wiederholt.
+  fortschritt_ab    TEXT,
+  anzahl_erwartet   INTEGER,
+  anzahl_erzeugt    INTEGER NOT NULL DEFAULT 0,
+  summe_cent        INTEGER NOT NULL DEFAULT 0,
+
+  -- Nach dem Festschreiben ist der Lauf unveränderlich. Korrekturen
+  -- laufen ab da nur noch über Storno und Nachbuchung.
+  festgeschrieben_am TEXT,
+  festgeschrieben_von TEXT,
+
+  erstellt_am       TEXT NOT NULL,
+  erstellt_von      TEXT NOT NULL
+);
+
+-- Eine Sollstellung. Satzung § 7 kennt drei Arten: Beitrag,
+-- Aufnahmegebühr und Umlage.
+CREATE TABLE forderung (
+  id                TEXT PRIMARY KEY,
+  beitragslauf_id   TEXT REFERENCES beitragslauf(id),   -- NULL bei Einzelforderung
+  mitgliedschaft_id TEXT NOT NULL REFERENCES mitgliedschaft(id),
+  haushalt_id       TEXT NOT NULL REFERENCES haushalt(id),
+
+  art               TEXT NOT NULL DEFAULT 'beitrag',
+                    -- 'beitrag' | 'aufnahmegebuehr' | 'umlage' | 'sonstiges'
+  bezeichnung       TEXT NOT NULL,
+  jahr              INTEGER NOT NULL,
+  periode           TEXT,
+
+  betrag_cent       INTEGER NOT NULL,
+  faellig_am        TEXT NOT NULL,
+
+  -- Vollständige Herleitung als JSON: Grundbeitrag, jeder Spartenzuschlag,
+  -- anteilige Kürzung, Familienrabatt, Restcent-Zuweisung. Ohne das kann
+  -- niemand einem Mitglied erklären, warum genau 84,00 € dastehen.
+  berechnung_json   TEXT,
+
+  status            TEXT NOT NULL DEFAULT 'offen',
+                    -- 'offen' | 'bezahlt' | 'teilbezahlt' | 'rueckläufer' | 'storniert' | 'erlassen'
+
+  storniert_am      TEXT,
+  storniert_von     TEXT,
+  storno_grund      TEXT,
+
+  erstellt_am       TEXT NOT NULL,
+  erstellt_von      TEXT NOT NULL
+);
+
+-- Eine erzeugte SEPA-Datei. Die XML selbst liegt in Nextcloud, hier
+-- stehen nur die Kennzahlen, die zur Bank gemeldet wurden — damit sich
+-- eine Einreichung später eindeutig zuordnen lässt.
+CREATE TABLE sepa_datei (
+  id                TEXT PRIMARY KEY,
+  beitragslauf_id   TEXT REFERENCES beitragslauf(id),
+  msg_id            TEXT NOT NULL UNIQUE,   -- MsgId aus dem GrpHdr
+  erstellt_datum    TEXT NOT NULL,
+  ausfuehrung_am    TEXT NOT NULL,
+  seq_typ           TEXT NOT NULL,          -- 'FRST' | 'RCUR' | 'gemischt'
+  anzahl_posten     INTEGER NOT NULL,       -- muss NbOfTxs entsprechen
+  summe_cent        INTEGER NOT NULL,       -- muss CtrlSum entsprechen
+  datei_pfad        TEXT,
+  eingereicht_am    TEXT,
+
+  erstellt_am       TEXT NOT NULL,
+  erstellt_von      TEXT NOT NULL
+);
+
+CREATE TABLE zahlung (
+  id                TEXT PRIMARY KEY,
+  forderung_id      TEXT REFERENCES forderung(id),
+  haushalt_id       TEXT NOT NULL REFERENCES haushalt(id),
+  sepa_datei_id     TEXT REFERENCES sepa_datei(id),
+
+  betrag_cent       INTEGER NOT NULL,       -- negativ bei Rückläufer/Erstattung
+  eingang_am        TEXT NOT NULL,
+  art               TEXT NOT NULL,          -- 'lastschrift' | 'ueberweisung' | 'bar' | 'ruecklauf'
+  verwendungszweck  TEXT,
+
+  -- Rückläufer: Grund und Entgelt, das der Bank belastet wurde.
+  ruecklauf_grund   TEXT,
+  ruecklauf_entgelt_cent INTEGER,
+
+  storniert_am      TEXT,
+  storniert_von     TEXT,
+  storno_grund      TEXT,
+
+  erstellt_am       TEXT NOT NULL,
+  erstellt_von      TEXT NOT NULL
+);
+
+-- Satzung § 5 Abs. 3: Ausschluss erst nach ZWEI schriftlichen Mahnungen.
+-- Die Stufe ist deshalb kein Freitext, und der Versand wird protokolliert.
+CREATE TABLE mahnung (
+  id                TEXT PRIMARY KEY,
+  haushalt_id       TEXT NOT NULL REFERENCES haushalt(id),
+  mitgliedschaft_id TEXT REFERENCES mitgliedschaft(id),
+
+  stufe             INTEGER NOT NULL,       -- 1 | 2 ; ab 2 ist Ausschluss möglich
+  erstellt_datum    TEXT NOT NULL,
+  frist_bis         TEXT NOT NULL,
+  summe_cent        INTEGER NOT NULL,
+  forderungen_json  TEXT,                   -- IDs der gemahnten Forderungen
+
+  -- Mahnungen gehen auf Papier, solange ein Ausschluss daran hängen kann.
+  versand_art       TEXT NOT NULL DEFAULT 'brief',   -- 'brief' | 'email'
+  versendet_am      TEXT,
+  versendet_von     TEXT,
+  datei_pfad        TEXT,
+
+  erledigt_am       TEXT,                   -- ausgeglichen
+  erstellt_am       TEXT NOT NULL,
+  erstellt_von      TEXT NOT NULL
+);
+
+
+-- ---------------------------------------------------------------------
+-- 6) AUFNAHMEANTRAG (login-los von außen)
+-- ---------------------------------------------------------------------
+
+-- Ein Antrag ist KEINE Mitgliedschaft. Satzung § 4 verlangt den Beschluss
+-- des Gesamtvorstands — erst der erzeugt person/mitgliedschaft.
+-- Diese Tabelle ist der einzige Schreibpunkt eines offenen Endpunkts.
+CREATE TABLE aufnahmeantrag (
+  id                TEXT PRIMARY KEY,
+  eingang_am        TEXT NOT NULL,
+
+  antrag_json       TEXT NOT NULL,          -- kompletter Formularinhalt, feldgeprüft
+  sparten_json      TEXT,                   -- gewünschte Sparten
+
+  unterschrift_datei     TEXT,
+  unterschrift_gesetzl_datei TEXT,          -- bei Minderjährigen, § 4
+  signatur_ip       TEXT,
+  signatur_agent    TEXT,
+  signatur_zeit     TEXT,
+
+  status            TEXT NOT NULL DEFAULT 'neu',
+                    -- 'neu' | 'geprueft' | 'angenommen' | 'abgelehnt' | 'zurueckgezogen'
+  geprueft_am       TEXT,
+  geprueft_von      TEXT,
+  beschluss_am      TEXT,
+  ablehnung_grund   TEXT,                   -- § 4 Abs. 2: Ablehnung braucht keine Begründung
+
+  person_id         TEXT REFERENCES person(id),        -- gesetzt nach Annahme
+  mitgliedschaft_id TEXT REFERENCES mitgliedschaft(id)
+);
+
+
+-- ---------------------------------------------------------------------
+-- 7) SYSTEM — Rollen und Protokoll
+-- ---------------------------------------------------------------------
+
+-- Fachrolle. Das Gateway entscheidet nur "darf überhaupt rein"; WAS
+-- jemand darf, steht hier. Es werden NIE Passwörter oder Gruppen
+-- gespeichert — die Identität kommt ausschließlich aus me.
+CREATE TABLE benutzer_rolle (
+  id                TEXT PRIMARY KEY,
+  username          TEXT NOT NULL,          -- Gateway-username, einzige Verknüpfung
+  rolle             TEXT NOT NULL,
+                    -- 'geschaeftsstelle' | 'schatzmeister' | 'abteilungsleiter' | 'vorstand'
+  sparte_id         TEXT REFERENCES sparte(id),   -- nur bei abteilungsleiter
+
+  erstellt_am       TEXT NOT NULL,
+  erstellt_von      TEXT NOT NULL
+);
+
+-- Nachvollziehbarkeit. Pflicht für die Buchhaltung, und bei
+-- Personendaten die Grundlage jeder Auskunft nach Art. 15 DSGVO.
+CREATE TABLE protokoll (
+  id                TEXT PRIMARY KEY,
+  zeit              TEXT NOT NULL,
+  username          TEXT,
+  aktion            TEXT NOT NULL,
+  objekt_typ        TEXT,
+  objekt_id         TEXT,
+  detail_json       TEXT
+);
+
+
+-- ---------------------------------------------------------------------
+-- 8) INDIZES
+-- ---------------------------------------------------------------------
+
+-- Suche über 2500 Personen muss serverseitig laufen, nicht im Browser.
+CREATE INDEX idx_person_name       ON person(nachname, vorname);
+CREATE INDEX idx_person_haushalt   ON person(haushalt_id);
+CREATE INDEX idx_person_gateway    ON person(gateway_username);
+
+CREATE INDEX idx_mgs_person        ON mitgliedschaft(person_id);
+CREATE INDEX idx_mgs_status        ON mitgliedschaft(status);
+CREATE INDEX idx_mgs_eintritt      ON mitgliedschaft(eintritt);
+
+-- Trägt die Abteilungsleiter-Sicht: "alle Mitglieder MEINER Sparte".
+CREATE INDEX idx_mgspa_sparte      ON mitgliedschaft_sparte(sparte_id, austritt);
+CREATE INDEX idx_mgspa_mgs         ON mitgliedschaft_sparte(mitgliedschaft_id);
+
+CREATE INDEX idx_ford_haushalt     ON forderung(haushalt_id, status);
+CREATE INDEX idx_ford_mgs          ON forderung(mitgliedschaft_id);
+CREATE INDEX idx_ford_offen        ON forderung(status, faellig_am);
+
+CREATE INDEX idx_zahlung_haushalt  ON zahlung(haushalt_id, eingang_am);
+CREATE INDEX idx_zahlung_forderung ON zahlung(forderung_id);
+
+CREATE INDEX idx_mandat_haushalt   ON sepa_mandat(haushalt_id, widerrufen_am);
+CREATE INDEX idx_mahnung_haushalt  ON mahnung(haushalt_id, erledigt_am);
+CREATE INDEX idx_antrag_status     ON aufnahmeantrag(status, eingang_am);
+CREATE INDEX idx_rolle_username    ON benutzer_rolle(username);
+CREATE INDEX idx_protokoll_zeit    ON protokoll(zeit);
+CREATE INDEX idx_protokoll_objekt  ON protokoll(objekt_typ, objekt_id);
+
+-- DIE wichtigste Zeile des Schemas.
+-- D1 kennt keine Transaktion über mehrere Requests. Ein Beitragslauf über
+-- 2500 Mitglieder läuft zwangsläufig in vielen Aufrufen. Bricht einer ab
+-- und der Client wiederholt ihn, entstünde die Forderung zweimal — und
+-- beim Mitglied käme eine doppelte Abbuchung an. Dieser Index macht das
+-- unmöglich: dieselbe Mitgliedschaft kann in demselben Lauf nur genau
+-- eine Forderung je Art haben.
+CREATE UNIQUE INDEX idx_ford_lauf_eindeutig
+  ON forderung(beitragslauf_id, mitgliedschaft_id, art)
+  WHERE beitragslauf_id IS NOT NULL;
+
+-- Ein Haushalt hat höchstens ein gültiges Mandat.
+CREATE UNIQUE INDEX idx_mandat_aktiv
+  ON sepa_mandat(haushalt_id)
+  WHERE widerrufen_am IS NULL;
+
+-- Eine Person ist nicht zweimal in derselben Sparte gleichzeitig.
+CREATE UNIQUE INDEX idx_mgspa_aktiv
+  ON mitgliedschaft_sparte(mitgliedschaft_id, sparte_id)
+  WHERE austritt IS NULL;
