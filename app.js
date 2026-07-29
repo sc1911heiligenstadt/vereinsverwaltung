@@ -178,7 +178,7 @@ function zeichneTabelle(zeilen) {
   zeilen.forEach((z) => {
     const alter = alterJahre(z.geburtsdatum);
     const status = z.status || "aktiv";
-    html += "<tr>" +
+    html += '<tr data-id="' + esc(z.mitgliedschaft_id) + '" tabindex="0">' +
       '<td class="name">' + esc(z.nachname) + ", " + esc(z.vorname) + "</td>" +
       "<td>" + esc(z.mitgliedsnummer) + "</td>" +
       "<td>" + datumDe(z.geburtsdatum) + "</td>" +
@@ -193,6 +193,15 @@ function zeichneTabelle(zeilen) {
 
   html += "</tbody></table></div>";
   bereich.innerHTML = html;
+
+  // Ein Handler auf dem Behaelter statt einem je Zeile -- bei 50 Zeilen
+  // je Seite und haeufigem Neuzeichnen sonst unnoetig viele Registrierungen.
+  bereich.querySelectorAll("tbody tr").forEach((tr) => {
+    tr.addEventListener("click", () => oeffneDetail(tr.dataset.id));
+    tr.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); oeffneDetail(tr.dataset.id); }
+    });
+  });
 }
 
 function zeichneBlaetterleiste() {
@@ -212,6 +221,159 @@ function zeichneBlaetterleiste() {
   $("seiten-info").textContent = "Seite " + (seite + 1) + " von " + seiten;
   $("btn-zurueck").disabled = seite === 0;
   $("btn-weiter").disabled = seite + 1 >= seiten;
+}
+
+// ---------------------------------------------------------------------
+// Detailansicht
+// ---------------------------------------------------------------------
+
+let offenesMitglied = null;
+
+const PERSONENFELDER = {
+  "d-vorname": "vorname", "d-nachname": "nachname", "d-geburtsdatum": "geburtsdatum",
+  "d-geschlecht": "geschlecht", "d-strasse": "strasse", "d-plz": "plz", "d-ort": "ort",
+  "d-email": "email", "d-telefon": "telefon", "d-mobil": "mobil"
+};
+const MITGLIEDSFELDER = { "d-art": "art", "d-eintritt": "eintritt", "d-status": "status" };
+
+async function oeffneDetail(mitgliedschaftId) {
+  const overlay = $("detail-overlay");
+  overlay.hidden = false;
+  $("detail-status").textContent = "Wird geladen …";
+  $("detail-hinweis").hidden = true;
+
+  let antwort;
+  try {
+    antwort = await vvRequest("vv-mitglied", { id: mitgliedschaftId });
+  } catch (e) {
+    $("detail-status").textContent = e.message;
+    return;
+  }
+
+  offenesMitglied = antwort;
+  const m = antwort.mitglied;
+
+  $("detail-titel").textContent = (m.vorname || "") + " " + (m.nachname || "");
+  $("detail-status").textContent = "";
+
+  Object.entries(PERSONENFELDER).forEach(([id, feld]) => { $(id).value = m[feld] || ""; });
+  Object.entries(MITGLIEDSFELDER).forEach(([id, feld]) => { $(id).value = m[feld] || ""; });
+  $("d-nummer").value = m.mitgliedsnummer || "";
+
+  // Satzung § 4: ohne Vorstandsbeschluss ist die Mitgliedschaft nicht
+  // wirksam. Das gehoert sichtbar gemacht, nicht stillschweigend geduldet.
+  const bh = $("d-beschluss-hinweis");
+  bh.textContent = m.beschluss_am
+    ? "Aufnahme beschlossen am " + datumDe(m.beschluss_am) + (m.beschluss_von ? " durch " + m.beschluss_von : "")
+    : "Kein Vorstandsbeschluss hinterlegt — nach § 4 der Satzung ist die Aufnahme damit noch nicht wirksam.";
+  bh.style.color = m.beschluss_am ? "" : "var(--amber)";
+
+  // Sperren statt nur den Speichern-Knopf zu blockieren.
+  const kontakt = antwort.darfKontaktAendern;
+  const mitgl = antwort.darfMitgliedschaftAendern;
+  Object.keys(PERSONENFELDER).forEach((id) => { $(id).disabled = !kontakt; });
+  Object.keys(MITGLIEDSFELDER).forEach((id) => { $(id).disabled = !mitgl; });
+  $("btn-detail-speichern").hidden = !kontakt && !mitgl;
+  $("d-austritt-bereich").hidden = !mitgl;
+
+  if (antwort.eingeschraenkt) {
+    zeigeHinweis($("detail-hinweis"), "info",
+      "Sie sehen diesen Datensatz als Abteilungsleitung: nur Ihre eigenen Sparten, keine Bankdaten. " +
+      "Mitgliedschaftsdaten wie Art, Eintritt und Status ändert die Geschäftsstelle.");
+  }
+
+  zeichneSparten(antwort.sparten || []);
+  $("d-austritt-vorschau").hidden = true;
+  $("d-kuendigung").value = "";
+}
+
+function zeichneSparten(liste) {
+  const ziel = $("d-sparten");
+  if (!liste.length) {
+    ziel.innerHTML = '<p class="fussnote">Keiner Sparte zugeordnet.</p>';
+    return;
+  }
+  ziel.innerHTML = liste.map((s) => {
+    const beendet = !!s.austritt;
+    return '<div class="sparten-zeile">' +
+      '<span class="sp-name">' + esc(s.name) + "</span>" +
+      '<span class="sp-info">seit ' + datumDe(s.eintritt) +
+        (beendet ? ", ausgetreten " + datumDe(s.austritt) : "") + "</span>" +
+      '<span class="sp-info">' + (s.zuschlag_cent ? (s.zuschlag_cent / 100).toFixed(2) + " € / Jahr" : "kein Zuschlag") + "</span>" +
+      "</div>";
+  }).join("");
+}
+
+function schliesseDetail() {
+  $("detail-overlay").hidden = true;
+  offenesMitglied = null;
+}
+
+async function speichereDetail() {
+  if (!offenesMitglied) return;
+  const nutzlast = { id: offenesMitglied.mitglied.id };
+
+  if (offenesMitglied.darfKontaktAendern) {
+    Object.entries(PERSONENFELDER).forEach(([id, feld]) => { nutzlast[feld] = $(id).value; });
+  }
+  if (offenesMitglied.darfMitgliedschaftAendern) {
+    Object.entries(MITGLIEDSFELDER).forEach(([id, feld]) => { nutzlast[feld] = $(id).value; });
+  }
+
+  $("detail-status").textContent = "Wird gespeichert …";
+  try {
+    await vvRequest("vv-mitglied-speichern", nutzlast);
+    $("detail-status").textContent = "Gespeichert.";
+    await ladeUndZeige();
+  } catch (e) {
+    $("detail-status").textContent = "Fehler: " + e.message;
+  }
+}
+
+// Der Termin wird beim Server erfragt statt im Browser gerechnet -- so
+// gibt es nur eine Stelle, an der die Satzungsregel steht.
+async function zeigeAustrittVorschau() {
+  const datum = $("d-kuendigung").value;
+  const kasten = $("d-austritt-vorschau");
+  const grund = $("d-austritt-grund").value;
+
+  if (!datum) { kasten.hidden = true; return; }
+
+  if (grund === "tod" || grund === "ausschluss") {
+    kasten.hidden = false;
+    kasten.textContent = "Die Mitgliedschaft endet sofort zum " + datumDe(datum) +
+      " — die Kündigungsfrist des § 5 Abs. 2 gilt nur für den Austritt auf eigenen Wunsch.";
+    return;
+  }
+  try {
+    const a = await vvRequest("vv-austritt-vorschau", { kuendigung_am: datum });
+    kasten.hidden = false;
+    kasten.textContent = a.austritt
+      ? "Nächstmöglicher Austrittstermin: " + datumDe(a.austritt)
+      : "Kein gültiger Termin ermittelbar.";
+  } catch (e) {
+    kasten.hidden = false;
+    kasten.textContent = e.message;
+  }
+}
+
+async function eintragenAustritt() {
+  if (!offenesMitglied) return;
+  const datum = $("d-kuendigung").value;
+  if (!datum) { $("detail-status").textContent = "Bitte das Eingangsdatum der Kündigung angeben."; return; }
+
+  const grund = $("d-austritt-grund").value;
+  if (!confirm("Austritt wirklich eintragen? Alle Spartenzugehörigkeiten werden zum selben Termin beendet.")) return;
+
+  $("detail-status").textContent = "Wird eingetragen …";
+  try {
+    const a = await vvRequest("vv-austritt", { id: offenesMitglied.mitglied.id, kuendigung_am: datum, grund });
+    $("detail-status").textContent = "Austritt eingetragen zum " + datumDe(a.austritt) + ".";
+    await ladeUndZeige();
+    await oeffneDetail(offenesMitglied.mitglied.id);
+  } catch (e) {
+    $("detail-status").textContent = "Fehler: " + e.message;
+  }
 }
 
 // ---------------------------------------------------------------------
@@ -260,6 +422,21 @@ function init() {
   });
   $("btn-weiter").addEventListener("click", () => {
     if ((seite + 1) * SEITENGROESSE < letzteGesamtzahl) { seite++; ladeUndZeige(); }
+  });
+
+  $("btn-detail-zu").addEventListener("click", schliesseDetail);
+  $("btn-detail-abbrechen").addEventListener("click", schliesseDetail);
+  $("btn-detail-speichern").addEventListener("click", speichereDetail);
+  $("btn-austritt").addEventListener("click", eintragenAustritt);
+  $("d-kuendigung").addEventListener("change", zeigeAustrittVorschau);
+  $("d-austritt-grund").addEventListener("change", zeigeAustrittVorschau);
+
+  // Klick auf die abgedunkelte Flaeche schliesst, Klick im Dialog nicht.
+  $("detail-overlay").addEventListener("click", (e) => {
+    if (e.target === $("detail-overlay")) schliesseDetail();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !$("detail-overlay").hidden) schliesseDetail();
   });
 
   start();

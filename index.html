@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vereinsverwaltung &mdash; 1. SC 1911 Heiligenstadt</title>
-<link rel="stylesheet" href="style.css?v=1.0">
+<link rel="stylesheet" href="style.css?v=1.1">
 </head>
 <body>
 
@@ -103,10 +103,98 @@
   </div>
 </main>
 
+<!-- Detailansicht. Der Dialog scrollt in sich selbst (max-height in der
+     Basisklasse), sonst rutschen die Knöpfe unten aus dem Bild. -->
+<div class="overlay" id="detail-overlay" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="detail-titel">
+    <div class="dialog-kopf">
+      <h2 id="detail-titel">Mitglied</h2>
+      <button class="dialog-zu" id="btn-detail-zu" aria-label="Schließen">&times;</button>
+    </div>
+    <div class="dialog-inhalt" id="detail-inhalt">
+
+      <div id="detail-hinweis" hidden></div>
+
+      <h3>Person</h3>
+      <div class="formraster">
+        <div class="feld"><label for="d-vorname">Vorname</label><input id="d-vorname"></div>
+        <div class="feld"><label for="d-nachname">Nachname</label><input id="d-nachname"></div>
+        <div class="feld"><label for="d-geburtsdatum">Geburtsdatum</label><input type="date" id="d-geburtsdatum"></div>
+        <div class="feld"><label for="d-geschlecht">Geschlecht</label>
+          <select id="d-geschlecht">
+            <option value="">&mdash;</option>
+            <option value="w">weiblich</option>
+            <option value="m">männlich</option>
+            <option value="d">divers</option>
+          </select>
+        </div>
+        <div class="feld breit"><label for="d-strasse">Straße und Hausnummer</label><input id="d-strasse"></div>
+        <div class="feld"><label for="d-plz">PLZ</label><input id="d-plz"></div>
+        <div class="feld"><label for="d-ort">Ort</label><input id="d-ort"></div>
+        <div class="feld"><label for="d-email">E-Mail</label><input type="email" id="d-email"></div>
+        <div class="feld"><label for="d-telefon">Telefon</label><input id="d-telefon"></div>
+        <div class="feld"><label for="d-mobil">Mobil</label><input id="d-mobil"></div>
+      </div>
+
+      <h3>Mitgliedschaft</h3>
+      <div class="formraster">
+        <div class="feld"><label for="d-nummer">Mitgliedsnummer</label><input id="d-nummer" disabled></div>
+        <div class="feld"><label for="d-art">Art</label>
+          <select id="d-art">
+            <option value="ordentlich">Ordentliches Mitglied</option>
+            <option value="ausserordentlich">Außerordentliches Mitglied</option>
+            <option value="ehrenmitglied">Ehrenmitglied</option>
+          </select>
+        </div>
+        <div class="feld"><label for="d-eintritt">Eintritt</label><input type="date" id="d-eintritt"></div>
+        <div class="feld"><label for="d-status">Status</label>
+          <select id="d-status">
+            <option value="antrag">Antrag</option>
+            <option value="aktiv">Aktiv</option>
+            <option value="ruhend">Ruhend</option>
+            <option value="gekuendigt">Gekündigt</option>
+            <option value="beendet">Beendet</option>
+          </select>
+        </div>
+      </div>
+      <p class="fussnote" id="d-beschluss-hinweis"></p>
+
+      <h3>Sparten</h3>
+      <div id="d-sparten"></div>
+
+      <div id="d-austritt-bereich" class="austritt-kasten" hidden>
+        <h3>Austritt erfassen</h3>
+        <p class="fussnote">Nach § 5 Abs. 2 der Satzung ist ein Austritt nur zum 30.06. oder 31.12.
+        möglich, mit vier Wochen Frist. Der Termin ergibt sich aus dem Eingang der Kündigung
+        und ist nicht frei wählbar.</p>
+        <div class="formraster">
+          <div class="feld"><label for="d-kuendigung">Kündigung eingegangen am</label><input type="date" id="d-kuendigung"></div>
+          <div class="feld"><label for="d-austritt-grund">Grund</label>
+            <select id="d-austritt-grund">
+              <option value="austritt">Austritt auf eigenen Wunsch</option>
+              <option value="ausschluss">Ausschluss (§ 5 Abs. 3)</option>
+              <option value="tod">Tod</option>
+              <option value="streichung">Streichung</option>
+            </select>
+          </div>
+        </div>
+        <p id="d-austritt-vorschau" class="hinweis info" hidden></p>
+        <button class="btn grau" id="btn-austritt">Austritt eintragen</button>
+      </div>
+
+    </div>
+    <div class="dialog-fuss">
+      <span id="detail-status"></span>
+      <button class="btn grau" id="btn-detail-abbrechen">Schließen</button>
+      <button class="btn" id="btn-detail-speichern">Speichern</button>
+    </div>
+  </div>
+</div>
+
 <footer>1. SC 1911 Heiligenstadt &mdash; interne Vereinsverwaltung</footer>
 
 <script src="config.js?v=1.0"></script>
 <script src="db.js?v=1.0"></script>
-<script src="app.js?v=1.0"></script>
+<script src="app.js?v=1.1"></script>
 </body>
 </html>

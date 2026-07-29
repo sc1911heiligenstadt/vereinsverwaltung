@@ -259,6 +259,48 @@ async function handleMitgliederListe(body, env, me, corsHeaders) {
   }, 200, corsHeaders);
 }
 
+// Darf diese Person diese eine Mitgliedschaft sehen? Fuer Detailaufrufe,
+// wo die Filterung der Liste nicht greift. Ohne diese Pruefung koennte
+// ein Abteilungsleiter mit einer geratenen ID an fremde Daten kommen.
+async function darfMitgliedschaftSehen(env, rolle, mitgliedschaftId) {
+  if (rolle.istAdmin
+      || rolle.rollen.includes("geschaeftsstelle")
+      || rolle.rollen.includes("schatzmeister")) {
+    return true;
+  }
+  if (!rolle.rollen.includes("abteilungsleiter") || !rolle.sparten.length) return false;
+
+  const treffer = await env.VV_DB.prepare(
+    "SELECT 1 AS x FROM mitgliedschaft_sparte WHERE mitgliedschaft_id = ? AND austritt IS NULL " +
+    "AND sparte_id IN (" + rolle.sparten.map(() => "?").join(",") + ") LIMIT 1"
+  ).bind(mitgliedschaftId, ...rolle.sparten).first();
+  return !!treffer;
+}
+
+// Satzung § 5 Abs. 2: Austritt ist nur zum 30.06. oder 31.12. moeglich,
+// mit vier Wochen Frist. Aus dem Eingang der Kuendigung ergibt sich damit
+// genau ein naechstmoeglicher Termin -- er ist nicht frei waehlbar.
+// Datumsrechnung bewusst ueber Date.UTC auf reinen Datumsanteilen: die
+// Sommerzeit-Umstellung darf keine Frist um einen Tag verschieben.
+function naechsterAustrittstermin(kuendigungIso) {
+  const t = String(kuendigungIso || "").slice(0, 10).split("-").map(Number);
+  if (t.length !== 3 || !t[0]) return null;
+
+  const eingang = Date.UTC(t[0], t[1] - 1, t[2]);
+  const FRIST_MS = 28 * 24 * 60 * 60 * 1000;
+
+  const kandidaten = [
+    { jahr: t[0], iso: t[0] + "-06-30", ms: Date.UTC(t[0], 5, 30) },
+    { jahr: t[0], iso: t[0] + "-12-31", ms: Date.UTC(t[0], 11, 31) },
+    { jahr: t[0] + 1, iso: (t[0] + 1) + "-06-30", ms: Date.UTC(t[0] + 1, 5, 30) },
+    { jahr: t[0] + 1, iso: (t[0] + 1) + "-12-31", ms: Date.UTC(t[0] + 1, 11, 31) }
+  ];
+  for (const k of kandidaten) {
+    if (k.ms - eingang >= FRIST_MS) return k.iso;
+  }
+  return null;
+}
+
 // Sparten fuer Filter und Auswahllisten. Ein Abteilungsleiter sieht nur
 // seine eigenen -- sonst verriete die Filterliste die Vereinsstruktur.
 async function handleSpartenListe(env, me, corsHeaders) {
@@ -277,6 +319,202 @@ async function handleSpartenListe(env, me, corsHeaders) {
 
   const r = await st.all();
   return json({ sparten: r.results || [] }, 200, corsHeaders);
+}
+
+// ---------------------------------------------------------------------
+// STUFE 1 -- Mitglieder bearbeiten
+// ---------------------------------------------------------------------
+
+// Felder, die geaendert werden duerfen -- als Weissliste, nicht als
+// Sperrliste. Was hier nicht steht, kommt auch dann nicht in die
+// Datenbank, wenn es im Body mitgeschickt wird.
+const PERSON_FELDER = ["vorname", "nachname", "geburtsdatum", "geschlecht",
+                       "strasse", "plz", "ort", "email", "telefon", "mobil", "bemerkung"];
+
+// Diese Felder darf ein Abteilungsleiter NICHT anfassen. Kontaktdaten
+// seiner Spartenmitglieder zu pflegen ist sein Auftrag; ob jemand
+// Ehrenmitglied wird oder wann er eingetreten ist, entscheidet der
+// Verein und nicht die Abteilung.
+const MITGLIEDSCHAFT_FELDER = ["art", "eintritt", "status", "ermaessigt",
+                               "ermaessigt_grund", "nachweis_geprueft_am",
+                               "nachweis_gueltig_bis"];
+
+async function protokolliere(env, username, aktion, typ, id, detail) {
+  try {
+    await env.VV_DB.prepare(
+      "INSERT INTO protokoll (id, zeit, username, aktion, objekt_typ, objekt_id, detail_json) VALUES (?,?,?,?,?,?,?)"
+    ).bind(uuid(), new Date().toISOString(), username, aktion, typ, id,
+           detail ? JSON.stringify(detail) : null).run();
+  } catch {
+    // Ein fehlgeschlagener Protokolleintrag darf den fachlichen Vorgang
+    // nicht zurueckrollen -- der ist zu dem Zeitpunkt bereits gespeichert.
+  }
+}
+
+async function handleMitgliedDetail(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfPersonenSehen) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+
+  const id = String(body.id || "");
+  if (!id) return json({ error: "Keine Mitgliedschaft angegeben" }, 400, corsHeaders);
+  if (!(await darfMitgliedschaftSehen(env, rolle, id))) {
+    return json({ error: "Nicht berechtigt fuer diese Mitgliedschaft" }, 403, corsHeaders);
+  }
+
+  const zeile = await env.VV_DB.prepare(
+    "SELECT m.id, m.mitgliedsnummer, m.art, m.eintritt, m.austritt, m.austritt_grund, " +
+    "       m.kuendigung_am, m.status, m.beschluss_am, m.beschluss_von, " +
+    "       m.ermaessigt, m.ermaessigt_grund, m.nachweis_geprueft_am, m.nachweis_gueltig_bis, " +
+    "       p.id AS person_id, p.vorname, p.nachname, p.geburtsdatum, p.geschlecht, " +
+    "       p.strasse, p.plz, p.ort, p.email, p.telefon, p.mobil, p.bemerkung, " +
+    "       p.haushalt_id " +
+    "FROM mitgliedschaft m JOIN person p ON p.id = m.person_id WHERE m.id = ?"
+  ).bind(id).first();
+  if (!zeile) return json({ error: "Nicht gefunden" }, 404, corsHeaders);
+
+  // Sparten: fuer Abteilungsleiter nur die eigenen.
+  const nurEigene = !rolle.istAdmin
+    && rolle.rollen.includes("abteilungsleiter")
+    && !rolle.rollen.includes("geschaeftsstelle")
+    && !rolle.rollen.includes("schatzmeister");
+  const spSql = "SELECT ms.id, ms.sparte_id, s.name, ms.eintritt, ms.austritt, " +
+                "COALESCE(ms.zuschlag_cent, s.zuschlag_cent) AS zuschlag_cent " +
+                "FROM mitgliedschaft_sparte ms JOIN sparte s ON s.id = ms.sparte_id " +
+                "WHERE ms.mitgliedschaft_id = ?" +
+                (nurEigene ? " AND ms.sparte_id IN (" + rolle.sparten.map(() => "?").join(",") + ")" : "") +
+                " ORDER BY s.sortierung";
+  const sp = await env.VV_DB.prepare(spSql)
+    .bind(id, ...(nurEigene ? rolle.sparten : [])).all();
+
+  return json({
+    mitglied: zeile,
+    sparten: sp.results || [],
+    darfMitgliedschaftAendern: rolle.darfSchreiben,
+    darfKontaktAendern: rolle.darfSchreiben || rolle.rollen.includes("abteilungsleiter"),
+    eingeschraenkt: nurEigene
+  }, 200, corsHeaders);
+}
+
+async function handleMitgliedSpeichern(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  const istAbtLeiter = rolle.rollen.includes("abteilungsleiter");
+  if (!rolle.darfSchreiben && !istAbtLeiter) {
+    return json({ error: "Nicht berechtigt zum Bearbeiten" }, 403, corsHeaders);
+  }
+
+  const id = String(body.id || "");
+  if (!id) return json({ error: "Keine Mitgliedschaft angegeben" }, 400, corsHeaders);
+  if (!(await darfMitgliedschaftSehen(env, rolle, id))) {
+    return json({ error: "Nicht berechtigt fuer diese Mitgliedschaft" }, 403, corsHeaders);
+  }
+
+  const vorher = await env.VV_DB.prepare(
+    "SELECT m.id, m.person_id FROM mitgliedschaft m WHERE m.id = ?"
+  ).bind(id).first();
+  if (!vorher) return json({ error: "Nicht gefunden" }, 404, corsHeaders);
+
+  const jetzt = new Date().toISOString();
+  const anweisungen = [];
+  const geaendert = [];
+
+  const pSetz = [], pWerte = [];
+  PERSON_FELDER.forEach((f) => {
+    if (Object.prototype.hasOwnProperty.call(body, f)) {
+      pSetz.push(f + " = ?");
+      pWerte.push(body[f] === "" ? null : body[f]);
+      geaendert.push("person." + f);
+    }
+  });
+  if (pSetz.length) {
+    anweisungen.push(env.VV_DB.prepare(
+      "UPDATE person SET " + pSetz.join(", ") + ", geaendert_am = ?, geaendert_von = ? WHERE id = ?"
+    ).bind(...pWerte, jetzt, me.username, vorher.person_id));
+  }
+
+  // Mitgliedschaftsdaten bleiben der Geschaeftsstelle vorbehalten. Ein
+  // Abteilungsleiter, der sie mitschickt, bekommt sie serverseitig
+  // verworfen -- nicht nur ein ausgegrautes Feld im Formular.
+  const mSetz = [], mWerte = [];
+  if (rolle.darfSchreiben) {
+    MITGLIEDSCHAFT_FELDER.forEach((f) => {
+      if (Object.prototype.hasOwnProperty.call(body, f)) {
+        mSetz.push(f + " = ?");
+        mWerte.push(body[f] === "" ? null : body[f]);
+        geaendert.push("mitgliedschaft." + f);
+      }
+    });
+  }
+  if (mSetz.length) {
+    anweisungen.push(env.VV_DB.prepare(
+      "UPDATE mitgliedschaft SET " + mSetz.join(", ") + ", geaendert_am = ?, geaendert_von = ? WHERE id = ?"
+    ).bind(...mWerte, jetzt, me.username, id));
+  }
+
+  if (!anweisungen.length) {
+    return json({ ok: true, geaendert: [], hinweis: "Nichts zu speichern" }, 200, corsHeaders);
+  }
+
+  await env.VV_DB.batch(anweisungen);
+  await protokolliere(env, me.username, "mitglied-geaendert", "mitgliedschaft", id, { felder: geaendert });
+
+  return json({ ok: true, geaendert }, 200, corsHeaders);
+}
+
+// Austritt nach Satzung § 5 Abs. 2. Der Termin wird NICHT uebernommen,
+// sondern aus dem Eingang der Kuendigung berechnet -- er ist durch die
+// Satzung festgelegt und nicht verhandelbar.
+async function handleAustritt(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfSchreiben) {
+    return json({ error: "Nur die Geschaeftsstelle kann einen Austritt erfassen" }, 403, corsHeaders);
+  }
+
+  const id = String(body.id || "");
+  const kuendigung = String(body.kuendigung_am || "").slice(0, 10);
+  const grund = ["austritt", "ausschluss", "tod", "streichung"].includes(body.grund)
+    ? body.grund : "austritt";
+
+  if (!id || !/^\d{4}-\d{2}-\d{2}$/.test(kuendigung)) {
+    return json({ error: "Mitgliedschaft und Eingangsdatum der Kuendigung erforderlich" }, 400, corsHeaders);
+  }
+
+  // Tod und Ausschluss enden sofort -- die Kuendigungsfrist des § 5 Abs. 2
+  // gilt nur fuer den Austritt auf eigenen Wunsch.
+  const termin = (grund === "tod" || grund === "ausschluss")
+    ? kuendigung
+    : naechsterAustrittstermin(kuendigung);
+  if (!termin) return json({ error: "Kein gueltiger Austrittstermin ermittelbar" }, 400, corsHeaders);
+
+  const jetzt = new Date().toISOString();
+  await env.VV_DB.batch([
+    env.VV_DB.prepare(
+      "UPDATE mitgliedschaft SET austritt = ?, austritt_grund = ?, kuendigung_am = ?, " +
+      "status = ?, geaendert_am = ?, geaendert_von = ? WHERE id = ?"
+    ).bind(termin, grund, kuendigung,
+           (grund === "tod" || grund === "ausschluss") ? "beendet" : "gekuendigt",
+           jetzt, me.username, id),
+    // Spartenzugehoerigkeiten enden mit der Mitgliedschaft, sonst taucht
+    // die Person weiter in den Abteilungslisten auf.
+    env.VV_DB.prepare(
+      "UPDATE mitgliedschaft_sparte SET austritt = ?, geaendert_am = ?, geaendert_von = ? " +
+      "WHERE mitgliedschaft_id = ? AND austritt IS NULL"
+    ).bind(termin, jetzt, me.username, id)
+  ]);
+
+  await protokolliere(env, me.username, "austritt-erfasst", "mitgliedschaft", id,
+                      { kuendigung, termin, grund });
+
+  return json({ ok: true, austritt: termin, grund }, 200, corsHeaders);
+}
+
+// Vorschau fuer die Oberflaeche: welcher Termin ergibt sich aus einem
+// Eingangsdatum? Reine Rechnung, kein Schreibzugriff.
+async function handleAustrittVorschau(body, env, me, corsHeaders) {
+  const kuendigung = String(body.kuendigung_am || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(kuendigung)) {
+    return json({ error: "Datum erforderlich" }, 400, corsHeaders);
+  }
+  return json({ kuendigung_am: kuendigung, austritt: naechsterAustrittstermin(kuendigung) }, 200, corsHeaders);
 }
 
 // ---------------------------------------------------------------------
@@ -597,6 +835,10 @@ export default {
         case "vv-me":              return handleMe(env, me, corsHeaders);
         case "vv-mitglieder":      return handleMitgliederListe(body, env, me, corsHeaders);
         case "vv-sparten":         return handleSpartenListe(env, me, corsHeaders);
+        case "vv-mitglied":        return handleMitgliedDetail(body, env, me, corsHeaders);
+        case "vv-mitglied-speichern": return handleMitgliedSpeichern(body, env, me, corsHeaders);
+        case "vv-austritt":        return handleAustritt(body, env, me, corsHeaders);
+        case "vv-austritt-vorschau": return handleAustrittVorschau(body, env, me, corsHeaders);
         case "vv-status":          return handleStatus(env, me, corsHeaders);
         case "vv-testdaten-loeschen": return handleTestdatenLoeschen(env, me, corsHeaders);
         case "vv-rollen-abgleich": return handleRollenAbgleich(env, me, corsHeaders);

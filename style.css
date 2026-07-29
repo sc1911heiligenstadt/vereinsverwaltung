@@ -235,6 +235,124 @@ td.sparten { white-space: normal; min-width: 150px; color: var(--muted); }
   flex-wrap: wrap;
 }
 
+/* ---------- Dialog ---------- */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 22, 36, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 1000;
+}
+.overlay[hidden] { display: none; }
+
+.dialog {
+  background: var(--card);
+  border-radius: 12px;
+  width: 100%;
+  max-width: 780px;
+  display: flex;
+  flex-direction: column;
+  /* Der Dialog scrollt in sich selbst. Ohne das wachsen lange Formulare
+     ueber den Bildschirmrand hinaus und die Knoepfe im Fuss sind nur noch
+     per Browser-Zoom erreichbar. Die 40px sind das padding des Overlays. */
+  max-height: calc(100vh - 40px);
+}
+
+.dialog-kopf {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.dialog-kopf h2 { margin: 0; font-size: 18px; flex: 1 1 auto; }
+
+.dialog-zu {
+  background: none;
+  border: none;
+  font-size: 26px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 6px;
+}
+.dialog-zu:hover { color: var(--text); }
+
+.dialog-inhalt {
+  padding: 18px 20px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.dialog-inhalt h3 {
+  margin: 20px 0 10px;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.dialog-inhalt h3:first-child { margin-top: 0; }
+
+.dialog-fuss {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 14px 20px calc(14px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+#detail-status { flex: 1 1 auto; font-size: 13px; color: var(--muted); }
+
+.formraster {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+}
+.formraster .feld.breit { grid-column: 1 / -1; }
+
+.fussnote { font-size: 12.5px; color: var(--muted); margin: 6px 0 0; }
+
+/* Nur-Seher bekommen gesperrte, sichtbar ausgegraute Felder -- nicht
+   bloss einen wirkungslosen Speichern-Knopf. */
+input:disabled, select:disabled {
+  background: #f1f3f6;
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.austritt-kasten {
+  margin-top: 22px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fbfcfd;
+}
+.austritt-kasten h3 { margin-top: 0; }
+
+.sparten-zeile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.sparten-zeile:last-child { border-bottom: none; }
+.sparten-zeile .sp-name { font-weight: 600; flex: 1 1 auto; }
+.sparten-zeile .sp-info { font-size: 13px; color: var(--muted); }
+
+tbody tr { cursor: pointer; }
+
+@media (max-width: 720px) {
+  .overlay { padding: 0; }
+  .dialog { max-height: 100vh; border-radius: 0; }
+  .formraster { grid-template-columns: 1fr; }
+}
+
 /* ---------- Anmelde-Schirm ---------- */
 
 #anmelde-schirm {
