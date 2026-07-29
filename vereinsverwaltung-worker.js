@@ -826,37 +826,50 @@ async function handleSparteZuordnen(body, env, me, corsHeaders) {
   return json({ ok: true, eintritt }, 200, corsHeaders);
 }
 
-// Bestandsuebernahme aus dem Vereinsmeister. Der Client schickt Bloecke
-// von hoechstens IMPORT_BLOCK Saetzen; groessere Bloecke reissen die
-// Parametergrenze von SQLite.
+// ---------------------------------------------------------------------
+// Import -- MENGENBASIERT
+// ---------------------------------------------------------------------
 //
-// Zwei Eigenschaften, ohne die ein Import ueber 2500 Zeilen nicht taugt:
+// Die erste Fassung dieses Imports fragte je Zeile nach: vorhandene
+// Mitgliedsnummer, Haushalt, Person, offene Sparten, Mandat. Bei 40
+// Zeilen je Aufruf waren das rund 200 Datenbankrundlaeufe nacheinander,
+// und der Worker starb an der reinen Wartezeit -- ohne CORS-Kopfzeilen,
+// weshalb im Browser nur "Server nicht erreichbar" ankam.
 //
-//   1. WIEDERHOLBAR. Bricht ein Block ab, kann der Client ihn erneut
-//      schicken. Ein Satz, dessen Mitgliedsnummer schon in der Datenbank
-//      steht, wird uebersprungen statt ein zweites Mal angelegt.
-//   2. PROBELAUF. Mit pruefen:true wird nichts geschrieben, sondern nur
-//      gemeldet, was schiefginge. So sieht man die Fehler VOR dem ersten
-//      Schreibzugriff und nicht nach der Haelfte.
+// Es ist derselbe Fehler, den der Belastungstest weiter unten am
+// Beitragslauf gemessen hat. Deshalb gilt hier dieselbe Regel:
+// **eine feste Zahl Abfragen je BLOCK, nie eine je Zeile.**
+//
+//   1 Abfrage  Sparten
+//   1 Abfrage  vorhandene Mitgliedsnummern des Blocks
+//   1 Abfrage  Haushalte des Blocks           (nur mit Haushaltsbildung)
+//   3 Abfragen Personen / Sparten / Mandate   (nur beim Ergaenzen)
+//   1 batch    alle Schreibvorgaenge zusammen
+//
+// Macht hoechstens sieben Rundlaeufe fuer 40 Mitglieder statt 200.
+
 const IMPORT_BLOCK = 40;
 
 // Nur Felder, die beim Import ueberhaupt nachtragbar sind.
 const ERGAENZBAR_PERSON = ["geburtsdatum", "geschlecht", "strasse", "plz", "ort",
                            "email", "telefon", "mobil"];
 
+// Hilfe fuer IN-Listen. Der Block ist auf IMPORT_BLOCK begrenzt, damit
+// die Parametergrenze von SQLite nicht in Sicht kommt.
+function platzhalter(n) {
+  return new Array(n).fill("?").join(",");
+}
+
 // Traegt in einen vorhandenen Datensatz nach, was dort noch leer ist.
 // Ueberschreibt NIE einen vorhandenen Wert: die Vereinsmeister-Listen
 // kommen in mehreren Fassungen, und die aeltere darf die neuere nicht
-// verdraengen. Meldet zurueck, was tatsaechlich gefuellt wurde.
-async function ergaenzeBestehendes(env, satz, vorhanden, username, nurPruefen) {
+// verdraengen.
+//
+// Bekommt alles Gelesene als Parameter -- diese Funktion fragt selbst
+// nichts mehr ab. Genau daran ist die erste Fassung gescheitert.
+function ergaenzungsAnweisungen(env, satz, vorhanden, person, offeneSparten, hatMandat, jetzt, username) {
   const geaendert = [];
-  const jetzt = new Date().toISOString();
   const anweisungen = [];
-
-  const person = await env.VV_DB.prepare(
-    "SELECT geburtsdatum, geschlecht, strasse, plz, ort, email, telefon, mobil, zusatz_json " +
-    "FROM person WHERE id = ?"
-  ).bind(vorhanden.person_id).first();
 
   const setz = [], werte = [];
   ERGAENZBAR_PERSON.forEach((f) => {
@@ -889,42 +902,31 @@ async function ergaenzeBestehendes(env, satz, vorhanden, username, nurPruefen) {
   }
 
   // Sparten: nur die hinzufuegen, die noch nicht offen zugeordnet sind.
-  if (satz.sparten && satz.sparten.length) {
-    const offen = await env.VV_DB.prepare(
-      "SELECT sparte_id FROM mitgliedschaft_sparte WHERE mitgliedschaft_id = ? AND austritt IS NULL"
-    ).bind(vorhanden.id).all();
-    const schonDa = new Set((offen.results || []).map((z) => z.sparte_id));
-    let neue = 0;
-    satz.sparten.forEach((sparteId) => {
-      if (schonDa.has(sparteId)) return;
-      neue++;
-      anweisungen.push(env.VV_DB.prepare(
-        "INSERT INTO mitgliedschaft_sparte (id, mitgliedschaft_id, sparte_id, eintritt, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?)"
-      ).bind(uuid(), vorhanden.id, sparteId, satz.eintritt, jetzt, username));
-    });
-    if (neue) geaendert.push(neue + (neue === 1 ? " Sparte" : " Sparten"));
-  }
+  let neueSparten = 0;
+  (satz.sparten || []).forEach((sparteId) => {
+    if (offeneSparten.has(sparteId)) return;
+    offeneSparten.add(sparteId);   // schuetzt vor Dubletten im selben Block
+    neueSparten++;
+    anweisungen.push(env.VV_DB.prepare(
+      "INSERT INTO mitgliedschaft_sparte (id, mitgliedschaft_id, sparte_id, eintritt, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?)"
+    ).bind(uuid(), vorhanden.id, sparteId, satz.eintritt, jetzt, username));
+  });
+  if (neueSparten) geaendert.push(neueSparten + (neueSparten === 1 ? " Sparte" : " Sparten"));
 
   // Bankverbindung nur anlegen, wenn der Haushalt noch kein gueltiges
   // Mandat hat. Ein bestehendes wird nie angefasst -- daran haengt der
   // Einzug, und ein Import ist kein Grund, es zu ersetzen.
-  if (satz.iban && vorhanden.haushalt_id) {
-    const mandat = await env.VV_DB.prepare(
-      "SELECT id FROM sepa_mandat WHERE haushalt_id = ? AND widerrufen_am IS NULL"
-    ).bind(vorhanden.haushalt_id).first();
-    if (!mandat) {
-      anweisungen.push(env.VV_DB.prepare(
-        "INSERT INTO sepa_mandat (id, haushalt_id, referenz, kontoinhaber, iban, bic, erteilt_am, quelle, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?,?,?,?,?)"
-      ).bind(uuid(), vorhanden.haushalt_id, satz.mandatsreferenz || ("M-" + satz.mitgliedsnummer),
-             satz.kontoinhaber || (satz.vorname + " " + satz.nachname),
-             satz.iban, satz.bic, satz.mandat_erteilt_am || satz.eintritt,
-             "import", jetzt, username));
-      geaendert.push("Bankverbindung");
-    }
+  if (satz.iban && vorhanden.haushalt_id && !hatMandat) {
+    anweisungen.push(env.VV_DB.prepare(
+      "INSERT INTO sepa_mandat (id, haushalt_id, referenz, kontoinhaber, iban, bic, erteilt_am, quelle, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?,?,?,?,?)"
+    ).bind(uuid(), vorhanden.haushalt_id, satz.mandatsreferenz || ("M-" + satz.mitgliedsnummer),
+           satz.kontoinhaber || (satz.vorname + " " + satz.nachname),
+           satz.iban, satz.bic, satz.mandat_erteilt_am || satz.eintritt,
+           "import", jetzt, username));
+    geaendert.push("Bankverbindung");
   }
 
-  if (!nurPruefen && anweisungen.length) await env.VV_DB.batch(anweisungen);
-  return { geaendert };
+  return { geaendert, anweisungen };
 }
 
 async function handleImport(body, env, me, corsHeaders) {
@@ -933,147 +935,210 @@ async function handleImport(body, env, me, corsHeaders) {
     return json({ error: "Nur die Geschaeftsstelle kann Daten importieren" }, 403, corsHeaders);
   }
 
-  const saetze = Array.isArray(body.saetze) ? body.saetze : [];
-  if (!saetze.length) return json({ error: "Keine Datensaetze uebergeben" }, 400, corsHeaders);
-  if (saetze.length > IMPORT_BLOCK) {
+  const roh = Array.isArray(body.saetze) ? body.saetze : [];
+  if (!roh.length) return json({ error: "Keine Datensaetze uebergeben" }, 400, corsHeaders);
+  if (roh.length > IMPORT_BLOCK) {
     return json({ error: "Hoechstens " + IMPORT_BLOCK + " Saetze je Aufruf" }, 400, corsHeaders);
   }
+
   const nurPruefen = !!body.pruefen;
   const haushalteBilden = !!body.haushalte_bilden;
   const ergaenzen = !!body.ergaenzen;
   const spartenAnlegen = !!body.sparten_anlegen;
-  const angelegteSparten = [];
 
-  // Sparten einmal je Aufruf laden und ueber den Namen aufloesen. Der
-  // Vereinsmeister kennt unsere IDs nicht, nur Bezeichnungen.
+  const jetzt = new Date().toISOString();
+  const ergebnisse = [];
+  const anweisungen = [];
+  const angelegteSparten = [];
+  let angelegt = 0, uebersprungen = 0, fehlerhaft = 0;
+
+  // ---- Schritt 1: alles pruefen, ohne einen einzigen Datenbankzugriff
+  const gute = [];
+  roh.forEach((r, i) => {
+    const zeile = r.zeile || (i + 1);
+    const geprueft = pruefeMitgliedssatz(r);
+    if (geprueft.fehler) {
+      ergebnisse.push({ zeile, status: "fehler", text: geprueft.fehler });
+      fehlerhaft++;
+      return;
+    }
+    if (!geprueft.satz.mitgliedsnummer) {
+      ergebnisse.push({ zeile, status: "fehler",
+                        text: "Ohne Mitgliedsnummer ist ein wiederholbarer Import nicht moeglich" });
+      fehlerhaft++;
+      return;
+    }
+    gute.push({ zeile, satz: geprueft.satz });
+  });
+
+  if (!gute.length) {
+    return json({ ok: true, pruefung: nurPruefen, angelegt, uebersprungen, fehlerhaft,
+                  neueSparten: [], ergebnisse }, 200, corsHeaders);
+  }
+
+  // ---- Schritt 2: Sparten (1 Abfrage)
   const sp = await env.VV_DB.prepare("SELECT id, name FROM sparte").all();
   const nachName = new Map();
   for (const s of sp.results || []) nachName.set(s.name.toLowerCase(), s.id);
 
-  const ergebnisse = [];
-  const anweisungen = [];
-  let angelegt = 0, uebersprungen = 0, fehlerhaft = 0;
-  // Innerhalb EINES Blocks entstehen Haushalte erst mit dem batch. Ohne
-  // dieses Gedaechtnis bekaeme jedes Geschwisterkind im selben Block einen
-  // eigenen Haushalt, obwohl der Schluessel gleich ist.
-  const haushaltImBlock = new Map();
-
-  for (let i = 0; i < saetze.length; i++) {
-    const zeile = saetze[i].zeile || (i + 1);
-    const geprueft = pruefeMitgliedssatz(saetze[i]);
-    if (geprueft.fehler) {
-      ergebnisse.push({ zeile, status: "fehler", text: geprueft.fehler });
-      fehlerhaft++;
-      continue;
-    }
-    const satz = geprueft.satz;
-
-    if (!satz.mitgliedsnummer) {
-      ergebnisse.push({ zeile, status: "fehler", text: "Ohne Mitgliedsnummer ist ein wiederholbarer Import nicht moeglich" });
-      fehlerhaft++;
-      continue;
-    }
-
-    // Sparten VOR der Fallunterscheidung aufloesen: der Ergaenzen-Weg
-    // braucht sie genauso, und eine fehlende Sparte ist dort der
-    // haeufigste Grund fuer den zweiten Durchlauf ueberhaupt.
-    //
-    // Neue Sparten werden SOFORT geschrieben, nicht in den Sammel-batch
-    // gelegt: der Ergaenzen-Weg fuehrt seine eigenen Anweisungen aus und
-    // wuerde sonst auf eine Sparte verweisen, die es noch nicht gibt --
-    // die Fremdschluesselpruefung schlaegt dann zu.
+  gute.forEach((g) => {
     const unbekannt = [];
-    satz.sparten = [];
-    for (const name of satz.sparten_namen) {
+    g.satz.sparten = [];
+    for (const name of g.satz.sparten_namen) {
       let id = nachName.get(name.toLowerCase());
       if (!id && spartenAnlegen) {
         id = uuid();
         nachName.set(name.toLowerCase(), id);
         angelegteSparten.push(name);
-        if (!nurPruefen) {
-          await env.VV_DB.prepare(
-            "INSERT INTO sparte (id, name, sortierung, aktiv, zuschlag_cent, erstellt_am, erstellt_von) VALUES (?,?,?,1,0,?,?)"
-          ).bind(id, name, 500 + angelegteSparten.length, new Date().toISOString(), me.username).run();
-        }
+        // Ganz vorn im batch: die Zuordnungen weiter unten verweisen
+        // darauf, und die Fremdschluesselpruefung ist aktiv.
+        anweisungen.push(env.VV_DB.prepare(
+          "INSERT INTO sparte (id, name, sortierung, aktiv, zuschlag_cent, erstellt_am, erstellt_von) VALUES (?,?,?,1,0,?,?)"
+        ).bind(id, name, 500 + angelegteSparten.length, jetzt, me.username));
       }
-      if (id) satz.sparten.push(id); else unbekannt.push(name);
+      if (id) g.satz.sparten.push(id); else unbekannt.push(name);
     }
-    const spartenHinweis = unbekannt.length ? " — unbekannte Sparte: " + unbekannt.join(", ") : "";
+    g.hinweis = unbekannt.length ? " — unbekannte Sparte: " + unbekannt.join(", ") : "";
+  });
 
-    const schonDa = await env.VV_DB.prepare(
-      "SELECT m.id, m.person_id, p.haushalt_id FROM mitgliedschaft m " +
-      "JOIN person p ON p.id = m.person_id WHERE m.mitgliedsnummer = ?"
-    ).bind(satz.mitgliedsnummer).first();
+  // ---- Schritt 3: vorhandene Mitgliedsnummern (1 Abfrage)
+  const nummern = gute.map((g) => g.satz.mitgliedsnummer);
+  const vorhandeneAbfrage = await env.VV_DB.prepare(
+    "SELECT m.id, m.person_id, m.mitgliedsnummer, p.haushalt_id FROM mitgliedschaft m " +
+    "JOIN person p ON p.id = m.person_id WHERE m.mitgliedsnummer IN (" + platzhalter(nummern.length) + ")"
+  ).bind(...nummern).all();
 
-    if (schonDa && !ergaenzen) {
-      ergebnisse.push({ zeile, status: "uebersprungen", text: "Mitgliedsnummer " + satz.mitgliedsnummer + " ist bereits vorhanden" });
+  const vorhandene = new Map();
+  for (const z of vorhandeneAbfrage.results || []) vorhandene.set(z.mitgliedsnummer, z);
+
+  const neue = [], zuErgaenzen = [];
+  gute.forEach((g) => {
+    const da = vorhandene.get(g.satz.mitgliedsnummer);
+    if (!da) { neue.push(g); return; }
+    if (!ergaenzen) {
+      ergebnisse.push({ zeile: g.zeile, status: "uebersprungen",
+                        text: "Mitgliedsnummer " + g.satz.mitgliedsnummer + " ist bereits vorhanden" });
       uebersprungen++;
-      continue;
+      return;
+    }
+    g.vorhanden = da;
+    zuErgaenzen.push(g);
+  });
+
+  // ---- Schritt 4: Ergaenzen -- drei Abfragen fuer den ganzen Block
+  if (zuErgaenzen.length) {
+    const personIds = zuErgaenzen.map((g) => g.vorhanden.person_id);
+    const mgsIds = zuErgaenzen.map((g) => g.vorhanden.id);
+    const haushaltIds = Array.from(new Set(
+      zuErgaenzen.map((g) => g.vorhanden.haushalt_id).filter(Boolean)));
+
+    const personenAbfrage = await env.VV_DB.prepare(
+      "SELECT id, geburtsdatum, geschlecht, strasse, plz, ort, email, telefon, mobil, zusatz_json " +
+      "FROM person WHERE id IN (" + platzhalter(personIds.length) + ")"
+    ).bind(...personIds).all();
+    const personen = new Map();
+    for (const p of personenAbfrage.results || []) personen.set(p.id, p);
+
+    const spartenAbfrage = await env.VV_DB.prepare(
+      "SELECT mitgliedschaft_id, sparte_id FROM mitgliedschaft_sparte " +
+      "WHERE austritt IS NULL AND mitgliedschaft_id IN (" + platzhalter(mgsIds.length) + ")"
+    ).bind(...mgsIds).all();
+    const offeneSparten = new Map();
+    for (const z of spartenAbfrage.results || []) {
+      if (!offeneSparten.has(z.mitgliedschaft_id)) offeneSparten.set(z.mitgliedschaft_id, new Set());
+      offeneSparten.get(z.mitgliedschaft_id).add(z.sparte_id);
     }
 
-    // Ergaenzen: die zweite Datei traegt nach, was in der ersten fehlte
-    // (Bankverbindung, E-Mail, Sparten). Es wird ausschliesslich in LEERE
-    // Felder geschrieben -- eine im Werkzeug gepflegte Angabe darf ein
-    // aelterer Export nicht ueberschreiben.
-    if (schonDa) {
-      const ergebnis = await ergaenzeBestehendes(env, satz, schonDa, me.username, nurPruefen);
-      ergebnisse.push({ zeile, status: ergebnis.geaendert.length ? "ergaenzt" : "unveraendert",
-                        text: satz.vorname + " " + satz.nachname + ", Nr. " + satz.mitgliedsnummer +
-                              (ergebnis.geaendert.length ? " — " + ergebnis.geaendert.join(", ") : " — nichts zu ergänzen") +
-                              spartenHinweis });
-      if (ergebnis.geaendert.length) angelegt++; else uebersprungen++;
-      continue;
+    const mitMandat = new Set();
+    if (haushaltIds.length) {
+      const mandatAbfrage = await env.VV_DB.prepare(
+        "SELECT haushalt_id FROM sepa_mandat WHERE widerrufen_am IS NULL " +
+        "AND haushalt_id IN (" + platzhalter(haushaltIds.length) + ")"
+      ).bind(...haushaltIds).all();
+      for (const z of mandatAbfrage.results || []) mitMandat.add(z.haushalt_id);
     }
 
-    if (haushalteBilden && satz.nachname && satz.strasse && satz.plz) {
-      satz.haushalt_schluessel = (satz.nachname + "|" + satz.strasse + "|" + satz.plz).toLowerCase();
-      const imBlock = haushaltImBlock.get(satz.haushalt_schluessel);
-      if (imBlock) {
-        satz.haushalt_id = imBlock;
-      } else {
-        const vorhanden = await env.VV_DB
-          .prepare("SELECT id FROM haushalt WHERE bezeichnung = ?")
-          .bind(satz.haushalt_schluessel).first();
-        if (vorhanden) satz.haushalt_id = vorhanden.id;
-      }
-    }
+    zuErgaenzen.forEach((g) => {
+      const offen = offeneSparten.get(g.vorhanden.id) || new Set();
+      offeneSparten.set(g.vorhanden.id, offen);
+      const hatMandat = mitMandat.has(g.vorhanden.haushalt_id);
+      const e = ergaenzungsAnweisungen(env, g.satz, g.vorhanden,
+        personen.get(g.vorhanden.person_id), offen, hatMandat, jetzt, me.username);
 
-    if (nurPruefen) {
+      // Ein Haushalt bekommt genau EIN Mandat -- auch wenn zwei
+      // Familienmitglieder im selben Block mit IBAN ankommen.
+      if (e.geaendert.indexOf("Bankverbindung") > -1) mitMandat.add(g.vorhanden.haushalt_id);
+
+      anweisungen.push(...e.anweisungen);
       ergebnisse.push({
-        zeile, status: "bereit",
-        text: (satz.vorname + " " + satz.nachname + ", Nr. " + satz.mitgliedsnummer)
-              + spartenHinweis
+        zeile: g.zeile,
+        status: e.geaendert.length ? "ergaenzt" : "unveraendert",
+        text: g.satz.vorname + " " + g.satz.nachname + ", Nr. " + g.satz.mitgliedsnummer +
+              (e.geaendert.length ? " — " + e.geaendert.join(", ") : " — nichts zu ergänzen") + g.hinweis
       });
-      angelegt++;
-      if (satz.haushalt_schluessel && !satz.haushalt_id) {
-        haushaltImBlock.set(satz.haushalt_schluessel, "probe");
+      if (e.geaendert.length) angelegt++; else uebersprungen++;
+    });
+  }
+
+  // ---- Schritt 5: Haushalte der neuen Saetze (1 Abfrage)
+  const haushaltImBlock = new Map();
+  if (haushalteBilden && neue.length) {
+    neue.forEach((g) => {
+      const s = g.satz;
+      if (s.nachname && s.strasse && s.plz) {
+        s.haushalt_schluessel = (s.nachname + "|" + s.strasse + "|" + s.plz).toLowerCase();
       }
-      continue;
+    });
+    const schluessel = Array.from(new Set(neue.map((g) => g.satz.haushalt_schluessel).filter(Boolean)));
+    if (schluessel.length) {
+      const hAbfrage = await env.VV_DB.prepare(
+        "SELECT id, bezeichnung FROM haushalt WHERE bezeichnung IN (" + platzhalter(schluessel.length) + ")"
+      ).bind(...schluessel).all();
+      for (const h of hAbfrage.results || []) haushaltImBlock.set(h.bezeichnung, h.id);
+    }
+  }
+
+  // ---- Schritt 6: neue Mitglieder aufbauen (kein Datenbankzugriff)
+  neue.forEach((g) => {
+    const satz = g.satz;
+    if (satz.haushalt_schluessel && haushaltImBlock.has(satz.haushalt_schluessel)) {
+      satz.haushalt_id = haushaltImBlock.get(satz.haushalt_schluessel);
     }
 
-    const jetzt = new Date().toISOString();
     const gebaut = anweisungenFuerNeuesMitglied(env, satz, jetzt, me.username);
     anweisungen.push(...gebaut.anweisungen);
+
+    // Erst nach dem Bauen merken: das naechste Geschwisterkind im selben
+    // Block soll denselben Haushalt bekommen, obwohl er noch gar nicht
+    // geschrieben ist.
     if (satz.haushalt_schluessel && !satz.haushalt_id) {
       haushaltImBlock.set(satz.haushalt_schluessel, gebaut.haushaltId);
     }
+
     ergebnisse.push({
-      zeile, status: "angelegt",
-      text: satz.vorname + " " + satz.nachname + ", Nr. " + satz.mitgliedsnummer + spartenHinweis
+      zeile: g.zeile,
+      status: nurPruefen ? "bereit" : "angelegt",
+      text: satz.vorname + " " + satz.nachname + ", Nr. " + satz.mitgliedsnummer + g.hinweis
     });
     angelegt++;
-  }
+  });
 
+  // ---- Schritt 7: EIN Schreibvorgang fuer den ganzen Block
   if (!nurPruefen && anweisungen.length) {
     await env.VV_DB.batch(anweisungen);
     await protokolliere(env, me.username, "import", "mitgliedschaft", null,
                         { angelegt, uebersprungen, fehlerhaft, sparten: angelegteSparten });
   }
 
+  // Die Meldungen entstehen in der Reihenfolge der Verarbeitung, nicht in
+  // der der Datei. Fuer den Bericht zaehlt die Zeilennummer.
+  ergebnisse.sort((a, b) => a.zeile - b.zeile);
+
   return json({
     ok: true, pruefung: nurPruefen,
     angelegt, uebersprungen, fehlerhaft,
-    neueSparten: angelegteSparten,
+    neueSparten: nurPruefen ? angelegteSparten : angelegteSparten,
+    abfragen: 2 + (zuErgaenzen.length ? 3 : 0) + (haushalteBilden ? 1 : 0),
     ergebnisse
   }, 200, corsHeaders);
 }

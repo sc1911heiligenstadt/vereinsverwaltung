@@ -612,9 +612,14 @@ async function impLauf(nurPruefen) {
   const ergebnisse = [];
   const neueSparten = new Set();
   let angelegt = 0, uebersprungen = 0, fehlerhaft = 0;
+  let fertig = 0;
 
   $("btn-imp-probe").disabled = true;
   $("btn-imp-start").disabled = true;
+  // Balken zuruecksetzen. Ohne das steht nach einem Probelauf weiter
+  // "100 %", und ein Import, der im zweiten Block abbricht, sieht aus,
+  // als waere er durchgelaufen -- genau so ist mir der Abbruch entgangen.
+  impFortschritt(0, saetze.length);
 
   try {
     for (let i = 0; i < saetze.length; i += block) {
@@ -629,11 +634,13 @@ async function impLauf(nurPruefen) {
       fehlerhaft += antwort.fehlerhaft || 0;
       (antwort.neueSparten || []).forEach((s) => neueSparten.add(s));
       ergebnisse.push(...(antwort.ergebnisse || []));
-      impFortschritt(Math.min(i + block, saetze.length), saetze.length);
+      fertig = Math.min(i + block, saetze.length);
+      impFortschritt(fertig, saetze.length);
     }
   } catch (e) {
-    impMeldung("fehler", "Abgebrochen: " + e.message +
-      (nurPruefen ? "" : " — bereits angelegte Mitglieder bleiben bestehen. Ein erneuter Start setzt dort fort, wo es abgebrochen ist."));
+    impMeldung("fehler", "Abgebrochen nach " + fertig + " von " + saetze.length +
+      " Zeilen: " + e.message +
+      (nurPruefen ? "" : " — die bis dahin angelegten Mitglieder bleiben bestehen. Ein erneuter Start setzt dort fort, wo es abgebrochen ist."));
     $("btn-imp-probe").disabled = false;
     impBerichtZeichnen(ergebnisse, { angelegt, uebersprungen, fehlerhaft, nurPruefen, abgebrochen: true });
     return;
