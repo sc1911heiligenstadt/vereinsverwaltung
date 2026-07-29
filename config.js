@@ -39,6 +39,22 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Bestandsübernahme und Rollen",
+    datum: "2026-07-29",
+    punkte: [
+      "Neuer Reiter Rollen: Geschäftsstelle, Schatzmeister, Abteilungsleitung und Vorstand lassen sich jetzt in der Oberfläche vergeben. Vorher konnten nur die Administratoren des Dashboards überhaupt etwas sehen.",
+      "Neuer Reiter Import: Mitgliederdatei aus dem Vereinsmeister (CSV oder Excel) einlesen, Spalten selbst zuordnen, Probelauf vor dem ersten Schreibzugriff.",
+      "Die gedruckten Vereinsmeister-Listen werden automatisch erkannt und in echte Spalten aufgelöst — auch ohne Kopfzeile.",
+      "Eine zweite Datei kann fehlende Angaben nachtragen, ohne Vorhandenes zu überschreiben.",
+      "Spalten, die keinem Feld zugeordnet werden, gehen nicht verloren — sie werden als Zusatzangabe beim Mitglied gespeichert.",
+      "Der Import ist wiederholbar: bereits vorhandene Mitgliedsnummern werden übersprungen statt doppelt angelegt.",
+      "SEPA-Mandatsreferenzen werden unverändert übernommen und nie neu vergeben.",
+      "Personen mit gleichem Nachnamen unter derselben Anschrift können zu einem Haushalt zusammengefasst werden — Grundlage für Familienrabatt und ein gemeinsames Mandat.",
+      "Neues Mitglied von Hand anlegen, Sparten einzeln zuordnen und beenden.",
+      "Eine leere Liste sagt jetzt, ob der Filter zu eng steht oder die Datenbank leer ist."
+    ]
+  },
+  {
     version: "1.0",
     datum: "2026-07-29",
     punkte: [

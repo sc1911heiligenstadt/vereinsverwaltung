@@ -347,6 +347,101 @@ input:disabled, select:disabled {
 
 tbody tr { cursor: pointer; }
 
+/* Zeilen im Import-Bericht sind nicht anklickbar. */
+#imp-zuordnung tbody tr, #imp-bericht tbody tr { cursor: default; }
+
+button.btn.klein { padding: 5px 12px; font-size: 13px; }
+
+.knopfreihe {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.leer-aktionen {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+  padding: 0 20px 28px;
+}
+
+.sparte-hinzu {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.sparte-hinzu select { flex: 1 1 180px; }
+
+/* ---------- Import ---------- */
+
+.schritt-nummer {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+input[type="file"] {
+  font-size: 15px;
+  padding: 10px;
+  width: 100%;
+  background: #fbfcfd;
+}
+
+/* Ankreuzfelder duerfen NICHT von der 100-%-Regel fuer Formularfelder
+   erfasst werden -- sonst wird aus dem Kaestchen ein Balken ueber die
+   ganze Zeile. Flottenfalle. */
+.ankreuz {
+  display: block;
+  margin: 10px 0;
+  font-size: 14px;
+  cursor: pointer;
+}
+.ankreuz input[type="checkbox"] {
+  width: auto;
+  max-width: none;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.ankreuz .fussnote { display: block; margin-left: 26px; }
+
+.ankreuz-raster {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 2px 12px;
+}
+.ankreuz-raster .ankreuz { margin: 4px 0; }
+
+#imp-zuordnung select { width: 100%; min-width: 190px; font-size: 14px; }
+#imp-zuordnung td { vertical-align: middle; }
+
+.balken {
+  height: 10px;
+  background: var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 14px 0 6px;
+}
+.balken-fuellung {
+  height: 100%;
+  width: 0;
+  background: var(--blue);
+  transition: width 0.2s;
+}
+
+.bericht-zahlen {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
 @media (max-width: 720px) {
   .overlay { padding: 0; }
   .dialog { max-height: 100vh; border-radius: 0; }

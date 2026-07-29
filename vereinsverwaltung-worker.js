@@ -148,28 +148,121 @@ async function handleMe(env, me, corsHeaders) {
   }, 200, corsHeaders);
 }
 
-// Rollen ohne passendes Gateway-Konto aufspueren. Verhindert, dass ein
-// neu angelegter gleichnamiger Nutzer die Rolle eines geloeschten erbt.
-async function handleRollenAbgleich(env, me, corsHeaders) {
+// ---------------------------------------------------------------------
+// Rollenverwaltung
+// ---------------------------------------------------------------------
+//
+// Diese Aktionen entscheiden, wer Personendaten sieht. Sie haengen
+// deshalb am globalen Admin, nicht an einer Fachrolle -- sonst koennte
+// sich die Geschaeftsstelle selbst zum Schatzmeister machen und damit
+// an die Bankdaten kommen.
+
+// Das Nutzerverzeichnis kommt aus dem Gateway und braucht den Token des
+// Aufrufers: list-directory prueft die Sitzung selbst. Ohne den Header
+// antwortet es 401 -- der Aufrufer wird deshalb bis hierher durchgereicht.
+async function ladeGatewayNutzer(env, authHeader) {
+  try {
+    const res = await env.LANDINGPAGE.fetch("https://landingpage/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: authHeader || "" },
+      body: JSON.stringify({ action: "list-directory" })
+    });
+    if (!res.ok) return null;
+    const dir = await res.json();
+    return Array.isArray(dir.users) ? dir.users : null;
+  } catch {
+    return null;
+  }
+}
+
+// Alles fuer die Rollen-Oberflaeche in einem Aufruf: vergebene Rollen,
+// waehlbare Konten und die verwaisten Eintraege. Drei Aufrufe waeren drei
+// Sitzungspruefungen fuer einen Seitenaufbau.
+async function handleRollenListe(env, me, authHeader, corsHeaders) {
   if (!me.isAdmin) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
 
-  const zeilen = await env.VV_DB
-    .prepare("SELECT username, rolle, sparte_id FROM benutzer_rolle ORDER BY username")
-    .all();
+  const zeilen = await env.VV_DB.prepare(
+    "SELECT r.id, r.username, r.rolle, r.sparte_id, s.name AS sparte_name, r.erstellt_am, r.erstellt_von " +
+    "FROM benutzer_rolle r LEFT JOIN sparte s ON s.id = r.sparte_id " +
+    "ORDER BY r.username, r.rolle"
+  ).all();
+  const rollen = zeilen.results || [];
 
-  const res = await env.LANDINGPAGE.fetch("https://landingpage/", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "list-directory" })
-  });
-  if (!res.ok) {
-    return json({ error: "Nutzerliste nicht lesbar" }, 502, corsHeaders);
+  const nutzer = await ladeGatewayNutzer(env, authHeader);
+
+  // Verwaiste Rollen nur melden, wenn das Verzeichnis wirklich gelesen
+  // werden konnte. Sonst waere bei einer Stoerung des Gateways ploetzlich
+  // JEDE Rolle als verwaist markiert -- und jemand loescht sie.
+  const verwaist = nutzer
+    ? rollen.filter((r) => !nutzer.some((u) => u.username === r.username)).map((r) => r.username)
+    : [];
+
+  return json({
+    rollen,
+    nutzer: nutzer || [],
+    verzeichnisLesbar: !!nutzer,
+    verwaist: Array.from(new Set(verwaist))
+  }, 200, corsHeaders);
+}
+
+async function handleRolleSetzen(body, env, me, corsHeaders) {
+  if (!me.isAdmin) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+
+  const username = String(body.username || "").trim();
+  const rolle = String(body.rolle || "").trim();
+  const sparteId = String(body.sparte_id || "").trim() || null;
+
+  if (!username) return json({ error: "Kein Konto angegeben" }, 400, corsHeaders);
+  if (!ROLLEN.has(rolle)) return json({ error: "Unbekannte Rolle" }, 400, corsHeaders);
+
+  // Eine Abteilungsleitung ohne Sparte saehe niemanden -- das ist keine
+  // Rolle, sondern ein stiller Fehler. Umgekehrt hat eine Sparte bei den
+  // anderen Rollen keine Bedeutung und wird verworfen.
+  if (rolle === "abteilungsleiter" && !sparteId) {
+    return json({ error: "Für eine Abteilungsleitung muss eine Sparte angegeben werden" }, 400, corsHeaders);
   }
-  const dir = await res.json();
-  const bekannt = new Set((dir.users || dir.entries || []).map((u) => u.username));
+  const wirklicheSparte = rolle === "abteilungsleiter" ? sparteId : null;
 
-  const verwaist = (zeilen.results || []).filter((z) => !bekannt.has(z.username));
-  return json({ rollen: zeilen.results || [], verwaist }, 200, corsHeaders);
+  if (wirklicheSparte) {
+    const da = await env.VV_DB.prepare("SELECT id FROM sparte WHERE id = ?").bind(wirklicheSparte).first();
+    if (!da) return json({ error: "Sparte nicht gefunden" }, 400, corsHeaders);
+  }
+
+  // Die Tabelle hat keinen Eindeutigkeitsschluessel (eine Person kann
+  // mehrere Sparten leiten). Doppelte Zeilen waeren trotzdem sinnlos,
+  // deshalb hier die Pruefung.
+  const doppelt = await env.VV_DB.prepare(
+    "SELECT id FROM benutzer_rolle WHERE username = ? AND rolle = ? AND " +
+    (wirklicheSparte ? "sparte_id = ?" : "sparte_id IS NULL")
+  ).bind(...(wirklicheSparte ? [username, rolle, wirklicheSparte] : [username, rolle])).first();
+  if (doppelt) return json({ error: "Diese Rolle ist bereits vergeben" }, 409, corsHeaders);
+
+  const id = uuid();
+  await env.VV_DB.prepare(
+    "INSERT INTO benutzer_rolle (id, username, rolle, sparte_id, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?)"
+  ).bind(id, username, rolle, wirklicheSparte, new Date().toISOString(), me.username).run();
+
+  await protokolliere(env, me.username, "rolle-vergeben", "benutzer_rolle", id,
+                      { username, rolle, sparte_id: wirklicheSparte });
+
+  return json({ ok: true, id }, 200, corsHeaders);
+}
+
+async function handleRolleLoeschen(body, env, me, corsHeaders) {
+  if (!me.isAdmin) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+
+  const id = String(body.id || "");
+  if (!id) return json({ error: "Keine Rolle angegeben" }, 400, corsHeaders);
+
+  const zeile = await env.VV_DB.prepare(
+    "SELECT username, rolle, sparte_id FROM benutzer_rolle WHERE id = ?"
+  ).bind(id).first();
+  if (!zeile) return json({ error: "Nicht gefunden" }, 404, corsHeaders);
+
+  await env.VV_DB.prepare("DELETE FROM benutzer_rolle WHERE id = ?").bind(id).run();
+  await protokolliere(env, me.username, "rolle-entzogen", "benutzer_rolle", id, zeile);
+
+  return json({ ok: true }, 200, corsHeaders);
 }
 
 // ---------------------------------------------------------------------
@@ -518,6 +611,474 @@ async function handleAustrittVorschau(body, env, me, corsHeaders) {
 }
 
 // ---------------------------------------------------------------------
+// STUFE 1 -- Mitglied anlegen, Sparten zuordnen, Bestand importieren
+// ---------------------------------------------------------------------
+
+const ARTEN = new Set(["ordentlich", "ausserordentlich", "ehrenmitglied"]);
+const STATUS_WERTE = new Set(["antrag", "aktiv", "ruhend", "gekuendigt", "beendet"]);
+
+function istIsoDatum(wert) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(wert || ""));
+}
+
+function sauber(wert, max) {
+  const t = String(wert === null || wert === undefined ? "" : wert).trim();
+  if (!t) return null;
+  return t.slice(0, max || 200);
+}
+
+// Naechste freie rein numerische Mitgliedsnummer. Der GLOB-Filter haelt
+// die Nummern des Belastungstests ("T417293841") heraus -- sonst haenge
+// die Vergabe fuer immer an einer neunstelligen Zufallszahl fest.
+async function naechsteMitgliedsnummer(env) {
+  const r = await env.VV_DB.prepare(
+    "SELECT MAX(CAST(mitgliedsnummer AS INTEGER)) AS hoechste FROM mitgliedschaft " +
+    "WHERE mitgliedsnummer GLOB '[0-9]*'"
+  ).first();
+  const hoechste = r && r.hoechste ? Number(r.hoechste) : 0;
+  return String(Math.max(hoechste, 999) + 1);
+}
+
+// Legt Haushalt, Person und Mitgliedschaft an. Die Reihenfolge ist
+// zwingend, weil person.haushalt_id und haushalt.zahler_person_id
+// aufeinander zeigen: Haushalt OHNE Zahler, dann Person, dann den Zahler
+// per UPDATE nachtragen. Andersherum schlaegt die Fremdschluesselpruefung
+// zu -- D1 hat sie standardmaessig an.
+function anweisungenFuerNeuesMitglied(env, satz, jetzt, username) {
+  const haushaltId = satz.haushalt_id || uuid();
+  const personId = uuid();
+  const mgsId = uuid();
+  const an = [];
+
+  if (!satz.haushalt_id) {
+    an.push(env.VV_DB.prepare(
+      "INSERT INTO haushalt (id, bezeichnung, zahlungsweise, zahlungsart, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?)"
+    ).bind(haushaltId, satz.haushalt_schluessel || null, "jaehrlich", "lastschrift", jetzt, username));
+  }
+
+  an.push(env.VV_DB.prepare(
+    "INSERT INTO person (id, haushalt_id, vorname, nachname, geburtsdatum, geschlecht, " +
+    "strasse, plz, ort, email, telefon, mobil, bemerkung, zusatz_json, erstellt_am, erstellt_von) " +
+    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+  ).bind(personId, haushaltId, satz.vorname, satz.nachname, satz.geburtsdatum, satz.geschlecht,
+         satz.strasse, satz.plz, satz.ort, satz.email, satz.telefon, satz.mobil,
+         satz.bemerkung, satz.zusatz_json, jetzt, username));
+
+  // Nur wenn der Haushalt neu ist. Bei einem bestehenden bleibt der
+  // bereits eingetragene Zahler stehen -- sonst wandert die Zahlerrolle
+  // beim Import mit jedem weiteren Familienmitglied weiter.
+  if (!satz.haushalt_id) {
+    an.push(env.VV_DB.prepare(
+      "UPDATE haushalt SET zahler_person_id = ? WHERE id = ?"
+    ).bind(personId, haushaltId));
+  }
+
+  an.push(env.VV_DB.prepare(
+    "INSERT INTO mitgliedschaft (id, person_id, mitgliedsnummer, art, eintritt, austritt, " +
+    "status, beschluss_am, ermaessigt, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
+  ).bind(mgsId, personId, satz.mitgliedsnummer, satz.art, satz.eintritt, satz.austritt,
+         satz.status, satz.beschluss_am, satz.ermaessigt ? 1 : 0, jetzt, username));
+
+  for (const sparteId of satz.sparten || []) {
+    an.push(env.VV_DB.prepare(
+      "INSERT INTO mitgliedschaft_sparte (id, mitgliedschaft_id, sparte_id, eintritt, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?)"
+    ).bind(uuid(), mgsId, sparteId, satz.eintritt, jetzt, username));
+  }
+
+  // Die Mandatsreferenz ist der kritischste Posten der ganzen Migration:
+  // geht sie verloren, braucht es von jedem Mitglied ein neues SEPA-Mandat
+  // auf Papier. Sie wird deshalb unveraendert uebernommen, nie neu vergeben.
+  if (!satz.haushalt_id && satz.iban) {
+    an.push(env.VV_DB.prepare(
+      "INSERT INTO sepa_mandat (id, haushalt_id, referenz, kontoinhaber, iban, bic, erteilt_am, quelle, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?,?,?,?,?)"
+    ).bind(uuid(), haushaltId, satz.mandatsreferenz || ("M-" + satz.mitgliedsnummer),
+           satz.kontoinhaber || (satz.vorname + " " + satz.nachname),
+           satz.iban, satz.bic, satz.mandat_erteilt_am || satz.eintritt,
+           "import", jetzt, username));
+  }
+
+  return { anweisungen: an, mgsId, personId, haushaltId };
+}
+
+// Baut aus einem Rohsatz des Clients einen geprueften Datensatz. Gibt
+// entweder { satz } oder { fehler } zurueck -- nie halb geprueftes.
+function pruefeMitgliedssatz(roh) {
+  const vorname = sauber(roh.vorname, 80);
+  const nachname = sauber(roh.nachname, 80);
+  if (!vorname || !nachname) return { fehler: "Vorname und Nachname sind erforderlich" };
+
+  const eintritt = sauber(roh.eintritt, 10);
+  if (eintritt && !istIsoDatum(eintritt)) return { fehler: "Eintritt ist kein gueltiges Datum: " + eintritt };
+
+  const geburtsdatum = sauber(roh.geburtsdatum, 10);
+  if (geburtsdatum && !istIsoDatum(geburtsdatum)) return { fehler: "Geburtsdatum ist kein gueltiges Datum: " + geburtsdatum };
+
+  const austritt = sauber(roh.austritt, 10);
+  if (austritt && !istIsoDatum(austritt)) return { fehler: "Austritt ist kein gueltiges Datum: " + austritt };
+
+  const geschlecht = ["w", "m", "d"].includes(roh.geschlecht) ? roh.geschlecht : null;
+
+  return {
+    satz: {
+      vorname, nachname, geburtsdatum, geschlecht,
+      strasse: sauber(roh.strasse, 120),
+      plz: sauber(roh.plz, 10),
+      ort: sauber(roh.ort, 80),
+      email: sauber(roh.email, 120),
+      telefon: sauber(roh.telefon, 40),
+      mobil: sauber(roh.mobil, 40),
+      bemerkung: sauber(roh.bemerkung, 500),
+      zusatz_json: roh.zusatz && Object.keys(roh.zusatz).length ? JSON.stringify(roh.zusatz) : null,
+      mitgliedsnummer: sauber(roh.mitgliedsnummer, 30),
+      art: ARTEN.has(roh.art) ? roh.art : "ordentlich",
+      // Ohne Eintrittsdatum waere die Spalte NOT NULL verletzt. Statt den
+      // ganzen Satz abzulehnen faellt er auf den Jahresanfang zurueck --
+      // das ist beim Altbestand haeufig und in der Sache richtiger als
+      // ein abgebrochener Import.
+      eintritt: eintritt || (new Date().getFullYear() + "-01-01"),
+      austritt,
+      status: STATUS_WERTE.has(roh.status) ? roh.status : (austritt ? "beendet" : "aktiv"),
+      beschluss_am: istIsoDatum(roh.beschluss_am) ? roh.beschluss_am : null,
+      ermaessigt: !!roh.ermaessigt,
+      iban: sauber(roh.iban, 40),
+      bic: sauber(roh.bic, 20),
+      kontoinhaber: sauber(roh.kontoinhaber, 120),
+      mandatsreferenz: sauber(roh.mandatsreferenz, 35),
+      mandat_erteilt_am: istIsoDatum(roh.mandat_erteilt_am) ? roh.mandat_erteilt_am : null,
+      sparten_namen: Array.isArray(roh.sparten) ? roh.sparten.map((x) => String(x).trim()).filter(Boolean) : []
+    }
+  };
+}
+
+async function handleMitgliedAnlegen(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfSchreiben) {
+    return json({ error: "Nur die Geschaeftsstelle kann Mitglieder anlegen" }, 403, corsHeaders);
+  }
+
+  const geprueft = pruefeMitgliedssatz(body);
+  if (geprueft.fehler) return json({ error: geprueft.fehler }, 400, corsHeaders);
+  const satz = geprueft.satz;
+
+  if (!satz.mitgliedsnummer) satz.mitgliedsnummer = await naechsteMitgliedsnummer(env);
+
+  const vorhanden = await env.VV_DB
+    .prepare("SELECT id FROM mitgliedschaft WHERE mitgliedsnummer = ?")
+    .bind(satz.mitgliedsnummer).first();
+  if (vorhanden) {
+    return json({ error: "Mitgliedsnummer " + satz.mitgliedsnummer + " ist bereits vergeben" }, 409, corsHeaders);
+  }
+
+  // Sparten kommen hier als IDs aus der Auswahlliste, nicht als Namen.
+  satz.sparten = Array.isArray(body.sparte_ids) ? body.sparte_ids.map(String).filter(Boolean) : [];
+
+  const jetzt = new Date().toISOString();
+  const gebaut = anweisungenFuerNeuesMitglied(env, satz, jetzt, me.username);
+  await env.VV_DB.batch(gebaut.anweisungen);
+  await protokolliere(env, me.username, "mitglied-angelegt", "mitgliedschaft", gebaut.mgsId,
+                      { mitgliedsnummer: satz.mitgliedsnummer });
+
+  return json({ ok: true, id: gebaut.mgsId, mitgliedsnummer: satz.mitgliedsnummer }, 200, corsHeaders);
+}
+
+// Sparte zuordnen oder beenden. Bewusst der Geschaeftsstelle vorbehalten:
+// ein Abteilungsleiter darf die Kontaktdaten seiner Leute pflegen, aber
+// nicht bestimmen, wer zu seiner Abteilung gehoert -- und erst recht nicht
+// jemanden in eine fremde Sparte schreiben.
+async function handleSparteZuordnen(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfSchreiben) {
+    return json({ error: "Nur die Geschaeftsstelle kann Sparten zuordnen" }, 403, corsHeaders);
+  }
+
+  const id = String(body.id || "");
+  const sparteId = String(body.sparte_id || "");
+  const beenden = body.aktion === "beenden";
+  if (!id || !sparteId) return json({ error: "Mitgliedschaft und Sparte erforderlich" }, 400, corsHeaders);
+
+  const datum = istIsoDatum(body.datum) ? body.datum : null;
+  const jetzt = new Date().toISOString();
+
+  if (beenden) {
+    const stichtag = datum || jetzt.slice(0, 10);
+    await env.VV_DB.prepare(
+      "UPDATE mitgliedschaft_sparte SET austritt = ?, geaendert_am = ?, geaendert_von = ? " +
+      "WHERE mitgliedschaft_id = ? AND sparte_id = ? AND austritt IS NULL"
+    ).bind(stichtag, jetzt, me.username, id, sparteId).run();
+    await protokolliere(env, me.username, "sparte-beendet", "mitgliedschaft", id, { sparteId, stichtag });
+    return json({ ok: true, beendet: stichtag }, 200, corsHeaders);
+  }
+
+  // Der Eindeutigkeitsindex idx_mgspa_aktiv verhindert eine zweite offene
+  // Zeile ohnehin. Die Vorabpruefung ist nur da, um statt eines rohen
+  // Datenbankfehlers einen verstaendlichen Satz zu liefern.
+  const offen = await env.VV_DB.prepare(
+    "SELECT 1 AS x FROM mitgliedschaft_sparte WHERE mitgliedschaft_id = ? AND sparte_id = ? AND austritt IS NULL"
+  ).bind(id, sparteId).first();
+  if (offen) return json({ error: "Diese Sparte ist bereits zugeordnet" }, 409, corsHeaders);
+
+  const eintritt = datum || jetzt.slice(0, 10);
+  await env.VV_DB.prepare(
+    "INSERT INTO mitgliedschaft_sparte (id, mitgliedschaft_id, sparte_id, eintritt, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?)"
+  ).bind(uuid(), id, sparteId, eintritt, jetzt, me.username).run();
+  await protokolliere(env, me.username, "sparte-zugeordnet", "mitgliedschaft", id, { sparteId, eintritt });
+
+  return json({ ok: true, eintritt }, 200, corsHeaders);
+}
+
+// Bestandsuebernahme aus dem Vereinsmeister. Der Client schickt Bloecke
+// von hoechstens IMPORT_BLOCK Saetzen; groessere Bloecke reissen die
+// Parametergrenze von SQLite.
+//
+// Zwei Eigenschaften, ohne die ein Import ueber 2500 Zeilen nicht taugt:
+//
+//   1. WIEDERHOLBAR. Bricht ein Block ab, kann der Client ihn erneut
+//      schicken. Ein Satz, dessen Mitgliedsnummer schon in der Datenbank
+//      steht, wird uebersprungen statt ein zweites Mal angelegt.
+//   2. PROBELAUF. Mit pruefen:true wird nichts geschrieben, sondern nur
+//      gemeldet, was schiefginge. So sieht man die Fehler VOR dem ersten
+//      Schreibzugriff und nicht nach der Haelfte.
+const IMPORT_BLOCK = 40;
+
+// Nur Felder, die beim Import ueberhaupt nachtragbar sind.
+const ERGAENZBAR_PERSON = ["geburtsdatum", "geschlecht", "strasse", "plz", "ort",
+                           "email", "telefon", "mobil"];
+
+// Traegt in einen vorhandenen Datensatz nach, was dort noch leer ist.
+// Ueberschreibt NIE einen vorhandenen Wert: die Vereinsmeister-Listen
+// kommen in mehreren Fassungen, und die aeltere darf die neuere nicht
+// verdraengen. Meldet zurueck, was tatsaechlich gefuellt wurde.
+async function ergaenzeBestehendes(env, satz, vorhanden, username, nurPruefen) {
+  const geaendert = [];
+  const jetzt = new Date().toISOString();
+  const anweisungen = [];
+
+  const person = await env.VV_DB.prepare(
+    "SELECT geburtsdatum, geschlecht, strasse, plz, ort, email, telefon, mobil, zusatz_json " +
+    "FROM person WHERE id = ?"
+  ).bind(vorhanden.person_id).first();
+
+  const setz = [], werte = [];
+  ERGAENZBAR_PERSON.forEach((f) => {
+    if (satz[f] && person && !person[f]) {
+      setz.push(f + " = ?");
+      werte.push(satz[f]);
+      geaendert.push(f);
+    }
+  });
+
+  // Auffangfeld zusammenfuehren statt ersetzen -- sonst verliert die
+  // zweite Datei die Zusatzangaben der ersten.
+  if (satz.zusatz_json) {
+    let zusammen = {};
+    try { zusammen = JSON.parse((person && person.zusatz_json) || "{}"); } catch { zusammen = {}; }
+    const neu = JSON.parse(satz.zusatz_json);
+    let dazu = 0;
+    Object.keys(neu).forEach((k) => { if (zusammen[k] === undefined) { zusammen[k] = neu[k]; dazu++; } });
+    if (dazu) {
+      setz.push("zusatz_json = ?");
+      werte.push(JSON.stringify(zusammen));
+      geaendert.push(dazu + " Zusatzangaben");
+    }
+  }
+
+  if (setz.length) {
+    anweisungen.push(env.VV_DB.prepare(
+      "UPDATE person SET " + setz.join(", ") + ", geaendert_am = ?, geaendert_von = ? WHERE id = ?"
+    ).bind(...werte, jetzt, username, vorhanden.person_id));
+  }
+
+  // Sparten: nur die hinzufuegen, die noch nicht offen zugeordnet sind.
+  if (satz.sparten && satz.sparten.length) {
+    const offen = await env.VV_DB.prepare(
+      "SELECT sparte_id FROM mitgliedschaft_sparte WHERE mitgliedschaft_id = ? AND austritt IS NULL"
+    ).bind(vorhanden.id).all();
+    const schonDa = new Set((offen.results || []).map((z) => z.sparte_id));
+    let neue = 0;
+    satz.sparten.forEach((sparteId) => {
+      if (schonDa.has(sparteId)) return;
+      neue++;
+      anweisungen.push(env.VV_DB.prepare(
+        "INSERT INTO mitgliedschaft_sparte (id, mitgliedschaft_id, sparte_id, eintritt, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?)"
+      ).bind(uuid(), vorhanden.id, sparteId, satz.eintritt, jetzt, username));
+    });
+    if (neue) geaendert.push(neue + (neue === 1 ? " Sparte" : " Sparten"));
+  }
+
+  // Bankverbindung nur anlegen, wenn der Haushalt noch kein gueltiges
+  // Mandat hat. Ein bestehendes wird nie angefasst -- daran haengt der
+  // Einzug, und ein Import ist kein Grund, es zu ersetzen.
+  if (satz.iban && vorhanden.haushalt_id) {
+    const mandat = await env.VV_DB.prepare(
+      "SELECT id FROM sepa_mandat WHERE haushalt_id = ? AND widerrufen_am IS NULL"
+    ).bind(vorhanden.haushalt_id).first();
+    if (!mandat) {
+      anweisungen.push(env.VV_DB.prepare(
+        "INSERT INTO sepa_mandat (id, haushalt_id, referenz, kontoinhaber, iban, bic, erteilt_am, quelle, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?,?,?,?,?)"
+      ).bind(uuid(), vorhanden.haushalt_id, satz.mandatsreferenz || ("M-" + satz.mitgliedsnummer),
+             satz.kontoinhaber || (satz.vorname + " " + satz.nachname),
+             satz.iban, satz.bic, satz.mandat_erteilt_am || satz.eintritt,
+             "import", jetzt, username));
+      geaendert.push("Bankverbindung");
+    }
+  }
+
+  if (!nurPruefen && anweisungen.length) await env.VV_DB.batch(anweisungen);
+  return { geaendert };
+}
+
+async function handleImport(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfSchreiben) {
+    return json({ error: "Nur die Geschaeftsstelle kann Daten importieren" }, 403, corsHeaders);
+  }
+
+  const saetze = Array.isArray(body.saetze) ? body.saetze : [];
+  if (!saetze.length) return json({ error: "Keine Datensaetze uebergeben" }, 400, corsHeaders);
+  if (saetze.length > IMPORT_BLOCK) {
+    return json({ error: "Hoechstens " + IMPORT_BLOCK + " Saetze je Aufruf" }, 400, corsHeaders);
+  }
+  const nurPruefen = !!body.pruefen;
+  const haushalteBilden = !!body.haushalte_bilden;
+  const ergaenzen = !!body.ergaenzen;
+  const spartenAnlegen = !!body.sparten_anlegen;
+  const angelegteSparten = [];
+
+  // Sparten einmal je Aufruf laden und ueber den Namen aufloesen. Der
+  // Vereinsmeister kennt unsere IDs nicht, nur Bezeichnungen.
+  const sp = await env.VV_DB.prepare("SELECT id, name FROM sparte").all();
+  const nachName = new Map();
+  for (const s of sp.results || []) nachName.set(s.name.toLowerCase(), s.id);
+
+  const ergebnisse = [];
+  const anweisungen = [];
+  let angelegt = 0, uebersprungen = 0, fehlerhaft = 0;
+  // Innerhalb EINES Blocks entstehen Haushalte erst mit dem batch. Ohne
+  // dieses Gedaechtnis bekaeme jedes Geschwisterkind im selben Block einen
+  // eigenen Haushalt, obwohl der Schluessel gleich ist.
+  const haushaltImBlock = new Map();
+
+  for (let i = 0; i < saetze.length; i++) {
+    const zeile = saetze[i].zeile || (i + 1);
+    const geprueft = pruefeMitgliedssatz(saetze[i]);
+    if (geprueft.fehler) {
+      ergebnisse.push({ zeile, status: "fehler", text: geprueft.fehler });
+      fehlerhaft++;
+      continue;
+    }
+    const satz = geprueft.satz;
+
+    if (!satz.mitgliedsnummer) {
+      ergebnisse.push({ zeile, status: "fehler", text: "Ohne Mitgliedsnummer ist ein wiederholbarer Import nicht moeglich" });
+      fehlerhaft++;
+      continue;
+    }
+
+    // Sparten VOR der Fallunterscheidung aufloesen: der Ergaenzen-Weg
+    // braucht sie genauso, und eine fehlende Sparte ist dort der
+    // haeufigste Grund fuer den zweiten Durchlauf ueberhaupt.
+    //
+    // Neue Sparten werden SOFORT geschrieben, nicht in den Sammel-batch
+    // gelegt: der Ergaenzen-Weg fuehrt seine eigenen Anweisungen aus und
+    // wuerde sonst auf eine Sparte verweisen, die es noch nicht gibt --
+    // die Fremdschluesselpruefung schlaegt dann zu.
+    const unbekannt = [];
+    satz.sparten = [];
+    for (const name of satz.sparten_namen) {
+      let id = nachName.get(name.toLowerCase());
+      if (!id && spartenAnlegen) {
+        id = uuid();
+        nachName.set(name.toLowerCase(), id);
+        angelegteSparten.push(name);
+        if (!nurPruefen) {
+          await env.VV_DB.prepare(
+            "INSERT INTO sparte (id, name, sortierung, aktiv, zuschlag_cent, erstellt_am, erstellt_von) VALUES (?,?,?,1,0,?,?)"
+          ).bind(id, name, 500 + angelegteSparten.length, new Date().toISOString(), me.username).run();
+        }
+      }
+      if (id) satz.sparten.push(id); else unbekannt.push(name);
+    }
+    const spartenHinweis = unbekannt.length ? " — unbekannte Sparte: " + unbekannt.join(", ") : "";
+
+    const schonDa = await env.VV_DB.prepare(
+      "SELECT m.id, m.person_id, p.haushalt_id FROM mitgliedschaft m " +
+      "JOIN person p ON p.id = m.person_id WHERE m.mitgliedsnummer = ?"
+    ).bind(satz.mitgliedsnummer).first();
+
+    if (schonDa && !ergaenzen) {
+      ergebnisse.push({ zeile, status: "uebersprungen", text: "Mitgliedsnummer " + satz.mitgliedsnummer + " ist bereits vorhanden" });
+      uebersprungen++;
+      continue;
+    }
+
+    // Ergaenzen: die zweite Datei traegt nach, was in der ersten fehlte
+    // (Bankverbindung, E-Mail, Sparten). Es wird ausschliesslich in LEERE
+    // Felder geschrieben -- eine im Werkzeug gepflegte Angabe darf ein
+    // aelterer Export nicht ueberschreiben.
+    if (schonDa) {
+      const ergebnis = await ergaenzeBestehendes(env, satz, schonDa, me.username, nurPruefen);
+      ergebnisse.push({ zeile, status: ergebnis.geaendert.length ? "ergaenzt" : "unveraendert",
+                        text: satz.vorname + " " + satz.nachname + ", Nr. " + satz.mitgliedsnummer +
+                              (ergebnis.geaendert.length ? " — " + ergebnis.geaendert.join(", ") : " — nichts zu ergänzen") +
+                              spartenHinweis });
+      if (ergebnis.geaendert.length) angelegt++; else uebersprungen++;
+      continue;
+    }
+
+    if (haushalteBilden && satz.nachname && satz.strasse && satz.plz) {
+      satz.haushalt_schluessel = (satz.nachname + "|" + satz.strasse + "|" + satz.plz).toLowerCase();
+      const imBlock = haushaltImBlock.get(satz.haushalt_schluessel);
+      if (imBlock) {
+        satz.haushalt_id = imBlock;
+      } else {
+        const vorhanden = await env.VV_DB
+          .prepare("SELECT id FROM haushalt WHERE bezeichnung = ?")
+          .bind(satz.haushalt_schluessel).first();
+        if (vorhanden) satz.haushalt_id = vorhanden.id;
+      }
+    }
+
+    if (nurPruefen) {
+      ergebnisse.push({
+        zeile, status: "bereit",
+        text: (satz.vorname + " " + satz.nachname + ", Nr. " + satz.mitgliedsnummer)
+              + spartenHinweis
+      });
+      angelegt++;
+      if (satz.haushalt_schluessel && !satz.haushalt_id) {
+        haushaltImBlock.set(satz.haushalt_schluessel, "probe");
+      }
+      continue;
+    }
+
+    const jetzt = new Date().toISOString();
+    const gebaut = anweisungenFuerNeuesMitglied(env, satz, jetzt, me.username);
+    anweisungen.push(...gebaut.anweisungen);
+    if (satz.haushalt_schluessel && !satz.haushalt_id) {
+      haushaltImBlock.set(satz.haushalt_schluessel, gebaut.haushaltId);
+    }
+    ergebnisse.push({
+      zeile, status: "angelegt",
+      text: satz.vorname + " " + satz.nachname + ", Nr. " + satz.mitgliedsnummer + spartenHinweis
+    });
+    angelegt++;
+  }
+
+  if (!nurPruefen && anweisungen.length) {
+    await env.VV_DB.batch(anweisungen);
+    await protokolliere(env, me.username, "import", "mitgliedschaft", null,
+                        { angelegt, uebersprungen, fehlerhaft, sparten: angelegteSparten });
+  }
+
+  return json({
+    ok: true, pruefung: nurPruefen,
+    angelegt, uebersprungen, fehlerhaft,
+    neueSparten: angelegteSparten,
+    ergebnisse
+  }, 200, corsHeaders);
+}
+
+// ---------------------------------------------------------------------
 // Belastungstest (Stufe 0) -- misst, ob der kostenlose Cloudflare-Tarif
 // den Beitragslauf traegt. Kann nach der Tarifentscheidung raus.
 //
@@ -550,8 +1111,12 @@ async function handleSpartenInit(env, me, corsHeaders) {
   }
 
   const jetzt = new Date().toISOString();
-  const namen = ["Fussball","Wandern","Dart","Radsport","Kurstadtlauf","Yoga","Tennis",
-                 "Freizeit-Fussball","Walken","Volleyball","Tischtennis","Reha-Sport"];
+  // Genau die Bezeichnungen, die in den Vereinsmeister-Listen vom
+  // 29.07.2026 stehen -- nicht die Wunschstruktur. Der Import ordnet
+  // ueber den Namen zu; jede Abweichung waere eine nicht zugeordnete
+  // Sparte. Umbenennen und ergaenzen geht danach jederzeit.
+  const namen = ["Fussball", "Breitensport", "Wandern", "Radsport-Mountainbike",
+                 "Volleyball", "Turnen", "Darts", "Tischtennis", "Handball"];
   const anweisungen = namen.map((name, i) => env.VV_DB.prepare(
     "INSERT INTO sparte (id, name, sortierung, aktiv, zuschlag_cent, erstellt_am, erstellt_von) VALUES (?,?,?,1,?,?,?)"
   ).bind(uuid(), name, (i + 1) * 10, i === 0 ? 2400 : 1200, jetzt, me.username));
@@ -773,8 +1338,15 @@ async function handleTestdatenLoeschen(env, me, corsHeaders) {
   }, 200, corsHeaders);
 }
 
+// Zaehlt, was tatsaechlich in der Datenbank steht. Sichtbar fuer die
+// Geschaeftsstelle, nicht nur fuer globale Admins: "die Liste ist leer"
+// muss ohne Entwicklerkonsole beantwortbar sein -- sonst ist nicht
+// unterscheidbar, ob der Filter zu eng steht oder der Bestand fehlt.
 async function handleStatus(env, me, corsHeaders) {
-  if (!me.isAdmin) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin && !rolle.darfSchreiben) {
+    return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+  }
   const tabellen = ["person", "haushalt", "mitgliedschaft", "mitgliedschaft_sparte",
                     "sparte", "sepa_mandat", "forderung"];
   const zahlen = {};
@@ -837,11 +1409,16 @@ export default {
         case "vv-sparten":         return handleSpartenListe(env, me, corsHeaders);
         case "vv-mitglied":        return handleMitgliedDetail(body, env, me, corsHeaders);
         case "vv-mitglied-speichern": return handleMitgliedSpeichern(body, env, me, corsHeaders);
+        case "vv-mitglied-anlegen": return handleMitgliedAnlegen(body, env, me, corsHeaders);
+        case "vv-sparte-zuordnen": return handleSparteZuordnen(body, env, me, corsHeaders);
+        case "vv-import":          return handleImport(body, env, me, corsHeaders);
         case "vv-austritt":        return handleAustritt(body, env, me, corsHeaders);
         case "vv-austritt-vorschau": return handleAustrittVorschau(body, env, me, corsHeaders);
         case "vv-status":          return handleStatus(env, me, corsHeaders);
         case "vv-testdaten-loeschen": return handleTestdatenLoeschen(env, me, corsHeaders);
-        case "vv-rollen-abgleich": return handleRollenAbgleich(env, me, corsHeaders);
+        case "vv-rollen":          return handleRollenListe(env, me, request.headers.get("Authorization"), corsHeaders);
+        case "vv-rolle-setzen":    return handleRolleSetzen(body, env, me, corsHeaders);
+        case "vv-rolle-loeschen":  return handleRolleLoeschen(body, env, me, corsHeaders);
         case "vv-sparten-init":    return handleSpartenInit(env, me, corsHeaders);
         case "vv-seed":            return handleSeed(body, env, me, corsHeaders);
         case "vv-messlauf":        return handleMesslauf(body, env, me, corsHeaders);

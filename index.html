@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vereinsverwaltung &mdash; 1. SC 1911 Heiligenstadt</title>
-<link rel="stylesheet" href="style.css?v=1.1">
+<link rel="stylesheet" href="style.css?v=1.2">
 </head>
 <body>
 
@@ -19,6 +19,8 @@
 
 <nav id="haupt-nav" hidden>
   <button data-tab="tab-mitglieder" class="aktiv">Mitglieder</button>
+  <button data-tab="tab-import" id="nav-import" hidden>Import</button>
+  <button data-tab="tab-rollen" id="nav-rollen" hidden>Rollen</button>
   <button data-tab="tab-info">Info</button>
 </nav>
 
@@ -65,6 +67,10 @@
             <label>&nbsp;</label>
             <button class="btn" id="btn-suchen">Suchen</button>
           </div>
+          <div class="feld">
+            <label>&nbsp;</label>
+            <button class="btn" id="btn-neu" hidden>+ Neues Mitglied</button>
+          </div>
         </div>
 
         <div class="zaehler">
@@ -79,6 +85,110 @@
           <span id="seiten-info"></span>
           <button class="btn grau" id="btn-weiter">Weiter</button>
         </div>
+      </div>
+    </section>
+
+    <!-- Bestandsuebernahme aus GLS Vereinsmeister. Bewusst generisch:
+         Das Ausgabeformat der Altsoftware ist nicht bekannt, deshalb wird
+         die Zuordnung der Spalten im Browser gemacht und alles nicht
+         Zugeordnete in ein Auffangfeld geschrieben -- so geht beim Import
+         nichts verloren, auch wenn die Feldnamen ueberraschen. -->
+    <section id="tab-import" class="tab">
+
+      <div class="karte">
+        <h2>Mitgliederbestand übernehmen</h2>
+        <p class="fussnote">Aus dem Vereinsmeister exportierte Datei (CSV oder Excel) auswählen.
+        Die Spalten werden im nächsten Schritt zugeordnet. <strong>Nichts wird geschrieben,
+        bevor der Probelauf gelaufen ist.</strong></p>
+
+        <div class="schritt-nummer">Schritt 1 — Datei</div>
+        <input type="file" id="imp-datei" accept=".csv,.txt,.xlsx,.xls">
+        <div id="imp-datei-info" class="hinweis info" hidden></div>
+      </div>
+
+      <div class="karte" id="imp-karte-zuordnung" hidden>
+        <div class="schritt-nummer">Schritt 2 — Spalten zuordnen</div>
+        <p class="fussnote">Erkannte Zuordnungen sind vorbelegt. Was auf „übernehmen, ohne Feld"
+        steht, wird beim Mitglied als Zusatzangabe mitgespeichert und geht nicht verloren.</p>
+        <div id="imp-zuordnung"></div>
+
+        <h3>Einstellungen</h3>
+        <label class="ankreuz"><input type="checkbox" id="imp-haushalte" checked>
+          Personen mit gleichem Nachnamen unter derselben Anschrift zu einem Haushalt zusammenfassen
+          <span class="fussnote">Grundlage für Familienrabatt und ein gemeinsames SEPA-Mandat. Lässt sich später einzeln korrigieren.</span>
+        </label>
+        <label class="ankreuz"><input type="checkbox" id="imp-sparten-anlegen" checked>
+          Sparten aus der Datei anlegen, wenn es sie noch nicht gibt
+          <span class="fussnote">Beim ersten Import der Normalfall. Später eher ein Tippfehler in der
+          Quelldatei — dann abwählen: unbekannte Sparten werden dann im Bericht gemeldet, statt neu zu entstehen.</span>
+        </label>
+        <label class="ankreuz"><input type="checkbox" id="imp-ergaenzen">
+          Bereits vorhandene Mitglieder um fehlende Angaben ergänzen
+          <span class="fussnote">Für die zweite Datei: trägt Bankverbindung, Kontaktdaten und Sparten
+          nach. Es wird ausschließlich in leere Felder geschrieben — nichts wird überschrieben.
+          Ohne Haken werden vorhandene Mitgliedsnummern übersprungen.</span>
+        </label>
+
+        <div class="knopfreihe">
+          <button class="btn grau" id="btn-imp-probe">Probelauf starten</button>
+          <button class="btn" id="btn-imp-start" disabled>Import starten</button>
+        </div>
+        <div id="imp-status" class="hinweis info" hidden></div>
+        <div id="imp-fortschritt" hidden>
+          <div class="balken"><div class="balken-fuellung" id="imp-balken"></div></div>
+          <div class="fussnote" id="imp-fortschritt-text"></div>
+        </div>
+      </div>
+
+      <div class="karte" id="imp-karte-bericht" hidden>
+        <h2>Bericht</h2>
+        <div id="imp-bericht"></div>
+      </div>
+
+    </section>
+
+    <!-- Wer hier eine Rolle bekommt, sieht Mitgliederdaten. Deshalb nur
+         für globale Administratoren -- sonst könnte sich die
+         Geschäftsstelle selbst zum Schatzmeister machen und damit an die
+         Bankdaten. -->
+    <section id="tab-rollen" class="tab">
+      <div class="karte">
+        <h2>Rolle vergeben</h2>
+        <p class="fussnote">Die Anmeldung selbst läuft über das Dashboard. Hier wird nur
+        festgelegt, <strong>was</strong> jemand in der Vereinsverwaltung darf. Ohne Rolle
+        sieht ein angemeldetes Konto hier keine Personendaten.</p>
+
+        <div class="filterleiste">
+          <div class="feld suchfeld">
+            <label for="r-nutzer">Konto</label>
+            <select id="r-nutzer"></select>
+          </div>
+          <div class="feld">
+            <label for="r-rolle">Rolle</label>
+            <select id="r-rolle">
+              <option value="geschaeftsstelle">Geschäftsstelle</option>
+              <option value="schatzmeister">Schatzmeister</option>
+              <option value="abteilungsleiter">Abteilungsleitung</option>
+              <option value="vorstand">Vorstand</option>
+            </select>
+          </div>
+          <div class="feld" id="r-sparte-feld" hidden>
+            <label for="r-sparte">Sparte</label>
+            <select id="r-sparte"></select>
+          </div>
+          <div class="feld">
+            <label>&nbsp;</label>
+            <button class="btn" id="btn-rolle-setzen">Rolle vergeben</button>
+          </div>
+        </div>
+        <div id="r-status" class="hinweis info" hidden></div>
+        <p class="fussnote" id="r-erklaerung"></p>
+      </div>
+
+      <div class="karte">
+        <h2>Vergebene Rollen</h2>
+        <div id="r-warnung" class="hinweis warn" hidden></div>
+        <div id="r-liste"></div>
       </div>
     </section>
 
@@ -161,6 +271,10 @@
 
       <h3>Sparten</h3>
       <div id="d-sparten"></div>
+      <div class="sparte-hinzu" id="d-sparte-hinzu" hidden>
+        <select id="d-sparte-neu"></select>
+        <button class="btn grau" id="btn-sparte-hinzu">Sparte hinzufügen</button>
+      </div>
 
       <div id="d-austritt-bereich" class="austritt-kasten" hidden>
         <h3>Austritt erfassen</h3>
@@ -191,10 +305,79 @@
   </div>
 </div>
 
+<!-- Neues Mitglied. Eigener Dialog statt einer leeren Detailansicht:
+     beim Anlegen gibt es keine Sparten-Historie und keinen Austritt,
+     dafuer aber Pflichtfelder. -->
+<div class="overlay" id="neu-overlay" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="neu-titel">
+    <div class="dialog-kopf">
+      <h2 id="neu-titel">Neues Mitglied</h2>
+      <button class="dialog-zu" id="btn-neu-zu" aria-label="Schließen">&times;</button>
+    </div>
+    <div class="dialog-inhalt">
+      <h3>Person</h3>
+      <div class="formraster">
+        <div class="feld"><label for="n-vorname">Vorname *</label><input id="n-vorname"></div>
+        <div class="feld"><label for="n-nachname">Nachname *</label><input id="n-nachname"></div>
+        <div class="feld"><label for="n-geburtsdatum">Geburtsdatum</label><input type="date" id="n-geburtsdatum"></div>
+        <div class="feld"><label for="n-geschlecht">Geschlecht</label>
+          <select id="n-geschlecht">
+            <option value="">&mdash;</option>
+            <option value="w">weiblich</option>
+            <option value="m">männlich</option>
+            <option value="d">divers</option>
+          </select>
+        </div>
+        <div class="feld breit"><label for="n-strasse">Straße und Hausnummer</label><input id="n-strasse"></div>
+        <div class="feld"><label for="n-plz">PLZ</label><input id="n-plz"></div>
+        <div class="feld"><label for="n-ort">Ort</label><input id="n-ort"></div>
+        <div class="feld"><label for="n-email">E-Mail</label><input type="email" id="n-email"></div>
+        <div class="feld"><label for="n-telefon">Telefon</label><input id="n-telefon"></div>
+        <div class="feld"><label for="n-mobil">Mobil</label><input id="n-mobil"></div>
+      </div>
+
+      <h3>Mitgliedschaft</h3>
+      <div class="formraster">
+        <div class="feld"><label for="n-nummer">Mitgliedsnummer</label>
+          <input id="n-nummer" placeholder="leer lassen = nächste freie">
+        </div>
+        <div class="feld"><label for="n-art">Art</label>
+          <select id="n-art">
+            <option value="ordentlich">Ordentliches Mitglied</option>
+            <option value="ausserordentlich">Außerordentliches Mitglied</option>
+            <option value="ehrenmitglied">Ehrenmitglied</option>
+          </select>
+        </div>
+        <div class="feld"><label for="n-eintritt">Eintritt *</label><input type="date" id="n-eintritt"></div>
+        <div class="feld"><label for="n-status">Status</label>
+          <select id="n-status">
+            <option value="aktiv">Aktiv</option>
+            <option value="antrag">Antrag</option>
+            <option value="ruhend">Ruhend</option>
+          </select>
+        </div>
+        <div class="feld breit"><label for="n-beschluss">Aufnahme beschlossen am</label><input type="date" id="n-beschluss"></div>
+      </div>
+      <p class="fussnote">Nach § 4 der Satzung wird eine Mitgliedschaft erst durch Beschluss des
+      Gesamtvorstands wirksam. Bei übernommenen Bestandsmitgliedern darf das Feld leer bleiben.</p>
+
+      <h3>Sparten</h3>
+      <div id="n-sparten" class="ankreuz-raster"></div>
+    </div>
+    <div class="dialog-fuss">
+      <span id="neu-status"></span>
+      <button class="btn grau" id="btn-neu-abbrechen">Abbrechen</button>
+      <button class="btn" id="btn-neu-speichern">Anlegen</button>
+    </div>
+  </div>
+</div>
+
 <footer>1. SC 1911 Heiligenstadt &mdash; interne Vereinsverwaltung</footer>
 
-<script src="config.js?v=1.0"></script>
-<script src="db.js?v=1.0"></script>
-<script src="app.js?v=1.1"></script>
+<script src="config.js?v=1.1"></script>
+<script src="db.js?v=1.1"></script>
+<script src="import.js?v=1.0"></script>
+<script src="rollen.js?v=1.0"></script>
+<script src="app.js?v=1.2"></script>
 </body>
 </html>

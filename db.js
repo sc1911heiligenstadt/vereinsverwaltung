@@ -73,3 +73,44 @@ async function ladeMitglieder(opt) {
 async function ladeSparten() {
   return vvRequest("vv-sparten");
 }
+
+async function ladeBestand() {
+  return vvRequest("vv-status");
+}
+
+async function legeMitgliedAn(daten) {
+  return vvRequest("vv-mitglied-anlegen", daten);
+}
+
+async function ordneSparteZu(daten) {
+  return vvRequest("vv-sparte-zuordnen", daten);
+}
+
+// Ein Block je Aufruf. Die Aufteilung macht der Aufrufer, weil nur er
+// weiss, wie weit er schon ist -- der Worker haelt keinen Zustand.
+async function importiereBlock(saetze, optionen) {
+  return vvRequest("vv-import", { saetze, ...(optionen || {}) });
+}
+
+// Externe Bibliothek erst bei Bedarf nachladen, nie fest im <head>:
+// xlsx.full.min.js sind ~900 KB, die beim taeglichen Blick in die
+// Mitgliederliste niemand braucht. Flottenregel.
+const geladeneBibliotheken = {};
+function ladeBibliothek(url) {
+  if (geladeneBibliotheken[url]) return geladeneBibliotheken[url];
+  geladeneBibliotheken[url] = new Promise((erfuellen, ablehnen) => {
+    const s = document.createElement("script");
+    s.src = url;
+    s.onload = () => erfuellen();
+    s.onerror = () => {
+      delete geladeneBibliotheken[url];
+      ablehnen(new Error("Bibliothek nicht ladbar: " + url));
+    };
+    document.head.appendChild(s);
+  });
+  return geladeneBibliotheken[url];
+}
+
+function ladeTabellenBibliothek() {
+  return ladeBibliothek("https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js");
+}
