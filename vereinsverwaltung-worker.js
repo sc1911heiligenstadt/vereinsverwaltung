@@ -448,12 +448,18 @@ async function handleSpartenListe(env, me, corsHeaders) {
     && !rolle.rollen.includes("geschaeftsstelle")
     && !rolle.rollen.includes("schatzmeister");
 
-  const sql = "SELECT id, name, kurz, zuschlag_cent, aktiv FROM sparte"
+  // Die Mitgliederzahl kommt additiv mit, in derselben Abfrage. Ohne sie
+  // liesse sich eine Sparte stilllegen, ohne zu sehen, wie viele Leute
+  // daran haengen.
+  const felder = "id, name, kurz, zuschlag_cent, aktiv, " +
+    "(SELECT COUNT(*) FROM mitgliedschaft_sparte ms JOIN mitgliedschaft m ON m.id = ms.mitgliedschaft_id " +
+    " WHERE ms.sparte_id = sparte.id AND ms.austritt IS NULL AND m.status IN ('aktiv','ruhend')) AS mitglieder";
+  const sql = "SELECT " + felder + " FROM sparte"
     + (nurEigene ? " WHERE id IN (" + rolle.sparten.map(() => "?").join(",") + ")" : "")
     + " ORDER BY sortierung, name";
   const st = nurEigene && rolle.sparten.length
     ? env.VV_DB.prepare(sql).bind(...rolle.sparten)
-    : env.VV_DB.prepare(nurEigene ? "SELECT id, name, kurz, zuschlag_cent, aktiv FROM sparte WHERE 1=0" : sql);
+    : env.VV_DB.prepare(nurEigene ? "SELECT " + felder + " FROM sparte WHERE 1=0" : sql);
 
   const r = await st.all();
   return json({ sparten: r.results || [] }, 200, corsHeaders);
@@ -1394,7 +1400,14 @@ const EINSTELLUNGEN = {
   // ist deshalb nicht einstellbar -- eine Satzung ist keine Vorgabe, die
   // man in einem Formular unterbieten darf.
   anhoerung_tage:   { gruppe: "mahnung", label: "Frist der Anhoerung vor Ausschluss (Tage, § 5 Abs. 3)",
-                      zahl: true, vorgabe: 10, min: 10, max_wert: 90 }
+                      zahl: true, vorgabe: 10, min: 10, max_wert: 90 },
+
+  // Der Aufnahmeantrag ist der einzige Schreibpunkt der App, den jemand
+  // ohne Anmeldung erreicht. Ein offener Endpunkt, den man nicht wieder
+  // zudrehen kann, ist eine Zusage, die man spaeter bereut -- deshalb
+  // ein Schalter, kein Deploy.
+  antrag_offen:     { gruppe: "antrag", label: "Online-Aufnahmeantrag ist geoeffnet (1 = ja, 0 = nein)",
+                      zahl: true, vorgabe: 1, min: 0, max_wert: 1 }
 };
 
 // Wert einer Einstellung als Zahl, mit der hinterlegten Vorgabe.
@@ -1479,12 +1492,22 @@ async function handleEinstellungen(env, me, corsHeaders) {
 
 async function handleEinstellungSetzen(body, env, me, corsHeaders) {
   const rolle = await ladeRolle(env, me);
-  if (!rolle.istAdmin && !rolle.darfBuchen) {
-    return json({ error: "Nur der Schatzmeister kann die Vereinsstammdaten aendern" }, 403, corsHeaders);
-  }
   const schluessel = String(body.schluessel || "");
   const regel = EINSTELLUNGEN[schluessel];
   if (!regel) return json({ error: "Unbekannte Einstellung" }, 400, corsHeaders);
+
+  // Das Recht haengt an der Gruppe, nicht an der Tabelle. Vereins-IBAN,
+  // Glaeubiger-ID und Mahnfristen sind Sache des Schatzmeisters; ob das
+  // oeffentliche Antragsformular offen ist, entscheidet die
+  // Geschaeftsstelle -- die nimmt die Antraege entgegen.
+  const darf = regel.gruppe === "antrag"
+    ? (rolle.istAdmin || rolle.darfSchreiben)
+    : (rolle.istAdmin || rolle.darfBuchen);
+  if (!darf) {
+    return json({ error: regel.gruppe === "antrag"
+      ? "Nur die Geschaeftsstelle kann das Antragsformular oeffnen und schliessen"
+      : "Nur der Schatzmeister kann die Vereinsstammdaten aendern" }, 403, corsHeaders);
+  }
 
   let wert = String(body.wert === null || body.wert === undefined ? "" : body.wert)
     .trim().slice(0, regel.max || 40);
@@ -3500,6 +3523,704 @@ async function handleVorabankuendigung(body, env, me, corsHeaders) {
 }
 
 // ---------------------------------------------------------------------
+// STUFE 3 -- AUFNAHMEANTRAG NACH § 4
+// ---------------------------------------------------------------------
+//
+// Satzung § 4: ueber die Aufnahme entscheidet der Gesamtvorstand. Ein
+// Antrag ist deshalb NIE eine Mitgliedschaft, und diese Tabelle ist die
+// einzige, in die von aussen geschrieben wird. Entsprechend eng:
+//
+//   * Der Server baut den Datensatz aus einer WEISSLISTE selbst. Was in
+//     pruefeAntrag nicht steht, kommt nicht in die Datenbank, auch wenn
+//     es mitgeschickt wird.
+//   * Jede oeffentliche Aktion prueft selbst, ob das Formular offen ist,
+//     und zaehlt selbst mit, wie viele Antraege von diesem Absender schon
+//     kamen. Kein gemeinsamer Vorab-Aufruf, der sich umgehen liesse
+//     (Muster fahrtenbuch-extern-*).
+//   * Person, Mitgliedschaft und SEPA-Mandat entstehen erst bei der
+//     ANNAHME -- also nach dem Beschluss, durch eine angemeldete Person.
+//     Der offene Endpunkt kann keine Mitgliedschaft erzeugen.
+//
+// Absichtlich KEIN Zugriffscode wie beim Fahrtenbuch: dort schreiben
+// bekannte Eltern, hier soll jeder Interessierte einen Antrag stellen
+// koennen. Die Bremse ist stattdessen die Unterschrift (die zeichnet kein
+// Skript), das Zaehlwerk je Absender und der Schalter antrag_offen.
+
+const ANTRAG_STATUS = new Set(["neu", "geprueft", "angenommen", "abgelehnt", "zurueckgezogen"]);
+
+// Satzung § 4 Abs. 5: die Ehrenmitgliedschaft wird VERLIEHEN, nicht
+// beantragt. Sie steht deshalb im Formular gar nicht zur Wahl.
+const ANTRAG_ARTEN = new Set(["ordentlich", "ausserordentlich"]);
+
+// Nur ein Wunsch. Die Beitragsklasse setzt die Geschaeftsstelle bei der
+// Annahme -- im Bestand haengt sie nachweislich nicht am Alter.
+const ANTRAG_BEITRAGSWUNSCH = new Set(["erwachsener", "jugend", "rentner"]);
+
+// Eine Unterschrift aus dem Canvas liegt bei 5-20 KB. 150.000 Zeichen
+// sind grosszuegig und halten die Zeile weit unter dem 2-MB-Limit von D1.
+const UNTERSCHRIFT_MAX = 150000;
+
+const ANTRAG_JE_IP_STUNDE = 5;
+const ANTRAG_JE_IP_TAG = 20;
+
+// Nur fuer den Mandatstext des oeffentlichen Formulars. Sind die
+// Vereinsstammdaten noch nicht eingetragen, soll das Formular trotzdem
+// benutzbar sein -- ein Antragsteller kann nichts dafuer.
+const VEREIN_FALLBACK = "1. SC 1911 Heiligenstadt e.V.";
+
+const EMAIL_MUSTER = /^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/;
+
+// Alter zu einem Stichtag. Rein und einzeln testbar -- daran haengt, ob
+// eine zweite Unterschrift verlangt wird.
+function alterAm(geburtsdatum, stichtag) {
+  const g = String(geburtsdatum || "").slice(0, 10).split("-").map(Number);
+  const s = String(stichtag || "").slice(0, 10).split("-").map(Number);
+  if (g.length !== 3 || !g[0] || s.length !== 3 || !s[0]) return null;
+  let a = s[0] - g[0];
+  if (s[1] < g[1] || (s[1] === g[1] && s[2] < g[2])) a--;
+  return a;
+}
+
+// Gibt { wert } oder { fehler } zurueck. Ein zu grosses oder falsch
+// gebautes Bild darf nicht als "fehlt" durchgehen -- sonst sucht jemand
+// den Fehler am Zeichenfeld statt an der Dateigroesse.
+function pruefeUnterschrift(roh, was) {
+  const s = String(roh || "");
+  if (!s) return { fehler: was + " fehlt" };
+  if (!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(s)) {
+    return { fehler: was + ": unerwartetes Format" };
+  }
+  if (s.length > UNTERSCHRIFT_MAX) return { fehler: was + ": das Bild ist zu gross" };
+  return { wert: s };
+}
+
+// Baut aus dem Rohkoerper einen geprueften Antrag oder gibt genau einen
+// Fehlersatz zurueck. Nie halb geprueftes.
+function pruefeAntrag(roh, erlaubteSparten, heute) {
+  const vorname = sauber(roh.vorname, 80);
+  const nachname = sauber(roh.nachname, 80);
+  if (!vorname || !nachname) return { fehler: "Vorname und Nachname sind erforderlich" };
+
+  const geburtsdatum = sauber(roh.geburtsdatum, 10);
+  if (!geburtsdatum || !istIsoDatum(geburtsdatum)) {
+    return { fehler: "Das Geburtsdatum fehlt oder ist kein gueltiges Datum" };
+  }
+  if (geburtsdatum > heute) return { fehler: "Das Geburtsdatum liegt in der Zukunft" };
+  if (geburtsdatum < "1900-01-01") return { fehler: "Das Geburtsdatum ist nicht plausibel" };
+
+  // Ohne vollstaendige Anschrift kann der Verein weder eine Rechnung noch
+  // eine Mahnung zustellen -- und § 5 Abs. 3 haengt an der Zustellbarkeit.
+  const strasse = sauber(roh.strasse, 120);
+  const plz = sauber(roh.plz, 10);
+  const ort = sauber(roh.ort, 80);
+  if (!strasse || !plz || !ort) return { fehler: "Bitte die vollstaendige Anschrift angeben" };
+
+  const email = sauber(roh.email, 120);
+  if (!email || !EMAIL_MUSTER.test(email)) {
+    return { fehler: "Bitte eine gueltige E-Mail-Adresse angeben" };
+  }
+
+  const art = ANTRAG_ARTEN.has(roh.art) ? roh.art : "ordentlich";
+  const eintrittWunsch = sauber(roh.eintritt_wunsch, 10);
+  if (eintrittWunsch && !istIsoDatum(eintrittWunsch)) {
+    return { fehler: "Der Eintrittswunsch ist kein gueltiges Datum" };
+  }
+
+  const sparten = Array.isArray(roh.sparten) ? roh.sparten.map(String) : [];
+  if (sparten.length > 5) return { fehler: "Bitte hoechstens fuenf Abteilungen auswaehlen" };
+  for (const s of sparten) {
+    if (!erlaubteSparten.has(s)) return { fehler: "Unbekannte Abteilung" };
+  }
+
+  const zahlungsart = roh.zahlungsart === "ueberweisung" ? "ueberweisung" : "lastschrift";
+  const iban = (sauber(roh.iban, 40) || "").replace(/\s+/g, "").toUpperCase() || null;
+  const kontoinhaber = sauber(roh.kontoinhaber, 120);
+  if (zahlungsart === "lastschrift") {
+    if (!iban) return { fehler: "Fuer das Lastschriftmandat wird eine IBAN gebraucht" };
+    if (!ibanGueltig(iban)) return { fehler: "Die IBAN ist nicht gueltig (Pruefziffer stimmt nicht)" };
+    if (!kontoinhaber) return { fehler: "Bitte den Kontoinhaber angeben" };
+  }
+
+  // Satzung: die Aufnahme setzt die Anerkennung der Satzung voraus. Die
+  // Foto-Einwilligung steht daneben und ist FREIWILLIG -- sie darf nicht
+  // an die Aufnahme gekoppelt werden.
+  if (roh.einwilligung_satzung !== true) {
+    return { fehler: "Die Satzung und die Beitragsordnung muessen anerkannt werden" };
+  }
+  if (roh.einwilligung_datenschutz !== true) {
+    return { fehler: "Bitte die Datenschutzhinweise bestaetigen" };
+  }
+
+  const unterschrift = pruefeUnterschrift(roh.unterschrift, "Die Unterschrift");
+  if (unterschrift.fehler) return { fehler: unterschrift.fehler };
+
+  // Ein Minderjaehriger kann weder wirksam beitreten noch ein Mandat
+  // erteilen. Ohne die zweite Unterschrift ist der Antrag unvollstaendig.
+  const alter = alterAm(geburtsdatum, heute);
+  const minderjaehrig = alter !== null && alter < 18;
+  let gesetzl = null;
+  let gesetzlName = null;
+  if (minderjaehrig) {
+    gesetzlName = sauber(roh.gesetzl_name, 120);
+    if (!gesetzlName) {
+      return { fehler: "Bei Minderjaehrigen wird der gesetzliche Vertreter gebraucht" };
+    }
+    gesetzl = pruefeUnterschrift(roh.unterschrift_gesetzl, "Die Unterschrift des gesetzlichen Vertreters");
+    if (gesetzl.fehler) return { fehler: gesetzl.fehler };
+  }
+
+  return {
+    satz: {
+      inhalt: {
+        anrede: sauber(roh.anrede, 20),
+        vorname, nachname, geburtsdatum,
+        geschlecht: ["w", "m", "d"].includes(roh.geschlecht) ? roh.geschlecht : null,
+        strasse, plz, ort, email,
+        telefon: sauber(roh.telefon, 40),
+        mobil: sauber(roh.mobil, 40),
+        art,
+        eintritt_wunsch: eintrittWunsch,
+        beitragsart_wunsch: ANTRAG_BEITRAGSWUNSCH.has(roh.beitragsart_wunsch)
+          ? roh.beitragsart_wunsch : null,
+        familie_hinweis: sauber(roh.familie_hinweis, 200),
+        zahlungsart, kontoinhaber, iban,
+        bic: (sauber(roh.bic, 20) || "").replace(/\s+/g, "").toUpperCase() || null,
+        minderjaehrig,
+        gesetzl_name: gesetzlName,
+        gesetzl_verhaeltnis: minderjaehrig ? sauber(roh.gesetzl_verhaeltnis, 40) : null,
+        einwilligung_satzung: true,
+        einwilligung_datenschutz: true,
+        einwilligung_fotos: roh.einwilligung_fotos === true,
+        bemerkung: sauber(roh.bemerkung, 500)
+      },
+      sparten,
+      unterschrift: unterschrift.wert,
+      unterschrift_gesetzl: gesetzl ? gesetzl.wert : null
+    }
+  };
+}
+
+// Oeffentlich. Liefert nur, was auf dem Formular stehen muss: die
+// Abteilungen, die Beitragssaetze zur Information und den Vereinsnamen
+// fuer den Mandatstext. Keine Personendaten, keine Zahlen aus dem
+// Bestand.
+// Eine Sparte stilllegen oder wieder aufnehmen. Anlass war das
+// oeffentliche Formular: im Bestand stehen die neun Sammelposten des
+// Vereinsmeisters NEBEN den zwoelf echten Abteilungen, und der
+// Antragsteller sah dadurch "Dart" und "Darts" untereinander.
+//
+// Bewusst nur dieser eine Schalter und keine Sparten-Verwaltung:
+// aktiv = 0 heisst laut Schema "aufgeloest, Historie bleibt". Zeilen
+// werden nie geloescht -- an ihnen haengen Spartenzugehoerigkeiten, und
+// die sind Teil der Beitragsgeschichte.
+async function handleSparteAktiv(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfSchreiben) {
+    return json({ error: "Nur die Geschaeftsstelle kann Abteilungen stilllegen" }, 403, corsHeaders);
+  }
+  const id = String(body.sparte_id || "");
+  const sparte = await env.VV_DB.prepare("SELECT id, name FROM sparte WHERE id = ?").bind(id).first();
+  if (!sparte) return json({ error: "Abteilung nicht gefunden" }, 404, corsHeaders);
+
+  const aktiv = body.aktiv === true || body.aktiv === 1 || body.aktiv === "1" ? 1 : 0;
+  await env.VV_DB.prepare(
+    "UPDATE sparte SET aktiv = ?, geaendert_am = ?, geaendert_von = ? WHERE id = ?"
+  ).bind(aktiv, new Date().toISOString(), me.username, id).run();
+
+  await protokolliere(env, me.username, aktiv ? "sparte-aktiviert" : "sparte-stillgelegt",
+                      "sparte", id, { name: sparte.name });
+  return json({ ok: true, aktiv }, 200, corsHeaders);
+}
+
+async function handleAntragInfo(env, corsHeaders) {
+  const cfg = await ladeEinstellungen(env);
+  const offen = einstellungZahl(cfg, "antrag_offen") === 1;
+
+  const sparten = await env.VV_DB
+    .prepare("SELECT id, name FROM sparte WHERE aktiv = 1 ORDER BY sortierung, name").all();
+
+  const heute = new Date().toISOString().slice(0, 10);
+  let klassen = [];
+  try {
+    klassen = (await ladeKlassenMitSatz(env, heute))
+      .filter((k) => k.aktiv && k.betrag_cent !== null)
+      .map((k) => ({ name: k.name, betrag_cent: k.betrag_cent }));
+  } catch {
+    // Die Beitragsordnung ist eine Information, keine Voraussetzung.
+    // Fehlt sie, wird der Antrag trotzdem entgegengenommen.
+  }
+
+  return json({
+    offen,
+    verein: (cfg && cfg.verein_name) || VEREIN_FALLBACK,
+    glaeubiger_id: (cfg && cfg.glaeubiger_id) || null,
+    sparten: sparten.results || [],
+    beitraege: klassen
+  }, 200, corsHeaders);
+}
+
+async function handleAntragSenden(body, env, request, corsHeaders) {
+  const cfg = await ladeEinstellungen(env);
+  if (einstellungZahl(cfg, "antrag_offen") !== 1) {
+    return json({ error: "Der Online-Aufnahmeantrag ist zurzeit geschlossen. " +
+                         "Bitte wenden Sie sich an die Geschaeftsstelle." }, 403, corsHeaders);
+  }
+
+  const ip = request.headers.get("CF-Connecting-IP") || "unbekannt";
+  const agent = String(request.headers.get("User-Agent") || "").slice(0, 200);
+
+  // Eine Abfrage fuer beide Grenzen. Ohne sie waere das Formular ein
+  // Weg, die Tabelle in Minuten vollzuschreiben.
+  const jetztMs = Date.now();
+  const seitStunde = new Date(jetztMs - 3600000).toISOString();
+  const seitTag = new Date(jetztMs - 86400000).toISOString();
+  const zaehler = await env.VV_DB.prepare(
+    "SELECT COUNT(*) AS tag, SUM(CASE WHEN eingang_am >= ? THEN 1 ELSE 0 END) AS stunde " +
+    "FROM aufnahmeantrag WHERE signatur_ip = ? AND eingang_am >= ?"
+  ).bind(seitStunde, ip, seitTag).first();
+  if (zaehler && (Number(zaehler.stunde || 0) >= ANTRAG_JE_IP_STUNDE ||
+                  Number(zaehler.tag || 0) >= ANTRAG_JE_IP_TAG)) {
+    return json({ error: "Von diesem Anschluss sind gerade sehr viele Antraege gekommen. " +
+                         "Bitte spaeter noch einmal versuchen oder die Geschaeftsstelle anrufen." },
+                429, corsHeaders);
+  }
+
+  const spartenR = await env.VV_DB.prepare("SELECT id FROM sparte WHERE aktiv = 1").all();
+  const erlaubt = new Set((spartenR.results || []).map((z) => z.id));
+
+  const jetzt = new Date().toISOString();
+  const geprueft = pruefeAntrag(body, erlaubt, jetzt.slice(0, 10));
+  if (geprueft.fehler) return json({ error: geprueft.fehler }, 400, corsHeaders);
+  const satz = geprueft.satz;
+
+  const id = uuid();
+  await env.VV_DB.prepare(
+    "INSERT INTO aufnahmeantrag (id, eingang_am, antrag_json, sparten_json, " +
+    "unterschrift_datei, unterschrift_gesetzl_datei, signatur_ip, signatur_agent, " +
+    "signatur_zeit, status) VALUES (?,?,?,?,?,?,?,?,?,'neu')"
+  ).bind(id, jetzt, JSON.stringify(satz.inhalt), JSON.stringify(satz.sparten),
+         satz.unterschrift, satz.unterschrift_gesetzl, ip, agent, jetzt).run();
+
+  await protokolliere(env, null, "antrag-eingegangen", "aufnahmeantrag", id,
+                      { nachname: satz.inhalt.nachname });
+
+  return json({ ok: true, id, eingang_am: jetzt }, 200, corsHeaders);
+}
+
+// ---------------------------------------------------------------------
+// Antraege pruefen (angemeldet)
+// ---------------------------------------------------------------------
+
+// Kurzform fuer die Liste. Bankdaten stehen hier bewusst NICHT drin --
+// wer eine Liste ueberfliegt, braucht keine IBAN, und was nicht
+// ausgeliefert wird, steht auch nicht im Netzwerk-Tab.
+function antragKurz(zeile) {
+  let a = {};
+  try { a = JSON.parse(zeile.antrag_json || "{}"); } catch { a = {}; }
+  let sparten = [];
+  try { sparten = JSON.parse(zeile.sparten_json || "[]"); } catch { sparten = []; }
+  return {
+    id: zeile.id,
+    eingang_am: zeile.eingang_am,
+    status: zeile.status,
+    vorname: a.vorname || "",
+    nachname: a.nachname || "",
+    geburtsdatum: a.geburtsdatum || null,
+    ort: a.ort || "",
+    art: a.art || "ordentlich",
+    zahlungsart: a.zahlungsart || null,
+    minderjaehrig: !!a.minderjaehrig,
+    anzahl_sparten: sparten.length,
+    beschluss_am: zeile.beschluss_am || null,
+    geprueft_von: zeile.geprueft_von || null,
+    mitgliedschaft_id: zeile.mitgliedschaft_id || null
+  };
+}
+
+async function handleAntraegeListe(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfSchreiben) {
+    return json({ error: "Nur die Geschaeftsstelle kann Aufnahmeantraege bearbeiten" }, 403, corsHeaders);
+  }
+
+  const status = ANTRAG_STATUS.has(body.status) ? body.status : "neu";
+  const zahlen = await env.VV_DB
+    .prepare("SELECT status, COUNT(*) AS n FROM aufnahmeantrag GROUP BY status").all();
+  const nach = {};
+  for (const z of zahlen.results || []) nach[z.status] = z.n;
+
+  const r = await env.VV_DB.prepare(
+    "SELECT id, eingang_am, status, antrag_json, sparten_json, beschluss_am, " +
+    "geprueft_von, mitgliedschaft_id FROM aufnahmeantrag WHERE status = ? " +
+    "ORDER BY eingang_am DESC LIMIT 200"
+  ).bind(status).all();
+
+  return json({
+    ok: true, status, nach,
+    antraege: (r.results || []).map(antragKurz)
+  }, 200, corsHeaders);
+}
+
+// Sucht Personen, die derselbe Mensch sein koennten oder zur selben
+// Familie gehoeren. EINE Abfrage, danach im Speicher getrennt:
+//   dublette  -- gleicher Nachname UND gleiches Geburtsdatum
+//   haushalt  -- gleicher Nachname unter derselben Anschrift
+// Die zweite Regel ist dieselbe, nach der der Import Haushalte gebildet
+// hat (Nachname + Strasse + PLZ) -- sonst faende die Pruefung eine
+// Familie, die es im Bestand gar nicht als Haushalt gibt.
+async function sucheAehnliche(env, a) {
+  const r = await env.VV_DB.prepare(
+    "SELECT p.id, p.vorname, p.nachname, p.geburtsdatum, p.strasse, p.plz, p.ort, " +
+    "       p.haushalt_id, h.bezeichnung, " +
+    "       (SELECT COUNT(*) FROM person q WHERE q.haushalt_id = p.haushalt_id) AS im_haushalt, " +
+    "       (SELECT m.mitgliedsnummer FROM mitgliedschaft m WHERE m.person_id = p.id " +
+    "        ORDER BY m.eintritt DESC LIMIT 1) AS mitgliedsnummer, " +
+    "       (SELECT m.status FROM mitgliedschaft m WHERE m.person_id = p.id " +
+    "        ORDER BY m.eintritt DESC LIMIT 1) AS mgs_status " +
+    "FROM person p LEFT JOIN haushalt h ON h.id = p.haushalt_id " +
+    "WHERE lower(p.nachname) = lower(?) " +
+    "  AND (p.geburtsdatum = ? OR (lower(p.plz) = lower(?) AND lower(p.strasse) = lower(?))) " +
+    "LIMIT 25"
+  ).bind(a.nachname || "", a.geburtsdatum || "", a.plz || "", a.strasse || "").all();
+
+  const dubletten = [], haushalte = [];
+  for (const z of r.results || []) {
+    if (a.geburtsdatum && z.geburtsdatum === a.geburtsdatum) dubletten.push(z);
+    else if (z.haushalt_id) haushalte.push(z);
+  }
+  return { dubletten, haushalte };
+}
+
+async function handleAntragDetail(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfSchreiben) {
+    return json({ error: "Nur die Geschaeftsstelle kann Aufnahmeantraege bearbeiten" }, 403, corsHeaders);
+  }
+
+  const zeile = await env.VV_DB
+    .prepare("SELECT * FROM aufnahmeantrag WHERE id = ?").bind(String(body.id || "")).first();
+  if (!zeile) return json({ error: "Antrag nicht gefunden" }, 404, corsHeaders);
+
+  let inhalt = {};
+  try { inhalt = JSON.parse(zeile.antrag_json || "{}"); } catch { inhalt = {}; }
+  let sparten = [];
+  try { sparten = JSON.parse(zeile.sparten_json || "[]"); } catch { sparten = []; }
+
+  const aehnlich = await sucheAehnliche(env, inhalt);
+  const heute = new Date().toISOString().slice(0, 10);
+  const klassen = (await ladeKlassenMitSatz(env, heute)).filter((k) => k.aktiv);
+
+  // Vorschlag fuer die Beitragsklasse: der WUNSCH des Antragstellers geht
+  // vor, das Alter ist nur die Rueckfallebene. Der Bestand zeigt, warum:
+  // ein 75-Jaehriger mit Kinderbeitrag, der juengste Rentner 48. Wer die
+  // Klasse aus dem Geburtsdatum ableitet, stellt ungefragt Beitraege um.
+  //
+  // Wird eine Familie erkannt, ist die Familienklasse gemeint -- sonst
+  // muesste die Geschaeftsstelle die Zeile gleich wieder korrigieren.
+  const wunsch = ANTRAG_BEITRAGSWUNSCH.has(inhalt.beitragsart_wunsch)
+    ? inhalt.beitragsart_wunsch
+    : klassenVorschlag(inhalt.geburtsdatum);
+  const regel = BEITRAGSKLASSEN.find((k) => k.schluessel === wunsch);
+  const familie = aehnlich.haushalte.length > 0;
+  const vorschlagKlasse = regel
+    ? (klassen.find((k) => k.name === regel.name + (familie ? " (Familie)" : ""))
+       || klassen.find((k) => k.name === regel.name))
+    : null;
+
+  return json({
+    ok: true,
+    antrag: {
+      id: zeile.id,
+      eingang_am: zeile.eingang_am,
+      status: zeile.status,
+      inhalt,
+      sparten,
+      unterschrift: zeile.unterschrift_datei || null,
+      unterschrift_gesetzl: zeile.unterschrift_gesetzl_datei || null,
+      signatur_ip: zeile.signatur_ip || null,
+      signatur_agent: zeile.signatur_agent || null,
+      signatur_zeit: zeile.signatur_zeit || null,
+      geprueft_am: zeile.geprueft_am || null,
+      geprueft_von: zeile.geprueft_von || null,
+      beschluss_am: zeile.beschluss_am || null,
+      ablehnung_grund: zeile.ablehnung_grund || null,
+      mitgliedschaft_id: zeile.mitgliedschaft_id || null
+    },
+    dubletten: aehnlich.dubletten,
+    haushalte: aehnlich.haushalte,
+    vorschlag: {
+      mitgliedsnummer: await naechsteMitgliedsnummer(env),
+      beitragsklasse_id: vorschlagKlasse ? vorschlagKlasse.id : null,
+      beitragsklasse_grund: ANTRAG_BEITRAGSWUNSCH.has(inhalt.beitragsart_wunsch)
+        ? "wunsch" : "alter",
+      eintritt: inhalt.eintritt_wunsch && inhalt.eintritt_wunsch > heute
+        ? inhalt.eintritt_wunsch : heute
+    },
+    beitragsklassen: klassen,
+    alle_sparten: ((await env.VV_DB
+      .prepare("SELECT id, name FROM sparte WHERE aktiv = 1 ORDER BY sortierung, name").all()
+    ).results) || []
+  }, 200, corsHeaders);
+}
+
+// Vormerken, ablehnen, zurueckziehen. Eine Aktion fuer alle drei, weil
+// alle drei nur eine Zeile umschreiben.
+async function handleAntragStatus(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfSchreiben) {
+    return json({ error: "Nur die Geschaeftsstelle kann Aufnahmeantraege bearbeiten" }, 403, corsHeaders);
+  }
+
+  const neu = String(body.status || "");
+  if (!["geprueft", "abgelehnt", "zurueckgezogen"].includes(neu)) {
+    return json({ error: "Unzulaessiger Status" }, 400, corsHeaders);
+  }
+
+  const zeile = await env.VV_DB
+    .prepare("SELECT id, status FROM aufnahmeantrag WHERE id = ?")
+    .bind(String(body.id || "")).first();
+  if (!zeile) return json({ error: "Antrag nicht gefunden" }, 404, corsHeaders);
+
+  // Ein angenommener Antrag hat eine Mitgliedschaft erzeugt. Die wieder
+  // aufzuloesen ist ein Austritt, kein Zuruecknehmen eines Formulars.
+  if (zeile.status === "angenommen") {
+    return json({ error: "Der Antrag ist bereits angenommen. Die Mitgliedschaft endet " +
+                         "ueber den Austritt, nicht ueber den Antrag." }, 409, corsHeaders);
+  }
+
+  const jetzt = new Date().toISOString();
+  await env.VV_DB.prepare(
+    "UPDATE aufnahmeantrag SET status = ?, geprueft_am = ?, geprueft_von = ?, " +
+    "ablehnung_grund = ? WHERE id = ?"
+  ).bind(neu, jetzt, me.username, sauber(body.vermerk, 300), zeile.id).run();
+
+  await protokolliere(env, me.username, "antrag-" + neu, "aufnahmeantrag", zeile.id, null);
+  return json({ ok: true, status: neu }, 200, corsHeaders);
+}
+
+// Die Annahme ist der Beschluss nach § 4 -- und der einzige Weg, auf dem
+// aus einem Antrag eine Mitgliedschaft wird.
+//
+// Eigene Bau-Funktion statt anweisungenFuerNeuesMitglied: die legt ein
+// Mandat nur bei einem NEUEN Haushalt an und immer mit quelle "import".
+// Hier haengt am Mandat eine digitale Unterschrift mitsamt Beweismitteln,
+// und ein Antragsteller kann einem bestehenden Haushalt beitreten, der
+// noch kein Mandat hat.
+function anweisungenFuerAnnahme(env, plan, jetzt, username) {
+  const an = [];
+  const personId = uuid();
+  const mgsId = uuid();
+  const haushaltId = plan.haushalt_id || uuid();
+
+  if (!plan.haushalt_id) {
+    an.push(env.VV_DB.prepare(
+      "INSERT INTO haushalt (id, bezeichnung, zahlungsweise, zahlungsart, erstellt_am, erstellt_von) " +
+      "VALUES (?,?,?,?,?,?)"
+    ).bind(haushaltId, "Familie " + plan.inhalt.nachname, "jaehrlich",
+           plan.inhalt.zahlungsart === "ueberweisung" ? "ueberweisung" : "lastschrift",
+           jetzt, username));
+  }
+
+  an.push(env.VV_DB.prepare(
+    "INSERT INTO person (id, haushalt_id, vorname, nachname, geburtsdatum, geschlecht, " +
+    "strasse, plz, ort, email, telefon, mobil, bemerkung, erstellt_am, erstellt_von) " +
+    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+  ).bind(personId, haushaltId, plan.inhalt.vorname, plan.inhalt.nachname,
+         plan.inhalt.geburtsdatum, plan.inhalt.geschlecht, plan.inhalt.strasse,
+         plan.inhalt.plz, plan.inhalt.ort, plan.inhalt.email, plan.inhalt.telefon,
+         plan.inhalt.mobil, plan.bemerkung, jetzt, username));
+
+  // Fremdschluessel-Zirkel: erst Haushalt ohne Zahler, dann Person, dann
+  // den Zahler nachtragen. Bei einem bestehenden Haushalt bleibt der
+  // eingetragene Zahler stehen.
+  if (!plan.haushalt_id) {
+    an.push(env.VV_DB.prepare("UPDATE haushalt SET zahler_person_id = ? WHERE id = ?")
+      .bind(personId, haushaltId));
+  }
+
+  an.push(env.VV_DB.prepare(
+    "INSERT INTO mitgliedschaft (id, person_id, mitgliedsnummer, art, eintritt, status, " +
+    "beschluss_am, beschluss_von, ermaessigt, beitragsklasse_id, familienbeitrag, " +
+    "erstellt_am, erstellt_von) VALUES (?,?,?,?,?,'aktiv',?,?,0,?,?,?,?)"
+  ).bind(mgsId, personId, plan.mitgliedsnummer, plan.art, plan.eintritt,
+         plan.beschluss_am, username, plan.beitragsklasse_id,
+         plan.familienbeitrag ? 1 : 0, jetzt, username));
+
+  for (const sparteId of plan.sparten) {
+    an.push(env.VV_DB.prepare(
+      "INSERT INTO mitgliedschaft_sparte (id, mitgliedschaft_id, sparte_id, eintritt, " +
+      "erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?)"
+    ).bind(uuid(), mgsId, sparteId, plan.eintritt, jetzt, username));
+  }
+
+  if (plan.mandat) {
+    an.push(env.VV_DB.prepare(
+      "INSERT INTO sepa_mandat (id, haushalt_id, referenz, kontoinhaber, iban, bic, " +
+      "erteilt_am, quelle, unterschrift_datei, signatur_ip, signatur_agent, " +
+      "erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?,?,'digital',?,?,?,?,?)"
+    ).bind(uuid(), haushaltId, plan.mandat.referenz, plan.mandat.kontoinhaber,
+           plan.mandat.iban, plan.mandat.bic, plan.mandat.erteilt_am,
+           plan.mandat.unterschrift, plan.mandat.ip, plan.mandat.agent, jetzt, username));
+  }
+
+  an.push(env.VV_DB.prepare(
+    "UPDATE aufnahmeantrag SET status = 'angenommen', geprueft_am = ?, geprueft_von = ?, " +
+    "beschluss_am = ?, person_id = ?, mitgliedschaft_id = ? WHERE id = ?"
+  ).bind(jetzt, username, plan.beschluss_am, personId, mgsId, plan.antrag_id));
+
+  return { anweisungen: an, personId, mgsId, haushaltId };
+}
+
+async function handleAntragAnnehmen(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfSchreiben) {
+    return json({ error: "Nur die Geschaeftsstelle kann Aufnahmeantraege bearbeiten" }, 403, corsHeaders);
+  }
+
+  const zeile = await env.VV_DB
+    .prepare("SELECT * FROM aufnahmeantrag WHERE id = ?").bind(String(body.id || "")).first();
+  if (!zeile) return json({ error: "Antrag nicht gefunden" }, 404, corsHeaders);
+  if (zeile.status === "angenommen") {
+    return json({ error: "Dieser Antrag ist bereits angenommen" }, 409, corsHeaders);
+  }
+  if (zeile.status === "abgelehnt" || zeile.status === "zurueckgezogen") {
+    return json({ error: "Der Antrag steht auf " + zeile.status +
+                         " und muss erst wieder vorgemerkt werden" }, 409, corsHeaders);
+  }
+
+  // Satzung § 4: ohne Beschluss des Gesamtvorstands keine Mitgliedschaft.
+  // Das Datum ist deshalb Pflichtfeld und nicht vorbelegt -- wer es
+  // eintraegt, bestaetigt, dass der Beschluss wirklich gefasst wurde.
+  const beschlussAm = sauber(body.beschluss_am, 10);
+  if (!beschlussAm || !istIsoDatum(beschlussAm)) {
+    return json({ error: "Ohne das Datum des Vorstandsbeschlusses kann der Antrag nicht " +
+                         "angenommen werden (§ 4 der Satzung)" }, 400, corsHeaders);
+  }
+  const heute = new Date().toISOString().slice(0, 10);
+  if (beschlussAm > heute) {
+    return json({ error: "Das Beschlussdatum liegt in der Zukunft" }, 400, corsHeaders);
+  }
+
+  let inhalt = {};
+  try { inhalt = JSON.parse(zeile.antrag_json || "{}"); } catch { inhalt = {}; }
+
+  const eintritt = sauber(body.eintritt, 10);
+  if (!eintritt || !istIsoDatum(eintritt)) {
+    return json({ error: "Das Eintrittsdatum fehlt oder ist kein gueltiges Datum" }, 400, corsHeaders);
+  }
+
+  const art = ANTRAG_ARTEN.has(body.art) ? body.art
+            : (ANTRAG_ARTEN.has(inhalt.art) ? inhalt.art : "ordentlich");
+
+  let nummer = sauber(body.mitgliedsnummer, 30);
+  if (!nummer) nummer = await naechsteMitgliedsnummer(env);
+  const belegt = await env.VV_DB.prepare("SELECT id FROM mitgliedschaft WHERE mitgliedsnummer = ?")
+    .bind(nummer).first();
+  if (belegt) {
+    return json({ error: "Mitgliedsnummer " + nummer + " ist bereits vergeben" }, 409, corsHeaders);
+  }
+
+  const haushaltId = sauber(body.haushalt_id, 40);
+  let mandatVorhanden = false;
+  if (haushaltId) {
+    const h = await env.VV_DB.prepare(
+      "SELECT h.id, (SELECT COUNT(*) FROM sepa_mandat m WHERE m.haushalt_id = h.id " +
+      "  AND m.widerrufen_am IS NULL) AS mandate FROM haushalt h WHERE h.id = ?"
+    ).bind(haushaltId).first();
+    if (!h) return json({ error: "Der gewaehlte Haushalt existiert nicht" }, 400, corsHeaders);
+    mandatVorhanden = Number(h.mandate || 0) > 0;
+  }
+
+  const klasseId = sauber(body.beitragsklasse_id, 40);
+  let familienbeitrag = false;
+  if (klasseId) {
+    const k = await env.VV_DB.prepare("SELECT id, name FROM beitragsklasse WHERE id = ?")
+      .bind(klasseId).first();
+    if (!k) return json({ error: "Die gewaehlte Beitragsklasse existiert nicht" }, 400, corsHeaders);
+    // Der Familienverbund ist eine eigene KLASSE ("Erwachsener (Familie)").
+    // Das Kennzeichen daneben waere eine zweite Wahrheit -- es wird
+    // deshalb aus dem Namen abgeleitet und nicht getrennt entgegen-
+    // genommen. Sonst steht am Mitglied irgendwann die Familienklasse
+    // mit familienbeitrag = 0, und keine Auswertung stimmt mehr.
+    familienbeitrag = / \(Familie\)$/.test(k.name);
+  }
+
+  const gewuenscht = Array.isArray(body.sparte_ids) ? body.sparte_ids.map(String) : [];
+  let sparten = [];
+  if (gewuenscht.length) {
+    const p = gewuenscht.map(() => "?").join(",");
+    const r = await env.VV_DB
+      .prepare("SELECT id FROM sparte WHERE id IN (" + p + ")").bind(...gewuenscht).all();
+    sparten = (r.results || []).map((z) => z.id);
+  }
+
+  // Das Mandat traegt bei Minderjaehrigen die Unterschrift des
+  // gesetzlichen Vertreters -- ein Minderjaehriger kann keines erteilen.
+  const mandatUnterschrift = inhalt.minderjaehrig
+    ? zeile.unterschrift_gesetzl_datei
+    : zeile.unterschrift_datei;
+  const mandat = (inhalt.zahlungsart === "lastschrift" && inhalt.iban && !mandatVorhanden
+                  && mandatUnterschrift)
+    ? {
+        referenz: "M-" + nummer,
+        kontoinhaber: inhalt.kontoinhaber || (inhalt.vorname + " " + inhalt.nachname),
+        iban: inhalt.iban,
+        bic: inhalt.bic || null,
+        erteilt_am: String(zeile.signatur_zeit || zeile.eingang_am).slice(0, 10),
+        unterschrift: mandatUnterschrift,
+        ip: zeile.signatur_ip || null,
+        agent: zeile.signatur_agent || null
+      }
+    : null;
+
+  const bemerkungTeile = [];
+  if (inhalt.familie_hinweis) bemerkungTeile.push("Familienhinweis: " + inhalt.familie_hinweis);
+  if (inhalt.beitragsart_wunsch) bemerkungTeile.push("Beitragswunsch: " + inhalt.beitragsart_wunsch);
+  if (inhalt.gesetzl_name) {
+    bemerkungTeile.push("Gesetzlicher Vertreter: " + inhalt.gesetzl_name +
+                        (inhalt.gesetzl_verhaeltnis ? " (" + inhalt.gesetzl_verhaeltnis + ")" : ""));
+  }
+  // Die Foto-Einwilligung ist freiwillig und muss belegbar bleiben --
+  // auch die Verweigerung, sonst weiss spaeter niemand, ob nur nicht
+  // gefragt wurde.
+  bemerkungTeile.push("Fotoeinwilligung: " + (inhalt.einwilligung_fotos ? "ja" : "nein"));
+  if (inhalt.bemerkung) bemerkungTeile.push("Anmerkung: " + inhalt.bemerkung);
+
+  const jetzt = new Date().toISOString();
+  const gebaut = anweisungenFuerAnnahme(env, {
+    antrag_id: zeile.id,
+    inhalt,
+    haushalt_id: haushaltId,
+    mitgliedsnummer: nummer,
+    art, eintritt,
+    beschluss_am: beschlussAm,
+    beitragsklasse_id: klasseId || null,
+    familienbeitrag,
+    sparten,
+    mandat,
+    bemerkung: bemerkungTeile.join(" | ").slice(0, 500)
+  }, jetzt, me.username);
+
+  await env.VV_DB.batch(gebaut.anweisungen);
+  await protokolliere(env, me.username, "antrag-angenommen", "aufnahmeantrag", zeile.id,
+                      { mitgliedsnummer: nummer, beschluss_am: beschlussAm, mandat: !!mandat });
+
+  return json({
+    ok: true,
+    mitgliedschaft_id: gebaut.mgsId,
+    mitgliedsnummer: nummer,
+    mandat_angelegt: !!mandat,
+    // Wer per Lastschrift zahlen wollte, aber keines bekommen hat, muss
+    // das erfahren -- sonst faellt es erst beim Beitragslauf auf.
+    mandat_hinweis: (inhalt.zahlungsart === "lastschrift" && !mandat)
+      ? (mandatVorhanden
+          ? "Der Haushalt hat bereits ein Mandat; es wurde keines zweites angelegt."
+          : "Es wurde kein Mandat angelegt (keine IBAN oder keine Unterschrift im Antrag).")
+      : null
+  }, 200, corsHeaders);
+}
+
+// ---------------------------------------------------------------------
 // Belastungstest (Stufe 0) -- misst, ob der kostenlose Cloudflare-Tarif
 // den Beitragslauf traegt. Kann nach der Tarifentscheidung raus.
 //
@@ -3799,10 +4520,6 @@ export default {
       return new Response("Method Not Allowed", { status: 405, headers: corsHeaders });
     }
 
-    // Fail-closed. Ohne Binding lieber gar nichts als ungeprueft.
-    if (!env.LANDINGPAGE) {
-      return json({ error: "Service Binding 'LANDINGPAGE' fehlt (siehe Datei-Kopf)" }, 500, corsHeaders);
-    }
     if (!env.VV_DB) {
       return json({ error: "D1-Binding 'VV_DB' fehlt (siehe Datei-Kopf)" }, 500, corsHeaders);
     }
@@ -3812,6 +4529,33 @@ export default {
       body = await request.json();
     } catch {
       return json({ error: "Ungueltiges JSON" }, 400, corsHeaders);
+    }
+
+    // Der Aufnahmeantrag ist der einzige Weg von aussen. Er steht VOR der
+    // Session-Pruefung, weil es dafuer keine Anmeldung gibt und geben
+    // soll: wer Mitglied werden will, hat noch kein Konto.
+    //
+    // Er steht auch vor der LANDINGPAGE-Pruefung, weil er das Gateway
+    // nicht braucht. Ein fehlendes Service Binding darf die
+    // Mitgliederverwaltung lahmlegen -- aber nicht das oeffentliche
+    // Formular, das mit Anmeldung ohnehin nichts zu tun hat.
+    //
+    // Beide Aktionen pruefen selbst, ob das Formular offen ist. Kein
+    // gemeinsamer Vorab-Aufruf, der sich umgehen liesse.
+    if (body.action === "vv-antrag-info" || body.action === "vv-antrag-senden") {
+      try {
+        return body.action === "vv-antrag-info"
+          ? await handleAntragInfo(env, corsHeaders)
+          : await handleAntragSenden(body, env, request, corsHeaders);
+      } catch (e) {
+        return json({ error: "Serverfehler: " + (e && e.message ? e.message : String(e)) },
+                    500, corsHeaders);
+      }
+    }
+
+    // Fail-closed. Ohne Binding lieber gar nichts als ungeprueft.
+    if (!env.LANDINGPAGE) {
+      return json({ error: "Service Binding 'LANDINGPAGE' fehlt (siehe Datei-Kopf)" }, 500, corsHeaders);
     }
 
     // Session vor der Aktionsweiche -- wie submit-worker.js. Folge fuer
@@ -3869,6 +4613,11 @@ export default {
         case "vv-mahnung-versendet": return handleMahnungVersendet(body, env, me, corsHeaders);
         case "vv-mahnung-erledigt": return handleMahnungErledigt(body, env, me, corsHeaders);
         case "vv-ausschluss-kandidaten": return handleAusschlussKandidaten(env, me, corsHeaders);
+        case "vv-antraege":        return handleAntraegeListe(body, env, me, corsHeaders);
+        case "vv-antrag":          return handleAntragDetail(body, env, me, corsHeaders);
+        case "vv-antrag-status":   return handleAntragStatus(body, env, me, corsHeaders);
+        case "vv-antrag-annehmen": return handleAntragAnnehmen(body, env, me, corsHeaders);
+        case "vv-sparte-aktiv":    return handleSparteAktiv(body, env, me, corsHeaders);
         case "vv-sparten-init":    return handleSpartenInit(env, me, corsHeaders);
         case "vv-seed":            return handleSeed(body, env, me, corsHeaders);
         case "vv-messlauf":        return handleMesslauf(body, env, me, corsHeaders);

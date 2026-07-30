@@ -39,6 +39,22 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Online-Aufnahmeantrag nach § 4",
+    datum: "2026-07-30",
+    punkte: [
+      "Neues öffentliches Formular unter antrag.html: Aufnahmeantrag und SEPA-Mandat am Handy ausfüllen und mit dem Finger unterschreiben. Kein Ausdruck, kein Login.",
+      "Ein Antrag wird nie von selbst zur Mitgliedschaft. Sie entsteht erst, wenn im neuen Reiter Anträge das Datum des Vorstandsbeschlusses eingetragen wird — § 4 verlangt ihn, und die App kann ihn nicht erraten.",
+      "Ist der Antragsteller minderjährig, verlangt das Formular Namen und Unterschrift des gesetzlichen Vertreters. Dessen Unterschrift trägt dann auch das Lastschriftmandat.",
+      "Beim Öffnen eines Antrags wird gesucht, ob die Person schon im Bestand steht oder Familie unter derselben Anschrift wohnt. Beim Zuordnen zu deren Haushalt gilt der Familienbeitrag und ein vorhandenes Mandat wird weiterverwendet.",
+      "Aus der Annahme entstehen in einem Zug Person, Haushalt, Mitgliedschaft, Abteilungen und — aus der Unterschrift — das SEPA-Mandat.",
+      "Die Ehrenmitgliedschaft steht im Formular nicht zur Wahl: sie wird nach § 4 Abs. 5 verliehen, nicht beantragt.",
+      "Die Foto-Einwilligung ist freiwillig und getrennt von der Aufnahme. Ob sie erteilt wurde, steht beim Mitglied.",
+      "Das Formular lässt sich in der Verwaltung schließen und wieder öffnen.",
+      "Die IBAN wird schon beim Tippen geprüft. Eine falsche Prüfziffer lässt sonst die komplette Einreichung bei der Bank scheitern.",
+      "Nach dem Absenden bekommt der Antragsteller seine Erklärung samt Unterschrift zum Ausdrucken oder Speichern."
+    ]
+  },
+  {
     version: "Mahnwesen nach § 5 Abs. 3",
     datum: "2026-07-30",
     punkte: [

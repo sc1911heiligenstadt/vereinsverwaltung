@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aufnahmeantrag &mdash; 1. SC 1911 Heiligenstadt</title>
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="style.css?v=1.8">
+</head>
+<body class="antragseite">
+
+<!-- Bewusst OHNE Link zum Dashboard: diese Seite erreicht, wer noch kein
+     Vereinskonto hat. Ein Knopf, der ins Anmeldefenster einer internen
+     Verwaltung führt, ist für ihn eine Sackgasse. -->
+<header>
+  <h1>Aufnahmeantrag</h1>
+  <div class="kopf-rechts"><span id="verein-name">1. SC 1911 Heiligenstadt e.&nbsp;V.</span></div>
+</header>
+
+<main>
+
+  <div id="lade-schirm" class="karte">
+    <p class="fussnote">Das Formular wird geladen …</p>
+  </div>
+
+  <!-- Formular geschlossen: eigener Zustand, damit niemand ein Formular
+       ausfüllt, das der Server danach ablehnt. -->
+  <div id="zu-schirm" class="karte" hidden>
+    <h2>Zurzeit keine Online-Anträge</h2>
+    <p>Der Online-Aufnahmeantrag ist im Augenblick geschlossen. Die Geschäftsstelle
+    nimmt Ihren Antrag gerne auf dem üblichen Weg entgegen.</p>
+  </div>
+
+  <div id="formular" hidden>
+
+    <div class="karte">
+      <h2>Willkommen beim <span class="verein-name-text">1. SC 1911 Heiligenstadt e.&nbsp;V.</span></h2>
+      <p>Mit diesem Formular beantragen Sie die Aufnahme in den Verein. Sie können es
+      am Handy ausfüllen und unterschreiben — ein Ausdruck ist nicht nötig.</p>
+      <div class="hinweis info">
+        <strong>Der Antrag ist noch keine Mitgliedschaft.</strong> Nach § 4 der Satzung
+        entscheidet der Gesamtvorstand über die Aufnahme. Sie hören von der
+        Geschäftsstelle, sobald der Beschluss vorliegt.
+      </div>
+      <div id="beitrags-info"></div>
+    </div>
+
+    <div class="karte">
+      <div class="schritt-nummer">1 — Person</div>
+      <div class="formraster">
+        <div class="feld">
+          <label for="a-anrede">Anrede</label>
+          <select id="a-anrede">
+            <option value="">—</option>
+            <option>Frau</option>
+            <option>Herr</option>
+          </select>
+        </div>
+        <div class="feld">
+          <label for="a-geschlecht">Geschlecht</label>
+          <select id="a-geschlecht">
+            <option value="">Keine Angabe</option>
+            <option value="w">weiblich</option>
+            <option value="m">männlich</option>
+            <option value="d">divers</option>
+          </select>
+        </div>
+        <div class="feld">
+          <label for="a-vorname">Vorname *</label>
+          <input id="a-vorname" autocomplete="given-name">
+        </div>
+        <div class="feld">
+          <label for="a-nachname">Nachname *</label>
+          <input id="a-nachname" autocomplete="family-name">
+        </div>
+        <div class="feld">
+          <label for="a-geburtsdatum">Geburtsdatum *</label>
+          <input id="a-geburtsdatum" type="date" autocomplete="bday">
+        </div>
+        <div class="feld">
+          <label>&nbsp;</label>
+          <span id="a-alter-hinweis" class="fussnote">&nbsp;</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="karte">
+      <div class="schritt-nummer">2 — Anschrift und Kontakt</div>
+      <div class="formraster">
+        <div class="feld breit">
+          <label for="a-strasse">Straße und Hausnummer *</label>
+          <input id="a-strasse" autocomplete="street-address">
+        </div>
+        <div class="feld">
+          <label for="a-plz">PLZ *</label>
+          <input id="a-plz" inputmode="numeric" autocomplete="postal-code">
+        </div>
+        <div class="feld">
+          <label for="a-ort">Ort *</label>
+          <input id="a-ort" autocomplete="address-level2">
+        </div>
+        <div class="feld">
+          <label for="a-email">E-Mail *</label>
+          <input id="a-email" type="email" inputmode="email" autocomplete="email">
+        </div>
+        <div class="feld">
+          <label for="a-mobil">Mobil</label>
+          <input id="a-mobil" type="tel" inputmode="tel" autocomplete="tel">
+        </div>
+        <div class="feld">
+          <label for="a-telefon">Festnetz</label>
+          <input id="a-telefon" type="tel" inputmode="tel">
+        </div>
+      </div>
+      <p class="fussnote">Die E-Mail-Adresse brauchen wir für die Bestätigung und für
+      die Ankündigung des Beitragseinzugs.</p>
+    </div>
+
+    <div class="karte">
+      <div class="schritt-nummer">3 — Mitgliedschaft</div>
+      <div class="formraster">
+        <div class="feld">
+          <label for="a-art">Art der Mitgliedschaft</label>
+          <select id="a-art">
+            <option value="ordentlich">Ordentliches Mitglied (natürliche Person)</option>
+            <option value="ausserordentlich">Außerordentliches Mitglied (Firma, Verein)</option>
+          </select>
+        </div>
+        <div class="feld">
+          <label for="a-eintritt">Gewünschter Eintritt</label>
+          <input id="a-eintritt" type="date">
+        </div>
+        <div class="feld">
+          <label for="a-beitragsart">Beitragsart (Ihre Einschätzung)</label>
+          <select id="a-beitragsart">
+            <option value="">—</option>
+            <option value="erwachsener">Erwachsener</option>
+            <option value="jugend">Kind / Jugendlicher</option>
+            <option value="rentner">Rentner</option>
+          </select>
+        </div>
+        <div class="feld breit">
+          <label for="a-familie">Sind bereits Familienmitglieder im Verein? (Name)</label>
+          <input id="a-familie" placeholder="z. B. Anna Mustermann, meine Schwester">
+        </div>
+      </div>
+      <p class="fussnote">Die Beitragsart ist eine Angabe, keine Festlegung — die
+      Geschäftsstelle ordnet den Beitrag beim Beschluss endgültig zu. Wer im
+      Familienverbund zahlt, bekommt den halben Beitrag.</p>
+
+      <h3>Abteilungen</h3>
+      <div id="a-sparten" class="ankreuz-raster"></div>
+      <p class="fussnote">Mehrfachnennung möglich. Der Beitrag fällt trotzdem nur
+      einmal an — nicht je Abteilung.</p>
+    </div>
+
+    <div class="karte">
+      <div class="schritt-nummer">4 — Beitragszahlung</div>
+      <div class="ankreuz">
+        <input type="radio" name="a-zahlungsart" id="a-zart-last" value="lastschrift" checked>
+        <label for="a-zart-last">Lastschrift (SEPA-Mandat, empfohlen)</label>
+      </div>
+      <div class="ankreuz">
+        <input type="radio" name="a-zahlungsart" id="a-zart-ueber" value="ueberweisung">
+        <label for="a-zart-ueber">Überweisung</label>
+      </div>
+
+      <div id="a-bank-block">
+        <div class="formraster">
+          <div class="feld breit">
+            <label for="a-kontoinhaber">Kontoinhaber *</label>
+            <input id="a-kontoinhaber" autocomplete="name">
+          </div>
+          <div class="feld">
+            <label for="a-iban">IBAN *</label>
+            <input id="a-iban" autocomplete="off" spellcheck="false" placeholder="DE00 0000 0000 0000 0000 00">
+          </div>
+          <div class="feld">
+            <label for="a-bic">BIC (nur wenn bekannt)</label>
+            <input id="a-bic" autocomplete="off" spellcheck="false">
+          </div>
+        </div>
+        <div id="a-iban-hinweis" class="hinweis fehler" hidden></div>
+        <div class="mandatstext" id="a-mandatstext"></div>
+      </div>
+
+      <div id="a-ueberweisung-hinweis" class="hinweis info" hidden>
+        Sie erhalten mit der Aufnahmebestätigung die Bankverbindung des Vereins und
+        den fälligen Betrag.
+      </div>
+    </div>
+
+    <!-- Erscheint nur, wenn das Geburtsdatum unter 18 Jahren liegt. Ein
+         Minderjähriger kann weder wirksam beitreten noch ein Lastschrift-
+         mandat erteilen; ohne diesen Block wäre der Antrag unwirksam. -->
+    <div class="karte" id="a-karte-gesetzl" hidden>
+      <div class="schritt-nummer">5 — Gesetzlicher Vertreter</div>
+      <div class="hinweis warn">
+        Das Geburtsdatum liegt unter 18 Jahren. Der Antrag und das Lastschriftmandat
+        müssen deshalb von einem gesetzlichen Vertreter unterschrieben werden.
+      </div>
+      <div class="formraster">
+        <div class="feld">
+          <label for="a-gesetzl-name">Name des gesetzlichen Vertreters *</label>
+          <input id="a-gesetzl-name">
+        </div>
+        <div class="feld">
+          <label for="a-gesetzl-verhaeltnis">Verhältnis</label>
+          <select id="a-gesetzl-verhaeltnis">
+            <option value="">—</option>
+            <option>Mutter</option>
+            <option>Vater</option>
+            <option>Vormund</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="karte">
+      <div class="schritt-nummer" id="nr-einwilligung">6 — Erklärungen</div>
+      <label class="ankreuz">
+        <input type="checkbox" id="a-ew-satzung">
+        <span>Ich erkenne die <a href="https://www.sc1911-heiligenstadt.de/satzung/" target="_blank" rel="noopener">Satzung</a>
+        und die Beitragsordnung des Vereins an. *</span>
+      </label>
+      <label class="ankreuz">
+        <input type="checkbox" id="a-ew-datenschutz">
+        <span>Meine Daten dürfen zur Mitglieder- und Beitragsverwaltung gespeichert und
+        an den Landessportbund und die zuständigen Fachverbände gemeldet werden. *</span>
+      </label>
+      <label class="ankreuz">
+        <input type="checkbox" id="a-ew-fotos">
+        <span>Fotos von Vereinsveranstaltungen, auf denen ich zu sehen bin, dürfen für
+        die Vereinsberichterstattung verwendet werden. <em>(freiwillig)</em></span>
+      </label>
+      <p class="fussnote">Die Foto-Einwilligung ist freiwillig und hat keinen Einfluss
+      auf die Aufnahme. Sie lässt sich jederzeit widerrufen.</p>
+
+      <div class="feld" style="margin-top:12px">
+        <label for="a-bemerkung">Anmerkung an die Geschäftsstelle</label>
+        <textarea id="a-bemerkung" rows="3"></textarea>
+      </div>
+    </div>
+
+    <div class="karte">
+      <div class="schritt-nummer" id="nr-unterschrift">7 — Unterschrift</div>
+      <p class="fussnote">Mit dem Finger, dem Stift oder der Maus in das Feld
+      unterschreiben. Die Unterschrift gilt für die Beitrittserklärung und
+      — bei Lastschrift — für das SEPA-Mandat darüber.</p>
+
+      <div class="unterschrift-block">
+        <div class="unterschrift-titel" id="a-sig-titel">Unterschrift des Antragstellers</div>
+        <canvas id="a-sig" class="unterschrift-feld"></canvas>
+        <div class="knopfreihe">
+          <button class="btn grau klein" id="btn-sig-loeschen" type="button">Neu zeichnen</button>
+        </div>
+      </div>
+
+      <div class="unterschrift-block" id="a-sig-gesetzl-block" hidden>
+        <div class="unterschrift-titel">Unterschrift des gesetzlichen Vertreters</div>
+        <canvas id="a-sig-gesetzl" class="unterschrift-feld"></canvas>
+        <div class="knopfreihe">
+          <button class="btn grau klein" id="btn-sig-gesetzl-loeschen" type="button">Neu zeichnen</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="karte">
+      <div id="a-meldung" class="hinweis fehler" hidden></div>
+      <div class="knopfreihe">
+        <button class="btn gross" id="btn-antrag-senden" type="button">Antrag verbindlich absenden</button>
+      </div>
+      <p class="fussnote">Mit dem Absenden geht der Antrag bei der Geschäftsstelle ein.
+      Zeitpunkt, Internetadresse und Gerätekennung werden als Nachweis der Unterschrift
+      mitgespeichert.</p>
+    </div>
+
+  </div>
+
+  <!-- Bestätigung. Zugleich der Beleg für den Antragsteller: gedruckt oder
+       als PDF gesichert ist das seine Kopie der Erklärung. Ein Mailversand
+       wäre der bessere Weg, solange aber DKIM/DMARC für die Vereinsdomain
+       fehlen, landet er bei Gmail im Spam — und eine Bestätigung im Spam
+       ist keine Bestätigung. -->
+  <div id="danke" hidden>
+    <div class="karte">
+      <h2>Ihr Antrag ist eingegangen</h2>
+      <div class="hinweis erfolg" id="danke-kopf"></div>
+      <p>Über die Aufnahme entscheidet nach § 4 der Satzung der Gesamtvorstand.
+      Die Geschäftsstelle meldet sich, sobald der Beschluss vorliegt.</p>
+      <p class="fussnote"><strong>Bitte sichern Sie sich diese Seite</strong> — sie ist
+      Ihre Kopie der Erklärung samt Unterschrift.</p>
+      <div class="knopfreihe nicht-drucken">
+        <button class="btn" id="btn-drucken" type="button">Drucken oder als PDF sichern</button>
+      </div>
+    </div>
+    <div class="karte" id="danke-zusammenfassung"></div>
+  </div>
+
+</main>
+
+<script src="signature-pad.js?v=1.0"></script>
+<script src="db-antrag.js?v=1.0"></script>
+<script src="antrag.js?v=1.0"></script>
+</body>
+</html>

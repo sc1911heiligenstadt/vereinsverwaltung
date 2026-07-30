@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vereinsverwaltung &mdash; 1. SC 1911 Heiligenstadt</title>
-<link rel="stylesheet" href="style.css?v=1.7">
+<link rel="stylesheet" href="style.css?v=1.8">
 </head>
 <body>
 
@@ -22,6 +22,7 @@
   <button data-tab="tab-beitraege" id="nav-beitraege" hidden>Beiträge</button>
   <button data-tab="tab-lauf" id="nav-lauf" hidden>Beitragslauf</button>
   <button data-tab="tab-zahlungen" id="nav-zahlungen" hidden>Zahlungen</button>
+  <button data-tab="tab-antraege" id="nav-antraege" hidden>Anträge</button>
   <button data-tab="tab-import" id="nav-import" hidden>Import</button>
   <button data-tab="tab-rollen" id="nav-rollen" hidden>Rollen</button>
   <button data-tab="tab-info">Info</button>
@@ -352,6 +353,32 @@
         <div id="z-konto"></div>
         <div id="z-konto-status" class="hinweis info" hidden></div>
         <div class="knopfreihe" id="z-konto-knoepfe"></div>
+      </div>
+
+    </section>
+
+    <!-- Aufnahmeanträge nach § 4. Der Reiter macht sichtbar, was das
+         öffentliche Formular auf antrag.html liefert — und wo aus einem
+         Antrag eine Mitgliedschaft wird. Nirgends sonst. -->
+    <section id="tab-antraege" class="tab">
+
+      <div class="karte">
+        <h2>Aufnahmeanträge</h2>
+        <p class="fussnote">Über die Aufnahme entscheidet nach § 4 der Satzung der
+        Gesamtvorstand. Ein Antrag wird hier <strong>nie</strong> von selbst zur
+        Mitgliedschaft — dafür braucht es das Datum des Beschlusses.</p>
+        <div id="an-erfolg" class="hinweis erfolg" hidden></div>
+        <div class="knopfreihe" id="an-reiter"></div>
+      </div>
+
+      <div class="karte">
+        <div id="an-liste"></div>
+      </div>
+
+      <div class="karte">
+        <h2>Das öffentliche Formular</h2>
+        <div id="an-schalter"></div>
+        <div id="an-sparten"></div>
       </div>
 
     </section>
@@ -700,16 +727,30 @@
   </div>
 </div>
 
+<div class="overlay" id="antrag-overlay" hidden>
+  <div class="dialog breit" role="dialog" aria-modal="true" aria-labelledby="an-titel">
+    <div class="dialog-kopf">
+      <h2 id="an-titel">Aufnahmeantrag</h2>
+      <button class="dialog-zu" id="btn-an-zu" aria-label="Schließen">&times;</button>
+    </div>
+    <div class="dialog-inhalt" id="an-inhalt"></div>
+    <div class="dialog-fuss">
+      <button class="btn grau" id="btn-an-schliessen">Schließen</button>
+    </div>
+  </div>
+</div>
+
 <footer>1. SC 1911 Heiligenstadt &mdash; interne Vereinsverwaltung</footer>
 
-<script src="config.js?v=1.6"></script>
+<script src="config.js?v=1.7"></script>
 <script src="db.js?v=1.1"></script>
 <script src="import.js?v=1.1"></script>
 <script src="rollen.js?v=1.0"></script>
 <script src="beitraege.js?v=1.0"></script>
-<script src="lauf.js?v=1.3"></script>
+<script src="lauf.js?v=1.4"></script>
 <script src="zahlungen.js?v=1.0"></script>
 <script src="mahnung.js?v=1.0"></script>
-<script src="app.js?v=1.7"></script>
+<script src="antraege.js?v=1.0"></script>
+<script src="app.js?v=1.8"></script>
 </body>
 </html>

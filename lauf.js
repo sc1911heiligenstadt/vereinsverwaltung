@@ -75,7 +75,11 @@ async function ladeStammdaten() {
 
   // Nur die SEPA-Stammdaten. Die Mahnfristen kommen aus derselben Aktion,
   // gehören aber in den Zahlungen-Reiter, wo sie gebraucht werden.
-  const felder = laufStammdaten.felder.filter((f) => f.gruppe !== "mahnung");
+  // Weißliste, keine Sperrliste: hier gehören ausschließlich die
+  // SEPA-Stammdaten hin. Mit "alles außer mahnung" wäre jede künftige
+  // Einstellungsgruppe ungefragt in diesem Reiter gelandet — genau das
+  // ist mit der Gruppe "antrag" beinahe passiert.
+  const felder = laufStammdaten.felder.filter((f) => f.gruppe === "sepa");
 
   ziel.innerHTML = '<div class="formraster">' +
     felder.map((f) =>

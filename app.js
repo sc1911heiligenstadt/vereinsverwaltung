@@ -124,6 +124,10 @@ async function start() {
   $("nav-lauf").hidden = !(meineRechte.darfBuchen || meineRechte.darfSchreiben);
   $("nav-zahlungen").hidden = !(meineRechte.darfBuchen || meineRechte.darfSchreiben);
 
+  // Aufnahmeanträge enthalten Bankdaten und werden zu Mitgliedschaften --
+  // dasselbe Recht wie das Anlegen von Hand.
+  $("nav-antraege").hidden = !meineRechte.darfSchreiben;
+
   await ladeSpartenAuswahl();
   await ladeUndZeige();
   if (meineRechte.isAdmin) ladeRollen();
@@ -139,6 +143,13 @@ async function start() {
     ladeMahnEinstellungen();
     ladeMahnungen();
     ladeAusschluss();
+  }
+  // Steht bewusst hinter dem Block darüber: die Annahme eines Antrags
+  // schreibt beitragsklasse_id und familienbeitrag, und diese beiden
+  // Spalten legt erst die Migration an, die ladeStammdaten() anstößt.
+  if (meineRechte.darfSchreiben) {
+    ladeAntraege();
+    ladeAntragSchalter();
   }
 }
 
@@ -519,7 +530,11 @@ function zeichneSparten(liste, darfAendern) {
   if (!darfAendern) return;
 
   const offen = new Set(liste.filter((s) => !s.austritt).map((s) => s.sparte_id));
-  const frei = spartenListe.filter((s) => !offen.has(s.id));
+  // Stillgelegte Abteilungen werden nicht mehr angeboten. Der FILTER oben
+  // zeigt sie weiter — sonst fände man die Mitglieder einer aufgelösten
+  // Abteilung nicht mehr —, aber jemanden neu hineinzuschreiben wäre
+  // etwas anderes.
+  const frei = spartenListe.filter((s) => s.aktiv && !offen.has(s.id));
   const sel = $("d-sparte-neu");
   sel.innerHTML = frei.map((s) => '<option value="' + esc(s.id) + '">' + esc(s.name) + "</option>").join("");
   hinzu.hidden = frei.length === 0;
@@ -574,8 +589,9 @@ function oeffneNeu() {
   $("n-eintritt").value = h.getFullYear() + "-" +
     String(h.getMonth() + 1).padStart(2, "0") + "-" + String(h.getDate()).padStart(2, "0");
 
-  $("n-sparten").innerHTML = spartenListe.length
-    ? spartenListe.map((s) =>
+  const waehlbar = spartenListe.filter((s) => s.aktiv);
+  $("n-sparten").innerHTML = waehlbar.length
+    ? waehlbar.map((s) =>
         '<label class="ankreuz"><input type="checkbox" value="' + esc(s.id) + '"> ' + esc(s.name) + "</label>").join("")
     : '<p class="fussnote">Es sind noch keine Sparten angelegt.</p>';
 
@@ -751,6 +767,7 @@ function init() {
   laufVerdrahten();
   zahlungenVerdrahten();
   mahnungVerdrahten();
+  antraegeVerdrahten();
 
   // Klick auf die abgedunkelte Flaeche schliesst, Klick im Dialog nicht.
   $("detail-overlay").addEventListener("click", (e) => {
@@ -759,14 +776,15 @@ function init() {
   $("neu-overlay").addEventListener("click", (e) => {
     if (e.target === $("neu-overlay")) $("neu-overlay").hidden = true;
   });
-  ["lauf-overlay", "zahlung-overlay", "rueck-overlay"].forEach((id) => {
+  ["lauf-overlay", "zahlung-overlay", "rueck-overlay", "antrag-overlay"].forEach((id) => {
     $(id).addEventListener("click", (e) => { if (e.target === $(id)) $(id).hidden = true; });
   });
   // Der obere Dialog zuerst: sonst schliesst Escape im Anlegen-Dialog die
   // dahinterliegende Detailansicht mit.
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
-    for (const id of ["rueck-overlay", "zahlung-overlay", "lauf-overlay", "neu-overlay"]) {
+    for (const id of ["rueck-overlay", "zahlung-overlay", "lauf-overlay",
+                      "antrag-overlay", "neu-overlay"]) {
       if (!$(id).hidden) { $(id).hidden = true; return; }
     }
     if (!$("detail-overlay").hidden) schliesseDetail();
