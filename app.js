@@ -118,10 +118,16 @@ async function start() {
   $("nav-rollen").hidden = !meineRechte.isAdmin;
   $("nav-beitraege").hidden = !(meineRechte.darfSchreiben || meineRechte.darfBuchen);
 
+  // Der Beitragslauf erzeugt Forderungen und eine Datei mit hunderten
+  // IBANs. Ansehen darf ihn auch die Geschaeftsstelle -- ausloesen nur
+  // der Schatzmeister, das erzwingt der Worker noch einmal selbst.
+  $("nav-lauf").hidden = !(meineRechte.darfBuchen || meineRechte.darfSchreiben);
+
   await ladeSpartenAuswahl();
   await ladeUndZeige();
   if (meineRechte.isAdmin) ladeRollen();
   if (meineRechte.darfSchreiben || meineRechte.darfBuchen) ladeBeitraege();
+  if (meineRechte.darfBuchen || meineRechte.darfSchreiben) { ladeLaeufe(); ladeStammdaten(); }
 }
 
 async function ladeSpartenAuswahl() {
@@ -730,6 +736,7 @@ function init() {
   impVerdrahten();
   rollenVerdrahten();
   beitraegeVerdrahten();
+  laufVerdrahten();
 
   // Klick auf die abgedunkelte Flaeche schliesst, Klick im Dialog nicht.
   $("detail-overlay").addEventListener("click", (e) => {
@@ -738,10 +745,14 @@ function init() {
   $("neu-overlay").addEventListener("click", (e) => {
     if (e.target === $("neu-overlay")) $("neu-overlay").hidden = true;
   });
+  $("lauf-overlay").addEventListener("click", (e) => {
+    if (e.target === $("lauf-overlay")) $("lauf-overlay").hidden = true;
+  });
   // Der obere Dialog zuerst: sonst schliesst Escape im Anlegen-Dialog die
   // dahinterliegende Detailansicht mit.
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
+    if (!$("lauf-overlay").hidden) { $("lauf-overlay").hidden = true; return; }
     if (!$("neu-overlay").hidden) { $("neu-overlay").hidden = true; return; }
     if (!$("detail-overlay").hidden) schliesseDetail();
   });

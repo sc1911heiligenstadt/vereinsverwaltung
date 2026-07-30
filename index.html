@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vereinsverwaltung &mdash; 1. SC 1911 Heiligenstadt</title>
-<link rel="stylesheet" href="style.css?v=1.4">
+<link rel="stylesheet" href="style.css?v=1.5">
 </head>
 <body>
 
@@ -20,6 +20,7 @@
 <nav id="haupt-nav" hidden>
   <button data-tab="tab-mitglieder" class="aktiv">Mitglieder</button>
   <button data-tab="tab-beitraege" id="nav-beitraege" hidden>Beiträge</button>
+  <button data-tab="tab-lauf" id="nav-lauf" hidden>Beitragslauf</button>
   <button data-tab="tab-import" id="nav-import" hidden>Import</button>
   <button data-tab="tab-rollen" id="nav-rollen" hidden>Rollen</button>
   <button data-tab="tab-info">Info</button>
@@ -208,6 +209,66 @@
           </div>
         </div>
         <div id="b-satz-status" class="hinweis info" hidden></div>
+      </div>
+
+    </section>
+
+    <!-- Beitragslauf und SEPA. Hängt am Schatzmeister, nicht am
+         Bearbeiten-Recht: hier entstehen Forderungen und eine Datei mit
+         500 IBANs. -->
+    <section id="tab-lauf" class="tab">
+
+      <div class="karte">
+        <h2>Vereinsstammdaten</h2>
+        <p class="fussnote">Ohne diese Angaben lässt sich keine SEPA-Datei erzeugen. Sie stehen in der
+        Datenbank und nicht im Programmcode — eine Vereins-IBAN gehört nicht in ein öffentliches
+        Repository.</p>
+        <div id="l-stammdaten"></div>
+        <div id="l-stamm-status" class="hinweis info" hidden></div>
+      </div>
+
+      <div class="karte">
+        <h2>Beitragsläufe</h2>
+        <div id="l-liste"></div>
+        <div class="knopfreihe">
+          <button class="btn grau" id="btn-l-neu-laden">Neu laden</button>
+          <button class="btn" id="btn-l-neu">Neuen Lauf anlegen</button>
+        </div>
+      </div>
+
+      <div class="karte" id="l-karte-detail" hidden>
+        <h2 id="l-detail-titel">Lauf</h2>
+        <div id="l-detail"></div>
+        <div id="l-fortschritt-huelle" hidden>
+          <div class="balken"><div class="balken-fuellung" id="l-balken"></div></div>
+          <div class="fussnote" id="l-fortschritt-text"></div>
+        </div>
+        <div id="l-detail-status" class="hinweis info" hidden></div>
+        <div class="knopfreihe" id="l-detail-knoepfe"></div>
+      </div>
+
+      <div class="karte" id="l-karte-ergebnis" hidden>
+        <h2 id="l-ergebnis-titel">Ergebnis</h2>
+        <div id="l-ergebnis"></div>
+      </div>
+
+      <div class="karte">
+        <h2>Übernommene Mandate</h2>
+        <p class="fussnote">Im Altbestand steht nicht, wann ein Mandat zuletzt benutzt wurde. Ohne
+        diese Angabe behandelt die App jeden Einzug als <strong>Erstlastschrift</strong> — die braucht
+        fünf statt zwei Bankarbeitstage Vorlauf. Bestätigt die Bank, dass die alten Mandate
+        weiterlaufen, wird das hier einmalig eingetragen.</p>
+        <div class="filterleiste">
+          <div class="feld">
+            <label for="l-mandat-datum">Zuletzt vom Vereinsmeister eingezogen am</label>
+            <input type="date" id="l-mandat-datum">
+          </div>
+          <div class="feld">
+            <label>&nbsp;</label>
+            <button class="btn grau" id="btn-l-mandate">Als Folgelastschrift kennzeichnen</button>
+          </div>
+        </div>
+        <div id="l-mandat-status" class="hinweis info" hidden></div>
       </div>
 
     </section>
@@ -450,13 +511,54 @@
   </div>
 </div>
 
+<div class="overlay" id="lauf-overlay" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="lauf-titel">
+    <div class="dialog-kopf">
+      <h2 id="lauf-titel">Neuer Beitragslauf</h2>
+      <button class="dialog-zu" id="btn-lauf-zu" aria-label="Schließen">&times;</button>
+    </div>
+    <div class="dialog-inhalt">
+      <div class="formraster">
+        <div class="feld"><label for="nl-jahr">Beitragsjahr *</label>
+          <input id="nl-jahr" inputmode="numeric" placeholder="2027"></div>
+        <div class="feld"><label for="nl-faelligkeit">Fällig am *</label>
+          <input type="date" id="nl-faelligkeit"></div>
+        <div class="feld breit"><label for="nl-bezeichnung">Bezeichnung</label>
+          <input id="nl-bezeichnung" placeholder="leer lassen = Jahresbeitrag &lt;Jahr&gt;"></div>
+        <div class="feld"><label for="nl-stichtag">Stichtag für Bestand und Sätze</label>
+          <input type="date" id="nl-stichtag"></div>
+      </div>
+
+      <h3>Wie gerechnet wird</h3>
+      <div class="ankreuz-raster">
+        <label><input type="checkbox" id="nl-anteilig">
+          Unterjährigen Eintritt anteilig berechnen</label>
+        <label><input type="checkbox" id="nl-ehren">
+          Ehrenmitglieder mit einbeziehen</label>
+        <label><input type="checkbox" id="nl-ruhend">
+          Ruhende Mitgliedschaften mit einbeziehen</label>
+      </div>
+      <p class="fussnote">Ohne Häkchen zahlt jedes Mitglied den <strong>vollen Jahresbeitrag</strong>,
+      auch bei Eintritt im Dezember — so rechnet der Vereinsmeister, und daran hängt die Kontrollzahl
+      des Altbestands. Ehrenmitglieder sind beitragsfrei, ruhende Mitgliedschaften zahlen nicht.
+      Diese drei Festlegungen werden beim Lauf gespeichert und lassen sich später nachlesen.</p>
+    </div>
+    <div class="dialog-fuss">
+      <span id="lauf-status"></span>
+      <button class="btn grau" id="btn-lauf-abbrechen">Abbrechen</button>
+      <button class="btn" id="btn-lauf-speichern">Anlegen</button>
+    </div>
+  </div>
+</div>
+
 <footer>1. SC 1911 Heiligenstadt &mdash; interne Vereinsverwaltung</footer>
 
-<script src="config.js?v=1.3"></script>
+<script src="config.js?v=1.4"></script>
 <script src="db.js?v=1.1"></script>
 <script src="import.js?v=1.1"></script>
 <script src="rollen.js?v=1.0"></script>
 <script src="beitraege.js?v=1.0"></script>
-<script src="app.js?v=1.4"></script>
+<script src="lauf.js?v=1.0"></script>
+<script src="app.js?v=1.5"></script>
 </body>
 </html>

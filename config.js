@@ -39,6 +39,20 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Beitragslauf und SEPA",
+    datum: "2026-07-30",
+    punkte: [
+      "Neuer Reiter Beitragslauf: aus den Beitragsklassen werden echte Forderungen — für jedes Mitglied eine, mit voller Herleitung.",
+      "Vor jedem Lauf zeigt eine Vorschau, was entstehen würde, und vor allem, wer nicht dabei ist und warum. Geschrieben wird erst danach.",
+      "Der Lauf ist wiederaufsetzbar: bricht er ab, macht ein erneuter Start dort weiter und legt nichts doppelt an.",
+      "SEPA-Lastschrift als pain.008-Datei. Ein Haushalt wird einmal belastet, auch wenn drei Kinder dazugehören — die Mitgliedsnummern stehen im Verwendungszweck.",
+      "Umlaute werden lesbar umgeschrieben (Müller → Mueller). Ein Umlaut in der Datei würde die komplette Einreichung scheitern lassen, nicht nur die eine Zeile.",
+      "Vorabankündigung als Liste zum Herunterladen, mit Betrag, Fälligkeit, Mandatsreferenz und Gläubiger-ID.",
+      "Vereinsstammdaten (IBAN, Gläubiger-ID) liegen in der Datenbank, nicht im Programmcode.",
+      "Ein festgeschriebener Lauf lässt sich nicht mehr löschen — nur noch einzeln stornieren."
+    ]
+  },
+  {
     version: "Beitragsordnung",
     datum: "2026-07-29",
     punkte: [

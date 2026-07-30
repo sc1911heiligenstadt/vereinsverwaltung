@@ -1321,9 +1321,105 @@ async function handleMigration(env, me, corsHeaders) {
     fehlend.push("ALTER TABLE mitgliedschaft ADD COLUMN familienbeitrag INTEGER NOT NULL DEFAULT 0");
   }
 
+  // Die Optionen eines Beitragslaufs (anteilig ja/nein, Ehrenmitglieder,
+  // ruhende Mitgliedschaften) gehoeren zum Lauf und nicht in den Code:
+  // sonst rechnet ein Wiederaufsetzen nach anderen Regeln als der erste
+  // Block -- und niemand kann spaeter belegen, wonach gerechnet wurde.
+  const laufSpalten = await env.VV_DB.prepare("PRAGMA table_info(beitragslauf)").all();
+  const laufDa = new Set((laufSpalten.results || []).map((s) => s.name));
+  if (!laufDa.has("optionen_json")) {
+    fehlend.push("ALTER TABLE beitragslauf ADD COLUMN optionen_json TEXT");
+  }
+
   for (const sql of fehlend) await env.VV_DB.prepare(sql).run();
 
+  // Vereinsstammdaten fuer die SEPA-Datei. Eigene Tabelle statt Konstanten
+  // im Code: Glaeubiger-ID und Vereins-IBAN gehoeren nicht in ein
+  // oeffentliches Repository.
+  await env.VV_DB.prepare(
+    "CREATE TABLE IF NOT EXISTS einstellung (schluessel TEXT PRIMARY KEY, wert TEXT, " +
+    "geaendert_am TEXT, geaendert_von TEXT)"
+  ).run();
+
   return json({ ok: true, ergaenzt: fehlend.length, spalten: Array.from(da) }, 200, corsHeaders);
+}
+
+// ---------------------------------------------------------------------
+// Vereinsstammdaten
+// ---------------------------------------------------------------------
+
+const EINSTELLUNGEN = {
+  verein_name:      { label: "Name des Vereins (Glaeubiger)", max: 70,  pflicht: true },
+  verein_iban:      { label: "IBAN des Vereinskontos",        max: 34,  pflicht: true, iban: true },
+  verein_bic:       { label: "BIC des Vereinskontos",         max: 11 },
+  glaeubiger_id:    { label: "Glaeubiger-Identifikationsnummer", max: 35, pflicht: true },
+  verwendungszweck: { label: "Verwendungszweck",              max: 140 }
+};
+
+// IBAN-Pruefziffer nach ISO 13616 (Modulo 97). Ohne diese Pruefung faellt
+// ein Zahlendreher erst der Bank auf -- und weist dann die komplette
+// Einreichung ab, nicht nur die eine Zeile.
+function ibanGueltig(roh) {
+  const s = String(roh || "").replace(/\s+/g, "").toUpperCase();
+  if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]{10,30}$/.test(s)) return false;
+  const um = s.slice(4) + s.slice(0, 4);
+  let rest = 0;
+  for (const zeichen of um) {
+    const wert = zeichen >= "0" && zeichen <= "9"
+      ? zeichen
+      : String(zeichen.charCodeAt(0) - 55);
+    for (const ziffer of wert) rest = (rest * 10 + Number(ziffer)) % 97;
+  }
+  return rest === 1;
+}
+
+async function ladeEinstellungen(env) {
+  const r = await env.VV_DB.prepare("SELECT schluessel, wert FROM einstellung").all();
+  const werte = {};
+  for (const z of r.results || []) werte[z.schluessel] = z.wert;
+  return werte;
+}
+
+async function handleEinstellungen(env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin && !rolle.darfBankSehen) {
+    return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+  }
+  const werte = await ladeEinstellungen(env);
+  const felder = Object.keys(EINSTELLUNGEN).map((s) => ({
+    schluessel: s,
+    label: EINSTELLUNGEN[s].label,
+    pflicht: !!EINSTELLUNGEN[s].pflicht,
+    wert: werte[s] || ""
+  }));
+  const fehlend = felder.filter((f) => f.pflicht && !f.wert).map((f) => f.label);
+  return json({ ok: true, felder, vollstaendig: !fehlend.length, fehlend }, 200, corsHeaders);
+}
+
+async function handleEinstellungSetzen(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin && !rolle.darfBuchen) {
+    return json({ error: "Nur der Schatzmeister kann die Vereinsstammdaten aendern" }, 403, corsHeaders);
+  }
+  const schluessel = String(body.schluessel || "");
+  const regel = EINSTELLUNGEN[schluessel];
+  if (!regel) return json({ error: "Unbekannte Einstellung" }, 400, corsHeaders);
+
+  const wert = String(body.wert === null || body.wert === undefined ? "" : body.wert)
+    .trim().slice(0, regel.max);
+  if (regel.iban && wert && !ibanGueltig(wert)) {
+    return json({ error: "Die IBAN ist nicht gueltig (Pruefziffer stimmt nicht)" }, 400, corsHeaders);
+  }
+
+  const jetzt = new Date().toISOString();
+  await env.VV_DB.prepare(
+    "INSERT INTO einstellung (schluessel, wert, geaendert_am, geaendert_von) VALUES (?,?,?,?) " +
+    "ON CONFLICT(schluessel) DO UPDATE SET wert = excluded.wert, " +
+    "geaendert_am = excluded.geaendert_am, geaendert_von = excluded.geaendert_von"
+  ).bind(schluessel, wert, jetzt, me.username).run();
+
+  await protokolliere(env, me.username, "einstellung-geaendert", "einstellung", schluessel, null);
+  return json({ ok: true }, 200, corsHeaders);
 }
 
 // Klassen und Saetze anlegen. Ebenfalls beliebig oft aufrufbar: bereits
@@ -1599,6 +1695,848 @@ async function handleBeitragssatzSetzen(body, env, me, corsHeaders) {
                       { betrag, gueltigAb });
 
   return json({ ok: true }, 200, corsHeaders);
+}
+
+// ---------------------------------------------------------------------
+// STUFE 2 -- Beitragslauf
+// ---------------------------------------------------------------------
+//
+// Der Lauf erzeugt je Mitgliedschaft EINE Forderung. Er ist wiederauf-
+// setzbar: jeder Aufruf verarbeitet einen Block und merkt sich in
+// beitragslauf.fortschritt_ab die zuletzt bearbeitete Mitgliedschaft.
+// Bricht ein Aufruf ab, macht der naechste dort weiter, statt von vorn
+// zu beginnen -- und der eindeutige Index idx_ford_lauf_eindeutig sorgt
+// dafuer, dass ein doppelt gestarteter Block keine zweite Forderung
+// anlegt. Das ist die Stelle, an der ein Fehler beim Mitglied als
+// doppelte Abbuchung ankaeme; D1 kennt kein BEGIN, der Index ist die
+// einzige Klammer, die es hier gibt.
+
+const LAUF_BLOCK = 150;
+
+// Ohne Beitragsangabe gaebe es sonst eine Forderung ueber 0,00 EUR --
+// die schlimmste aller Varianten, weil sie echt aussieht.
+const AUSSCHLUSS_TEXT = {
+  keine_klasse:   "keine Beitragsklasse hinterlegt",
+  kein_satz:      "Beitragsklasse hat zum Stichtag keinen Satz",
+  kein_haushalt:  "keinem Haushalt zugeordnet",
+  ehrenmitglied:  "Ehrenmitglied (beitragsfrei)",
+  ruhend:         "Mitgliedschaft ruht",
+  ausserhalb:     "im Beitragsjahr nicht Mitglied"
+};
+
+// Aus Eintritt, Austritt und Beitragsjahr den Betrag. Bewusst ohne
+// Datenbankzugriff, damit die Regel einzeln nachrechenbar bleibt.
+//
+// Vorgabe ist der VOLLE Jahresbeitrag, auch bei unterjaehrigem Eintritt --
+// so rechnet der Vereinsmeister, und die Kontrollzahl 39.972 EUR haengt
+// daran. Anteilig ist eine bewusste Entscheidung je Lauf, keine
+// stillschweigende Voreinstellung.
+function berechneBetrag(satzCent, jahr, eintritt, austritt, anteilig) {
+  const jahresBeginn = jahr + "-01-01";
+  const jahresEnde = jahr + "-12-31";
+  const ein = String(eintritt || "").slice(0, 10);
+  const aus = String(austritt || "").slice(0, 10);
+
+  if (ein && ein > jahresEnde) return null;
+  if (aus && aus < jahresBeginn) return null;
+
+  const von = ein && ein > jahresBeginn ? ein : jahresBeginn;
+  const bis = aus && aus < jahresEnde ? aus : jahresEnde;
+  if (von > bis) return null;
+
+  if (!anteilig) {
+    return { betrag_cent: satzCent, monate: 12, von: jahresBeginn, bis: jahresEnde, anteilig: false };
+  }
+
+  // Angefangene Monate zaehlen voll. Wer am 20.03. eintritt, zahlt ab
+  // Maerz -- alles andere waere auf den Tag genau und damit eine
+  // Rechenart, die dem Mitglied niemand erklaeren kann.
+  const monate = (Number(bis.slice(5, 7)) - Number(von.slice(5, 7))) + 1;
+  if (monate <= 0) return null;
+  return {
+    betrag_cent: Math.round(satzCent * monate / 12),
+    monate, von, bis, anteilig: true
+  };
+}
+
+function laufOptionen(lauf) {
+  let o = {};
+  try { o = JSON.parse(lauf.optionen_json || "{}"); } catch { o = {}; }
+  return {
+    anteilig: !!o.anteilig,
+    ehrenmitglieder: !!o.ehrenmitglieder,
+    ruhende: !!o.ruhende
+  };
+}
+
+// Liest einen Ausschnitt des Bestands und wendet die Beitragsregel an.
+// EINE Abfrage, danach nur noch Rechnen -- der Beitragslauf darf keine
+// Abfrage je Mitglied absetzen (Messung Stufe 0: 250 Mitglieder im
+// N+1-Muster = 21,7 Sekunden und Absturz bei 500).
+async function sammleLaufZeilen(env, lauf, klassen, abId, grenze) {
+  const opt = laufOptionen(lauf);
+  const jahresBeginn = lauf.jahr + "-01-01";
+  const jahresEnde = lauf.jahr + "-12-31";
+
+  const bedingungen = [
+    "m.status <> 'antrag'",
+    "m.eintritt <= ?",
+    "(m.austritt IS NULL OR m.austritt >= ?)"
+  ];
+  const werte = [jahresEnde, jahresBeginn];
+  if (abId) { bedingungen.push("m.id > ?"); werte.push(abId); }
+
+  let sql =
+    "SELECT m.id, m.mitgliedsnummer, m.art, m.status, m.eintritt, m.austritt, " +
+    "       m.beitragsklasse_id, p.haushalt_id, p.vorname, p.nachname " +
+    "FROM mitgliedschaft m JOIN person p ON p.id = m.person_id " +
+    "WHERE " + bedingungen.join(" AND ") + " ORDER BY m.id";
+  if (grenze) { sql += " LIMIT ?"; werte.push(grenze); }
+
+  const r = await env.VV_DB.prepare(sql).bind(...werte).all();
+  const zeilen = [];
+  const ausschluesse = [];
+  let letzteId = abId || null;
+  let gelesen = 0;
+
+  for (const z of r.results || []) {
+    gelesen++;
+    letzteId = z.id;
+
+    const name = (z.vorname + " " + z.nachname).trim();
+    function raus(grund) {
+      ausschluesse.push({ id: z.id, mitgliedsnummer: z.mitgliedsnummer, name, grund });
+    }
+
+    if (z.art === "ehrenmitglied" && !opt.ehrenmitglieder) { raus("ehrenmitglied"); continue; }
+    if (z.status === "ruhend" && !opt.ruhende) { raus("ruhend"); continue; }
+    if (!z.haushalt_id) { raus("kein_haushalt"); continue; }
+    if (!z.beitragsklasse_id) { raus("keine_klasse"); continue; }
+
+    const klasse = klassen.get(z.beitragsklasse_id);
+    if (!klasse || klasse.betrag_cent === null || klasse.betrag_cent === undefined) {
+      raus("kein_satz"); continue;
+    }
+
+    const rechnung = berechneBetrag(klasse.betrag_cent, lauf.jahr, z.eintritt, z.austritt, opt.anteilig);
+    if (!rechnung) { raus("ausserhalb"); continue; }
+
+    zeilen.push({
+      mitgliedschaft_id: z.id,
+      mitgliedsnummer: z.mitgliedsnummer,
+      haushalt_id: z.haushalt_id,
+      name,
+      klasse: klasse.name,
+      betrag_cent: rechnung.betrag_cent,
+      rechnung
+    });
+  }
+
+  return { zeilen, ausschluesse, letzteId, gelesen };
+}
+
+async function ladeKlassenMap(env, stichtag) {
+  const liste = await ladeKlassenMitSatz(env, stichtag);
+  const map = new Map();
+  for (const k of liste) map.set(k.id, k);
+  return map;
+}
+
+async function handleLaufListe(env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin && !rolle.darfBuchen && !rolle.darfSchreiben) {
+    return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+  }
+  const r = await env.VV_DB.prepare(
+    "SELECT l.*, (SELECT COUNT(*) FROM sepa_datei d WHERE d.beitragslauf_id = l.id) AS sepa_dateien " +
+    "FROM beitragslauf l ORDER BY l.jahr DESC, l.erstellt_am DESC LIMIT 50"
+  ).all();
+  return json({ ok: true, laeufe: r.results || [], darfBuchen: rolle.istAdmin || rolle.darfBuchen },
+              200, corsHeaders);
+}
+
+async function handleLaufAnlegen(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin && !rolle.darfBuchen) {
+    return json({ error: "Nur der Schatzmeister kann einen Beitragslauf anlegen" }, 403, corsHeaders);
+  }
+
+  const jahr = parseInt(body.jahr, 10);
+  if (!Number.isFinite(jahr) || jahr < 2000 || jahr > 2100) {
+    return json({ error: "Beitragsjahr nicht plausibel" }, 400, corsHeaders);
+  }
+  const faelligkeit = String(body.faelligkeit || "").slice(0, 10);
+  if (!istIsoDatum(faelligkeit)) {
+    return json({ error: "Faelligkeitsdatum erforderlich" }, 400, corsHeaders);
+  }
+  const stichtag = istIsoDatum(body.stichtag) ? body.stichtag : (jahr + "-01-01");
+
+  // Ein zweiter Lauf fuer dasselbe Jahr ist kein Fehler (Nachzuegler,
+  // Umlage), aber fast immer ein Versehen -- deshalb muss er ausdruecklich
+  // gewollt sein.
+  const schon = await env.VV_DB.prepare(
+    "SELECT COUNT(*) AS n FROM beitragslauf WHERE jahr = ? AND status <> 'verworfen'"
+  ).bind(jahr).first();
+  if (schon && schon.n > 0 && !body.trotzdem) {
+    return json({
+      error: "Fuer " + jahr + " gibt es bereits einen Beitragslauf",
+      code: "schon_vorhanden", vorhanden: schon.n
+    }, 409, corsHeaders);
+  }
+
+  const optionen = {
+    anteilig: !!body.anteilig,
+    ehrenmitglieder: !!body.ehrenmitglieder,
+    ruhende: !!body.ruhende
+  };
+  const id = uuid();
+  const jetzt = new Date().toISOString();
+
+  await env.VV_DB.prepare(
+    "INSERT INTO beitragslauf (id, bezeichnung, jahr, periode, stichtag, faelligkeit, status, " +
+    "optionen_json, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?,'entwurf',?,?,?)"
+  ).bind(id, sauber(body.bezeichnung, 120) || ("Jahresbeitrag " + jahr), jahr,
+         "jaehrlich", stichtag, faelligkeit, JSON.stringify(optionen), jetzt, me.username).run();
+
+  await protokolliere(env, me.username, "beitragslauf-angelegt", "beitragslauf", id, { jahr, faelligkeit });
+  return json({ ok: true, id }, 200, corsHeaders);
+}
+
+async function ladeLauf(env, id) {
+  return env.VV_DB.prepare("SELECT * FROM beitragslauf WHERE id = ?").bind(String(id || "")).first();
+}
+
+// Was wuerde der Lauf erzeugen? Rechnet ueber den GESAMTEN Bestand und
+// schreibt nichts. Der Schatzmeister sieht die Summe, bevor irgendetwas
+// entsteht -- und vor allem sieht er namentlich, wer NICHT dabei ist.
+async function handleLaufVorschau(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin && !rolle.darfBuchen && !rolle.darfSchreiben) {
+    return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+  }
+
+  const lauf = await ladeLauf(env, body.lauf_id);
+  if (!lauf) return json({ error: "Beitragslauf nicht gefunden" }, 404, corsHeaders);
+
+  const klassen = await ladeKlassenMap(env, lauf.stichtag);
+  const { zeilen, ausschluesse } = await sammleLaufZeilen(env, lauf, klassen, null, null);
+
+  let summeCent = 0;
+  const nachKlasse = new Map();
+  for (const z of zeilen) {
+    summeCent += z.betrag_cent;
+    if (!nachKlasse.has(z.klasse)) nachKlasse.set(z.klasse, { klasse: z.klasse, anzahl: 0, summe_cent: 0 });
+    const e = nachKlasse.get(z.klasse);
+    e.anzahl++; e.summe_cent += z.betrag_cent;
+  }
+
+  const nachGrund = new Map();
+  for (const a of ausschluesse) {
+    if (!nachGrund.has(a.grund)) {
+      nachGrund.set(a.grund, { grund: a.grund, text: AUSSCHLUSS_TEXT[a.grund] || a.grund, anzahl: 0, beispiele: [] });
+    }
+    const e = nachGrund.get(a.grund);
+    e.anzahl++;
+    if (e.beispiele.length < 25) e.beispiele.push({ mitgliedsnummer: a.mitgliedsnummer, name: a.name });
+  }
+
+  return json({
+    ok: true,
+    lauf: { id: lauf.id, bezeichnung: lauf.bezeichnung, jahr: lauf.jahr, stichtag: lauf.stichtag,
+            faelligkeit: lauf.faelligkeit, status: lauf.status, optionen: laufOptionen(lauf) },
+    anzahl: zeilen.length,
+    summeCent,
+    verteilung: Array.from(nachKlasse.values()).sort((a, b) => b.anzahl - a.anzahl),
+    ausschluesse: Array.from(nachGrund.values()).sort((a, b) => b.anzahl - a.anzahl),
+    ausschlussGesamt: ausschluesse.length
+  }, 200, corsHeaders);
+}
+
+// Ein Block. Der Client ruft so lange auf, bis fertig true kommt.
+async function handleLaufAusfuehren(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin && !rolle.darfBuchen) {
+    return json({ error: "Nur der Schatzmeister kann einen Beitragslauf ausfuehren" }, 403, corsHeaders);
+  }
+
+  const lauf = await ladeLauf(env, body.lauf_id);
+  if (!lauf) return json({ error: "Beitragslauf nicht gefunden" }, 404, corsHeaders);
+  if (lauf.status === "festgeschrieben") {
+    return json({ error: "Der Lauf ist festgeschrieben und kann nicht mehr geaendert werden" }, 409, corsHeaders);
+  }
+
+  const klassen = await ladeKlassenMap(env, lauf.stichtag);
+  if (!klassen.size) {
+    return json({ error: "Es sind keine Beitragsklassen angelegt" }, 400, corsHeaders);
+  }
+
+  const block = Math.min(Math.max(parseInt(body.block, 10) || LAUF_BLOCK, 10), 400);
+  const { zeilen, ausschluesse, letzteId, gelesen } =
+    await sammleLaufZeilen(env, lauf, klassen, lauf.fortschritt_ab || null, block);
+
+  // Nur beim allerersten Block: wie viele Mitgliedschaften kommen
+  // ueberhaupt in Frage? Ohne diese Zahl kann der Fortschrittsbalken nur
+  // wackeln statt zu zaehlen -- und ein Balken, der nichts misst, ist
+  // schlimmer als keiner.
+  let erwartet = lauf.anzahl_erwartet;
+  if (!lauf.fortschritt_ab && !erwartet) {
+    const z = await env.VV_DB.prepare(
+      "SELECT COUNT(*) AS n FROM mitgliedschaft m WHERE m.status <> 'antrag' " +
+      "AND m.eintritt <= ? AND (m.austritt IS NULL OR m.austritt >= ?)"
+    ).bind(lauf.jahr + "-12-31", lauf.jahr + "-01-01").first();
+    erwartet = z ? z.n : null;
+  }
+
+  const jetzt = new Date().toISOString();
+  const anweisungen = [];
+  let summeBlock = 0;
+
+  for (const z of zeilen) {
+    summeBlock += z.betrag_cent;
+    // INSERT OR IGNORE gegen idx_ford_lauf_eindeutig: ein wiederholter
+    // Block legt nichts doppelt an.
+    anweisungen.push(env.VV_DB.prepare(
+      "INSERT OR IGNORE INTO forderung (id, beitragslauf_id, mitgliedschaft_id, haushalt_id, art, " +
+      "bezeichnung, jahr, periode, betrag_cent, faellig_am, berechnung_json, status, erstellt_am, erstellt_von) " +
+      "VALUES (?,?,?,?,'beitrag',?,?,?,?,?,?,'offen',?,?)"
+    ).bind(uuid(), lauf.id, z.mitgliedschaft_id, z.haushalt_id,
+           lauf.bezeichnung, lauf.jahr, "jaehrlich", z.betrag_cent, lauf.faelligkeit,
+           JSON.stringify({ klasse: z.klasse, satz_cent: z.rechnung.betrag_cent,
+                            monate: z.rechnung.monate, von: z.rechnung.von, bis: z.rechnung.bis,
+                            anteilig: z.rechnung.anteilig, stichtag: lauf.stichtag }),
+           jetzt, me.username));
+  }
+
+  const fertig = gelesen < block;
+
+  // Die Zaehler werden aus der Forderungstabelle neu ermittelt statt
+  // hochgezaehlt: nach einem Wiederaufsetzen stimmt eine mitlaufende
+  // Summe sonst nicht mehr mit dem ueberein, was wirklich in der
+  // Datenbank steht.
+  anweisungen.push(env.VV_DB.prepare(
+    "UPDATE beitragslauf SET fortschritt_ab = ?, status = ?, anzahl_erwartet = ?, " +
+    "  anzahl_erzeugt = (SELECT COUNT(*) FROM forderung WHERE beitragslauf_id = ? AND storniert_am IS NULL), " +
+    "  summe_cent = (SELECT COALESCE(SUM(betrag_cent),0) FROM forderung WHERE beitragslauf_id = ? AND storniert_am IS NULL) " +
+    "WHERE id = ?"
+  ).bind(fertig ? null : letzteId, fertig ? "fertig" : "laeuft", erwartet === undefined ? null : erwartet,
+         lauf.id, lauf.id, lauf.id));
+
+  await env.VV_DB.batch(anweisungen);
+
+  const stand = await ladeLauf(env, lauf.id);
+  if (fertig) {
+    await protokolliere(env, me.username, "beitragslauf-ausgefuehrt", "beitragslauf", lauf.id,
+                        { anzahl: stand.anzahl_erzeugt, summeCent: stand.summe_cent });
+  }
+
+  return json({
+    ok: true, fertig,
+    erzeugtBlock: zeilen.length,
+    uebersprungenBlock: ausschluesse.length,
+    gesamt: stand ? stand.anzahl_erzeugt : 0,
+    summeCent: stand ? stand.summe_cent : 0,
+    erwartet: erwartet || null,
+    summeBlock
+  }, 200, corsHeaders);
+}
+
+async function handleLaufDetail(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin && !rolle.darfBuchen && !rolle.darfSchreiben) {
+    return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+  }
+  const lauf = await ladeLauf(env, body.lauf_id);
+  if (!lauf) return json({ error: "Beitragslauf nicht gefunden" }, 404, corsHeaders);
+
+  const nachStatus = await env.VV_DB.prepare(
+    "SELECT status, COUNT(*) AS n, SUM(betrag_cent) AS summe FROM forderung " +
+    "WHERE beitragslauf_id = ? GROUP BY status"
+  ).bind(lauf.id).all();
+
+  const dateien = await env.VV_DB.prepare(
+    "SELECT id, msg_id, erstellt_datum, ausfuehrung_am, seq_typ, anzahl_posten, summe_cent, eingereicht_am " +
+    "FROM sepa_datei WHERE beitragslauf_id = ? ORDER BY erstellt_am DESC"
+  ).bind(lauf.id).all();
+
+  // Zehn Stichproben mit voller Herleitung. Wer eine Forderung erklaeren
+  // muss, braucht nicht die Summe, sondern diese eine Zeile.
+  const proben = await env.VV_DB.prepare(
+    "SELECT f.betrag_cent, f.berechnung_json, m.mitgliedsnummer, p.vorname, p.nachname " +
+    "FROM forderung f JOIN mitgliedschaft m ON m.id = f.mitgliedschaft_id " +
+    "JOIN person p ON p.id = m.person_id WHERE f.beitragslauf_id = ? " +
+    "ORDER BY f.betrag_cent DESC LIMIT 10"
+  ).bind(lauf.id).all();
+
+  return json({
+    ok: true,
+    lauf: Object.assign({}, lauf, { optionen: laufOptionen(lauf) }),
+    nachStatus: nachStatus.results || [],
+    dateien: dateien.results || [],
+    proben: (proben.results || []).map((p) => {
+      let b = {};
+      try { b = JSON.parse(p.berechnung_json || "{}"); } catch { b = {}; }
+      return { mitgliedsnummer: p.mitgliedsnummer, name: (p.vorname + " " + p.nachname).trim(),
+               betrag_cent: p.betrag_cent, berechnung: b };
+    }),
+    darfBuchen: rolle.istAdmin || rolle.darfBuchen
+  }, 200, corsHeaders);
+}
+
+async function handleLaufFestschreiben(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin && !rolle.darfBuchen) {
+    return json({ error: "Nur der Schatzmeister kann einen Lauf festschreiben" }, 403, corsHeaders);
+  }
+  const lauf = await ladeLauf(env, body.lauf_id);
+  if (!lauf) return json({ error: "Beitragslauf nicht gefunden" }, 404, corsHeaders);
+  if (lauf.status === "festgeschrieben") return json({ ok: true, schon: true }, 200, corsHeaders);
+  if (lauf.status !== "fertig") {
+    return json({ error: "Der Lauf ist noch nicht vollstaendig durchgelaufen" }, 409, corsHeaders);
+  }
+
+  const jetzt = new Date().toISOString();
+  await env.VV_DB.prepare(
+    "UPDATE beitragslauf SET status = 'festgeschrieben', festgeschrieben_am = ?, festgeschrieben_von = ? WHERE id = ?"
+  ).bind(jetzt, me.username, lauf.id).run();
+  await protokolliere(env, me.username, "beitragslauf-festgeschrieben", "beitragslauf", lauf.id,
+                      { anzahl: lauf.anzahl_erzeugt, summeCent: lauf.summe_cent });
+  return json({ ok: true }, 200, corsHeaders);
+}
+
+// Nur ein Entwurf darf verschwinden. Sobald etwas festgeschrieben oder
+// eine SEPA-Datei erzeugt ist, bleibt der Lauf stehen -- dann geht nur
+// noch Stornieren, nie Loeschen.
+async function handleLaufVerwerfen(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin && !rolle.darfBuchen) {
+    return json({ error: "Nur der Schatzmeister kann einen Lauf verwerfen" }, 403, corsHeaders);
+  }
+  const lauf = await ladeLauf(env, body.lauf_id);
+  if (!lauf) return json({ error: "Beitragslauf nicht gefunden" }, 404, corsHeaders);
+  if (lauf.status === "festgeschrieben") {
+    return json({ error: "Ein festgeschriebener Lauf kann nicht verworfen werden" }, 409, corsHeaders);
+  }
+
+  const datei = await env.VV_DB.prepare(
+    "SELECT COUNT(*) AS n FROM sepa_datei WHERE beitragslauf_id = ?").bind(lauf.id).first();
+  if (datei && datei.n > 0) {
+    return json({ error: "Zu diesem Lauf gibt es bereits eine SEPA-Datei" }, 409, corsHeaders);
+  }
+  const bezahlt = await env.VV_DB.prepare(
+    "SELECT COUNT(*) AS n FROM zahlung z JOIN forderung f ON f.id = z.forderung_id " +
+    "WHERE f.beitragslauf_id = ?").bind(lauf.id).first();
+  if (bezahlt && bezahlt.n > 0) {
+    return json({ error: "Zu diesem Lauf sind bereits Zahlungen verbucht" }, 409, corsHeaders);
+  }
+
+  await env.VV_DB.batch([
+    env.VV_DB.prepare("DELETE FROM forderung WHERE beitragslauf_id = ?").bind(lauf.id),
+    env.VV_DB.prepare("DELETE FROM beitragslauf WHERE id = ?").bind(lauf.id)
+  ]);
+  await protokolliere(env, me.username, "beitragslauf-verworfen", "beitragslauf", lauf.id,
+                      { jahr: lauf.jahr, anzahl: lauf.anzahl_erzeugt });
+  return json({ ok: true }, 200, corsHeaders);
+}
+
+// ---------------------------------------------------------------------
+// SEPA-Lastschrift, pain.008.001.02
+// ---------------------------------------------------------------------
+//
+// Der SEPA-Zeichensatz kennt keine Umlaute. Ein "ue" im Namen des
+// Kontoinhabers weist die KOMPLETTE Einreichung ab, nicht die eine
+// Zeile -- deshalb erst lesbar transliterieren, dann alles Verbliebene
+// auf ein Leerzeichen. Uebernommen aus Trainerdaten, wo derselbe
+// Zeichensatz fuer pain.001 gilt.
+const SEPA_UMLAUTE = {
+  "ä": "ae", "ö": "oe", "ü": "ue",
+  "Ä": "Ae", "Ö": "Oe", "Ü": "Ue", "ß": "ss",
+  "á": "a", "à": "a", "â": "a", "é": "e", "è": "e", "ê": "e",
+  "í": "i", "ì": "i", "ó": "o", "ò": "o", "ô": "o",
+  "ú": "u", "ù": "u", "û": "u", "ç": "c", "ñ": "n",
+  "ł": "l", "ś": "s", "ź": "z", "ż": "z", "ć": "c",
+  "&": "+", "–": "-", "—": "-", "…": "."
+};
+
+function sepaText(roh, maxLaenge) {
+  const s = String(roh === null || roh === undefined ? "" : roh)
+    .split("")
+    .map((z) => (Object.prototype.hasOwnProperty.call(SEPA_UMLAUTE, z) ? SEPA_UMLAUTE[z] : z))
+    .join("")
+    .replace(/[^A-Za-z0-9/\-?:().,'+ ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return maxLaenge ? s.slice(0, maxLaenge) : s;
+}
+
+function xmlEsc(s) {
+  return String(s === null || s === undefined ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+}
+
+function centAlsBetrag(cent) {
+  return (cent / 100).toFixed(2);
+}
+
+// Grobe Vorlaufzeit in Bankarbeitstagen -- Feiertage kennt diese
+// Rechnung nicht. Sie blockiert deshalb nichts, sie warnt nur: die
+// letzte Entscheidung darueber trifft ohnehin die Bank.
+function bankarbeitstage(vonIso, bisIso) {
+  const a = vonIso.split("-").map(Number);
+  const b = bisIso.split("-").map(Number);
+  let t = Date.UTC(a[0], a[1] - 1, a[2]);
+  const ziel = Date.UTC(b[0], b[1] - 1, b[2]);
+  let tage = 0;
+  while (t < ziel) {
+    t += 86400000;
+    const wt = new Date(t).getUTCDay();
+    if (wt !== 0 && wt !== 6) tage++;
+  }
+  return tage;
+}
+
+// Ein Einzug je HAUSHALT, nicht je Forderung: eine Familie mit drei
+// Kindern sieht eine Abbuchung auf dem Kontoauszug, nicht drei. Die
+// Mitgliedsnummern stehen im Verwendungszweck, damit die Zuordnung
+// trotzdem eindeutig bleibt.
+async function handleSepaErzeugen(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin && !rolle.darfBuchen) {
+    return json({ error: "Nur der Schatzmeister kann eine SEPA-Datei erzeugen" }, 403, corsHeaders);
+  }
+
+  const lauf = await ladeLauf(env, body.lauf_id);
+  if (!lauf) return json({ error: "Beitragslauf nicht gefunden" }, 404, corsHeaders);
+  if (lauf.status !== "fertig" && lauf.status !== "festgeschrieben") {
+    return json({ error: "Der Beitragslauf ist noch nicht vollstaendig durchgelaufen" }, 409, corsHeaders);
+  }
+
+  const cfg = await ladeEinstellungen(env);
+  const fehlend = Object.keys(EINSTELLUNGEN)
+    .filter((s) => EINSTELLUNGEN[s].pflicht && !cfg[s])
+    .map((s) => EINSTELLUNGEN[s].label);
+  if (fehlend.length) {
+    return json({ error: "Vereinsstammdaten unvollstaendig: " + fehlend.join(", "),
+                  code: "stammdaten" }, 400, corsHeaders);
+  }
+  if (!ibanGueltig(cfg.verein_iban)) {
+    return json({ error: "Die hinterlegte Vereins-IBAN ist ungueltig" }, 400, corsHeaders);
+  }
+
+  const nurPruefen = !!body.pruefen;
+  const ausfuehrung = istIsoDatum(body.ausfuehrung_am) ? body.ausfuehrung_am : lauf.faelligkeit;
+
+  const schon = await env.VV_DB.prepare(
+    "SELECT COUNT(*) AS n FROM sepa_datei WHERE beitragslauf_id = ?").bind(lauf.id).first();
+  if (!nurPruefen && schon && schon.n > 0 && !body.trotzdem) {
+    return json({ error: "Zu diesem Lauf wurde bereits eine SEPA-Datei erzeugt",
+                  code: "schon_erzeugt", vorhanden: schon.n }, 409, corsHeaders);
+  }
+
+  const r = await env.VV_DB.prepare(
+    "SELECT f.id AS forderung_id, f.betrag_cent, f.haushalt_id, " +
+    "       m.mitgliedsnummer, p.vorname, p.nachname, " +
+    "       h.zahlungsart, " +
+    "       md.id AS mandat_id, md.referenz, md.kontoinhaber, md.iban, md.bic, " +
+    "       md.erteilt_am, md.erste_nutzung_am " +
+    "FROM forderung f " +
+    "JOIN mitgliedschaft m ON m.id = f.mitgliedschaft_id " +
+    "JOIN person p ON p.id = m.person_id " +
+    "JOIN haushalt h ON h.id = f.haushalt_id " +
+    "LEFT JOIN sepa_mandat md ON md.haushalt_id = h.id AND md.widerrufen_am IS NULL " +
+    "WHERE f.beitragslauf_id = ? AND f.status = 'offen' AND f.storniert_am IS NULL " +
+    "ORDER BY f.haushalt_id, m.mitgliedsnummer"
+  ).bind(lauf.id).all();
+
+  const haushalte = new Map();
+  for (const z of r.results || []) {
+    if (!haushalte.has(z.haushalt_id)) {
+      haushalte.set(z.haushalt_id, {
+        haushalt_id: z.haushalt_id, zahlungsart: z.zahlungsart,
+        mandat_id: z.mandat_id, referenz: z.referenz, kontoinhaber: z.kontoinhaber,
+        iban: z.iban, bic: z.bic, erteilt_am: z.erteilt_am, erste_nutzung_am: z.erste_nutzung_am,
+        betrag_cent: 0, nummern: [], namen: []
+      });
+    }
+    const h = haushalte.get(z.haushalt_id);
+    h.betrag_cent += z.betrag_cent;
+    h.nummern.push(z.mitgliedsnummer);
+    h.namen.push((z.vorname + " " + z.nachname).trim());
+  }
+
+  const posten = [];
+  const uebersprungen = [];
+  for (const h of haushalte.values()) {
+    const wer = h.namen[0] + (h.namen.length > 1 ? " (+" + (h.namen.length - 1) + ")" : "");
+    if (h.zahlungsart && h.zahlungsart !== "lastschrift") {
+      uebersprungen.push({ name: wer, grund: "zahlt nicht per Lastschrift", betrag_cent: h.betrag_cent }); continue;
+    }
+    if (!h.mandat_id) {
+      uebersprungen.push({ name: wer, grund: "kein SEPA-Mandat", betrag_cent: h.betrag_cent }); continue;
+    }
+    if (!h.iban) {
+      uebersprungen.push({ name: wer, grund: "keine IBAN im Mandat", betrag_cent: h.betrag_cent }); continue;
+    }
+    if (!ibanGueltig(h.iban)) {
+      uebersprungen.push({ name: wer, grund: "IBAN ungueltig (Pruefziffer)", betrag_cent: h.betrag_cent }); continue;
+    }
+    if (h.betrag_cent <= 0) {
+      uebersprungen.push({ name: wer, grund: "Betrag 0,00", betrag_cent: h.betrag_cent }); continue;
+    }
+    posten.push(h);
+  }
+
+  const summeCent = posten.reduce((s, p) => s + p.betrag_cent, 0);
+  const heute = new Date();
+  const heuteIso = heute.getUTCFullYear() + "-" +
+    String(heute.getUTCMonth() + 1).padStart(2, "0") + "-" +
+    String(heute.getUTCDate()).padStart(2, "0");
+
+  const warnungen = [];
+  const frstAnzahl = posten.filter((p) => !p.erste_nutzung_am).length;
+  const tage = bankarbeitstage(heuteIso, ausfuehrung);
+  if (ausfuehrung <= heuteIso) {
+    warnungen.push("Das Ausfuehrungsdatum liegt nicht in der Zukunft.");
+  } else if (frstAnzahl && tage < 5) {
+    warnungen.push("Erstlastschriften brauchen ueblicherweise 5 Bankarbeitstage Vorlauf, hier sind es " + tage + ".");
+  } else if (tage < 2) {
+    warnungen.push("Folgelastschriften brauchen ueblicherweise 2 Bankarbeitstage Vorlauf, hier sind es " + tage + ".");
+  }
+
+  if (nurPruefen) {
+    return json({
+      ok: true, pruefung: true, anzahl: posten.length, summeCent,
+      erstlastschriften: frstAnzahl, folgelastschriften: posten.length - frstAnzahl,
+      uebersprungen: uebersprungen.slice(0, 50), uebersprungenGesamt: uebersprungen.length,
+      uebersprungenSumme: uebersprungen.reduce((s, u) => s + u.betrag_cent, 0),
+      ausfuehrung, warnungen
+    }, 200, corsHeaders);
+  }
+
+  if (!posten.length) {
+    return json({ error: "Kein einziger Posten einziehbar -- siehe Probelauf" }, 400, corsHeaders);
+  }
+
+  const msgId = sepaText("VV" + lauf.jahr + "-" + heute.getTime().toString(36).toUpperCase(), 35);
+  const zweckMuster = cfg.verwendungszweck || "Mitgliedsbeitrag {jahr}";
+
+  // FRST und RCUR duerfen nicht im selben Zahlungsblock stehen. Getrennte
+  // PmtInf-Bloecke, aber EINE Datei -- so erwartet es das Regelwerk.
+  const gruppen = [
+    { seq: "FRST", liste: posten.filter((p) => !p.erste_nutzung_am) },
+    { seq: "RCUR", liste: posten.filter((p) => p.erste_nutzung_am) }
+  ].filter((g) => g.liste.length);
+
+  let lfd = 0;
+  const bloecke = gruppen.map((g) => {
+    const gSumme = g.liste.reduce((s, p) => s + p.betrag_cent, 0);
+    const txe = g.liste.map((p) => {
+      lfd++;
+      const zweck = sepaText(
+        zweckMuster.replace(/\{jahr\}/g, String(lauf.jahr)) + " Nr. " + p.nummern.join(", "), 140);
+      const e2e = sepaText("B" + lauf.jahr + "-" + p.nummern[0] + "-" + lfd, 35);
+      const bic = sepaText(p.bic, 11).replace(/[^A-Z0-9]/gi, "").toUpperCase();
+      const agent = bic
+        ? "<FinInstnId><BIC>" + xmlEsc(bic) + "</BIC></FinInstnId>"
+        : "<FinInstnId><Othr><Id>NOTPROVIDED</Id></Othr></FinInstnId>";
+      return "" +
+        "      <DrctDbtTxInf>\n" +
+        "        <PmtId><EndToEndId>" + xmlEsc(e2e) + "</EndToEndId></PmtId>\n" +
+        "        <InstdAmt Ccy=\"EUR\">" + centAlsBetrag(p.betrag_cent) + "</InstdAmt>\n" +
+        "        <DrctDbtTx><MndtRltdInf><MndtId>" + xmlEsc(sepaText(p.referenz, 35)) + "</MndtId>" +
+        "<DtOfSgntr>" + xmlEsc(String(p.erteilt_am || "").slice(0, 10)) + "</DtOfSgntr>" +
+        "<AmdmntInd>false</AmdmntInd></MndtRltdInf></DrctDbtTx>\n" +
+        "        <DbtrAgt>" + agent + "</DbtrAgt>\n" +
+        "        <Dbtr><Nm>" + xmlEsc(sepaText(p.kontoinhaber || p.namen[0], 70)) + "</Nm></Dbtr>\n" +
+        "        <DbtrAcct><Id><IBAN>" +
+        xmlEsc(String(p.iban).replace(/\s+/g, "").toUpperCase()) + "</IBAN></Id></DbtrAcct>\n" +
+        "        <RmtInf><Ustrd>" + xmlEsc(zweck) + "</Ustrd></RmtInf>\n" +
+        "      </DrctDbtTxInf>";
+    }).join("\n");
+
+    const cdtrBic = sepaText(cfg.verein_bic, 11).replace(/[^A-Z0-9]/gi, "").toUpperCase();
+    return "" +
+      "    <PmtInf>\n" +
+      "      <PmtInfId>" + xmlEsc(msgId + "-" + g.seq) + "</PmtInfId>\n" +
+      "      <PmtMtd>DD</PmtMtd>\n" +
+      "      <BtchBookg>true</BtchBookg>\n" +
+      "      <NbOfTxs>" + g.liste.length + "</NbOfTxs>\n" +
+      "      <CtrlSum>" + centAlsBetrag(gSumme) + "</CtrlSum>\n" +
+      "      <PmtTpInf><SvcLvl><Cd>SEPA</Cd></SvcLvl><LclInstrm><Cd>CORE</Cd></LclInstrm>" +
+      "<SeqTp>" + g.seq + "</SeqTp></PmtTpInf>\n" +
+      "      <ReqdColltnDt>" + xmlEsc(ausfuehrung) + "</ReqdColltnDt>\n" +
+      "      <Cdtr><Nm>" + xmlEsc(sepaText(cfg.verein_name, 70)) + "</Nm></Cdtr>\n" +
+      "      <CdtrAcct><Id><IBAN>" +
+      xmlEsc(String(cfg.verein_iban).replace(/\s+/g, "").toUpperCase()) + "</IBAN></Id></CdtrAcct>\n" +
+      "      <CdtrAgt>" + (cdtrBic
+        ? "<FinInstnId><BIC>" + xmlEsc(cdtrBic) + "</BIC></FinInstnId>"
+        : "<FinInstnId><Othr><Id>NOTPROVIDED</Id></Othr></FinInstnId>") + "</CdtrAgt>\n" +
+      "      <ChrgBr>SLEV</ChrgBr>\n" +
+      "      <CdtrSchmeId><Id><PrvtId><Othr><Id>" +
+      xmlEsc(sepaText(cfg.glaeubiger_id, 35).replace(/\s+/g, "")) +
+      "</Id><SchmeNm><Prtry>SEPA</Prtry></SchmeNm></Othr></PrvtId></Id></CdtrSchmeId>\n" +
+      txe + "\n" +
+      "    </PmtInf>";
+  });
+
+  const xml = "" +
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+    "<Document xmlns=\"urn:iso:std:iso:20022:tech:xsd:pain.008.001.02\" " +
+    "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n" +
+    "  <CstmrDrctDbtInitn>\n" +
+    "    <GrpHdr>\n" +
+    "      <MsgId>" + xmlEsc(msgId) + "</MsgId>\n" +
+    "      <CreDtTm>" + heute.toISOString().slice(0, 19) + "</CreDtTm>\n" +
+    "      <NbOfTxs>" + posten.length + "</NbOfTxs>\n" +
+    "      <CtrlSum>" + centAlsBetrag(summeCent) + "</CtrlSum>\n" +
+    "      <InitgPty><Nm>" + xmlEsc(sepaText(cfg.verein_name, 70)) + "</Nm></InitgPty>\n" +
+    "    </GrpHdr>\n" +
+    bloecke.join("\n") + "\n" +
+    "  </CstmrDrctDbtInitn>\n" +
+    "</Document>\n";
+
+  const jetzt = new Date().toISOString();
+  const dateiId = uuid();
+  const anweisungen = [env.VV_DB.prepare(
+    "INSERT INTO sepa_datei (id, beitragslauf_id, msg_id, erstellt_datum, ausfuehrung_am, seq_typ, " +
+    "anzahl_posten, summe_cent, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?,?,?,?,?)"
+  ).bind(dateiId, lauf.id, msgId, heuteIso, ausfuehrung,
+         gruppen.map((g) => g.seq).join("+"), posten.length, summeCent, jetzt, me.username)];
+
+  // Erste Nutzung nur setzen, wo sie noch fehlt -- ab dann ist es eine
+  // Folgelastschrift. Bloecke zu 50 wegen der Parametergrenze.
+  const frstIds = posten.filter((p) => !p.erste_nutzung_am).map((p) => p.mandat_id);
+  const alleIds = posten.map((p) => p.mandat_id);
+  for (let i = 0; i < frstIds.length; i += 50) {
+    const b = frstIds.slice(i, i + 50);
+    anweisungen.push(env.VV_DB.prepare(
+      "UPDATE sepa_mandat SET erste_nutzung_am = ? WHERE erste_nutzung_am IS NULL AND id IN (" +
+      b.map(() => "?").join(",") + ")").bind(ausfuehrung, ...b));
+  }
+  for (let i = 0; i < alleIds.length; i += 50) {
+    const b = alleIds.slice(i, i + 50);
+    anweisungen.push(env.VV_DB.prepare(
+      "UPDATE sepa_mandat SET letzte_nutzung_am = ? WHERE id IN (" +
+      b.map(() => "?").join(",") + ")").bind(ausfuehrung, ...b));
+  }
+
+  await env.VV_DB.batch(anweisungen);
+  await protokolliere(env, me.username, "sepa-datei-erzeugt", "sepa_datei", dateiId,
+                      { lauf: lauf.id, anzahl: posten.length, summeCent, msgId });
+
+  return json({
+    ok: true, msgId, dateiId,
+    anzahl: posten.length, summeCent, ausfuehrung,
+    erstlastschriften: frstAnzahl, folgelastschriften: posten.length - frstAnzahl,
+    uebersprungen: uebersprungen.slice(0, 50), uebersprungenGesamt: uebersprungen.length,
+    warnungen,
+    dateiname: "SEPA-Beitrag-" + lauf.jahr + "-" + heuteIso + ".xml",
+    xml
+  }, 200, corsHeaders);
+}
+
+// Die uebernommenen Mandate wurden vom Vereinsmeister bereits genutzt --
+// aus Sicht der Bank sind es Folgelastschriften, keine Erstlastschriften.
+// Das kann diese App nicht wissen: im Altbestand steht kein Nutzungsdatum.
+// Deshalb eine ausdrueckliche, protokollierte Handlung statt einer
+// Vermutung. Sie gehoert genau hinter das Gespraech mit der Bank -- laufen
+// die Altreferenzen dort weiter, ist dies der Knopf dazu; wenn nicht,
+// bleibt es bei Erstlastschriften mit fuenf Tagen Vorlauf.
+async function handleMandateUebernommen(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin && !rolle.darfBuchen) {
+    return json({ error: "Nur der Schatzmeister kann Mandate als uebernommen kennzeichnen" }, 403, corsHeaders);
+  }
+  const stichtag = String(body.stichtag || "").slice(0, 10);
+  if (!istIsoDatum(stichtag)) {
+    return json({ error: "Datum der letzten Nutzung durch das Altsystem erforderlich" }, 400, corsHeaders);
+  }
+
+  const offen = await env.VV_DB.prepare(
+    "SELECT COUNT(*) AS n FROM sepa_mandat WHERE erste_nutzung_am IS NULL AND widerrufen_am IS NULL"
+  ).first();
+
+  if (body.pruefen) {
+    return json({ ok: true, pruefung: true, betroffen: offen ? offen.n : 0 }, 200, corsHeaders);
+  }
+
+  await env.VV_DB.prepare(
+    "UPDATE sepa_mandat SET erste_nutzung_am = ?, geaendert_am = ?, geaendert_von = ? " +
+    "WHERE erste_nutzung_am IS NULL AND widerrufen_am IS NULL"
+  ).bind(stichtag, new Date().toISOString(), me.username).run();
+
+  await protokolliere(env, me.username, "mandate-als-uebernommen", "sepa_mandat", null,
+                      { stichtag, anzahl: offen ? offen.n : 0 });
+  return json({ ok: true, betroffen: offen ? offen.n : 0 }, 200, corsHeaders);
+}
+
+// Vorabankuendigung (Pre-Notification). Pflicht vor jedem Einzug, und
+// juristisch nur erfuellt, wenn sie ANKOMMT -- deshalb erzeugt diese
+// Aktion die Liste, nicht den Versand: solange DKIM/DMARC fuer die
+// Vereinsdomain fehlen, landet eine Sammelmail bei Gmail im Spam, und
+// eine ungelesene Ankuendigung ist keine.
+// Betrag, Faelligkeit, Mandatsreferenz und Glaeubiger-ID muessen darin
+// stehen; genau diese Felder liefert sie je Zahler.
+async function handleVorabankuendigung(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin && !rolle.darfBuchen) {
+    return json({ error: "Nur der Schatzmeister kann die Vorabankuendigung erzeugen" }, 403, corsHeaders);
+  }
+  const lauf = await ladeLauf(env, body.lauf_id);
+  if (!lauf) return json({ error: "Beitragslauf nicht gefunden" }, 404, corsHeaders);
+
+  const cfg = await ladeEinstellungen(env);
+  const datei = await env.VV_DB.prepare(
+    "SELECT ausfuehrung_am FROM sepa_datei WHERE beitragslauf_id = ? ORDER BY erstellt_am DESC LIMIT 1"
+  ).bind(lauf.id).first();
+  const faellig = datei ? datei.ausfuehrung_am : lauf.faelligkeit;
+
+  const r = await env.VV_DB.prepare(
+    "SELECT f.betrag_cent, f.haushalt_id, m.mitgliedsnummer, p.vorname, p.nachname, " +
+    "       h.abw_empfaenger, h.abw_strasse, h.abw_plz, h.abw_ort, " +
+    "       zp.vorname AS z_vorname, zp.nachname AS z_nachname, zp.email AS z_email, " +
+    "       zp.strasse AS z_strasse, zp.plz AS z_plz, zp.ort AS z_ort, " +
+    "       md.referenz, md.iban " +
+    "FROM forderung f " +
+    "JOIN mitgliedschaft m ON m.id = f.mitgliedschaft_id " +
+    "JOIN person p ON p.id = m.person_id " +
+    "JOIN haushalt h ON h.id = f.haushalt_id " +
+    "LEFT JOIN person zp ON zp.id = h.zahler_person_id " +
+    "LEFT JOIN sepa_mandat md ON md.haushalt_id = h.id AND md.widerrufen_am IS NULL " +
+    "WHERE f.beitragslauf_id = ? AND f.status = 'offen' AND f.storniert_am IS NULL " +
+    "ORDER BY f.haushalt_id, m.mitgliedsnummer"
+  ).bind(lauf.id).all();
+
+  const nach = new Map();
+  for (const z of r.results || []) {
+    if (!nach.has(z.haushalt_id)) {
+      nach.set(z.haushalt_id, {
+        empfaenger: z.abw_empfaenger || ((z.z_vorname || "") + " " + (z.z_nachname || "")).trim(),
+        email: z.z_email || "",
+        strasse: z.abw_strasse || z.z_strasse || "",
+        plz: z.abw_plz || z.z_plz || "",
+        ort: z.abw_ort || z.z_ort || "",
+        mandat: z.referenz || "",
+        iban: z.iban ? String(z.iban).slice(0, 4) + "…" + String(z.iban).slice(-4) : "",
+        betrag_cent: 0, mitglieder: []
+      });
+    }
+    const e = nach.get(z.haushalt_id);
+    e.betrag_cent += z.betrag_cent;
+    e.mitglieder.push({ nr: z.mitgliedsnummer, name: (z.vorname + " " + z.nachname).trim() });
+  }
+
+  const liste = Array.from(nach.values()).filter((e) => e.mandat);
+  return json({
+    ok: true,
+    faellig, jahr: lauf.jahr,
+    glaeubiger_id: cfg.glaeubiger_id || "",
+    verein_name: cfg.verein_name || "",
+    anzahl: liste.length,
+    mitEmail: liste.filter((e) => e.email).length,
+    summeCent: liste.reduce((s, e) => s + e.betrag_cent, 0),
+    empfaenger: liste
+  }, 200, corsHeaders);
 }
 
 // ---------------------------------------------------------------------
@@ -1947,6 +2885,18 @@ export default {
         case "vv-beitrag-zuordnen": return handleBeitragZuordnen(body, env, me, corsHeaders);
         case "vv-beitrag-uebersicht": return handleBeitragUebersicht(body, env, me, corsHeaders);
         case "vv-beitragssatz-setzen": return handleBeitragssatzSetzen(body, env, me, corsHeaders);
+        case "vv-einstellungen":   return handleEinstellungen(env, me, corsHeaders);
+        case "vv-einstellung-setzen": return handleEinstellungSetzen(body, env, me, corsHeaders);
+        case "vv-lauf-liste":      return handleLaufListe(env, me, corsHeaders);
+        case "vv-lauf-anlegen":    return handleLaufAnlegen(body, env, me, corsHeaders);
+        case "vv-lauf-vorschau":   return handleLaufVorschau(body, env, me, corsHeaders);
+        case "vv-lauf-ausfuehren": return handleLaufAusfuehren(body, env, me, corsHeaders);
+        case "vv-lauf-detail":     return handleLaufDetail(body, env, me, corsHeaders);
+        case "vv-lauf-festschreiben": return handleLaufFestschreiben(body, env, me, corsHeaders);
+        case "vv-lauf-verwerfen":  return handleLaufVerwerfen(body, env, me, corsHeaders);
+        case "vv-sepa-erzeugen":   return handleSepaErzeugen(body, env, me, corsHeaders);
+        case "vv-mandate-uebernommen": return handleMandateUebernommen(body, env, me, corsHeaders);
+        case "vv-vorabankuendigung": return handleVorabankuendigung(body, env, me, corsHeaders);
         case "vv-sparten-init":    return handleSpartenInit(env, me, corsHeaders);
         case "vv-seed":            return handleSeed(body, env, me, corsHeaders);
         case "vv-messlauf":        return handleMesslauf(body, env, me, corsHeaders);

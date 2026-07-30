@@ -371,8 +371,12 @@ tbody tr { cursor: pointer; }
 
 button.btn.klein { padding: 5px 12px; font-size: 13px; }
 
+/* align-items an der Unterkante: sobald ein Eingabefeld mit Beschriftung
+   in einer Knopfreihe steht (Einzugsdatum im Beitragslauf), würde die
+   Vorgabe "stretch" alle Knöpfe daneben auf dessen Höhe aufblasen. */
 .knopfreihe {
   display: flex;
+  align-items: flex-end;
   gap: 10px;
   margin-top: 16px;
   flex-wrap: wrap;
@@ -480,6 +484,62 @@ tr.summenzeile td {
   flex-wrap: wrap;
   margin-bottom: 14px;
 }
+
+/* ---------- Beitragslauf ---------- */
+
+.hinweis.erfolg { background: #e7f5ed; color: var(--green); }
+
+button.btn.warn { background: var(--red); }
+button.btn.warn:hover { background: #a02218; }
+
+/* Der Download der SEPA-Datei ist ein Link, kein Knopf -- er soll aber
+   wie einer aussehen. */
+a.btn {
+  display: inline-block;
+  background: var(--blue);
+  color: #fff;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 14px;
+  text-decoration: none;
+}
+a.btn:hover { background: var(--blue-dark); }
+
+/* Kennzahlen eines Laufs: nebeneinander, umbrechend, ohne Tabelle. */
+.kennzahlen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 4px;
+}
+.kennzahlen > div {
+  background: #f7f9fc;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 14px;
+  min-width: 110px;
+}
+.kennzahlen dt { font-size: 12px; color: var(--muted); }
+.kennzahlen dd {
+  margin: 2px 0 0;
+  font-weight: 600;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tabellen im Beitragslauf sind Berichte, keine Auswahllisten -- nur die
+   Liste der Läufe selbst ist anklickbar. */
+#l-detail tbody tr, #l-ergebnis tbody tr, #l-stammdaten tbody tr { cursor: default; }
+
+/* Das Einzugsdatum steht in der Knopfreihe, gehört aber zu den beiden
+   SEPA-Knöpfen daneben -- deshalb dort und nicht in einer eigenen Zeile. */
+.einzugsfeld {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-right: 4px;
+}
+.einzugsfeld label { font-size: 12px; color: var(--muted); }
 
 @media (max-width: 720px) {
   .overlay { padding: 0; }
