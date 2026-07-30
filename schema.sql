@@ -662,3 +662,23 @@ CREATE UNIQUE INDEX idx_buchung_quelle ON buchung(quelle_typ, quelle_id)
 CREATE INDEX idx_buchung_jahr    ON buchung(geschaeftsjahr_id, belegdatum);
 CREATE INDEX idx_bzeile_buchung  ON buchungszeile(buchung_id);
 CREATE INDEX idx_bzeile_konto    ON buchungszeile(konto_id);
+
+
+-- ---------------------------------------------------------------------
+-- 10) EINSTELLUNGEN
+-- ---------------------------------------------------------------------
+
+-- Schlüssel-Wert-Ablage für Vereinsstammdaten (Name, IBAN, Gläubiger-ID),
+-- Mahnfristen und den Schalter für das öffentliche Antragsformular.
+--
+-- Nachgetragen am 30.07.2026: Die Tabelle entsteht seit Juli zur Laufzeit
+-- in handleMigration und fehlte hier. Aufgefallen ist es der nächtlichen
+-- Sicherung — die liest ihre Tabellenliste aus sqlite_master und meldete
+-- 23 Tabellen, wo diese Datei nur 22 kennt. Genau dafür steht dort keine
+-- fest verdrahtete Liste.
+CREATE TABLE einstellung (
+  schluessel        TEXT PRIMARY KEY,
+  wert              TEXT,
+  geaendert_am      TEXT,
+  geaendert_von     TEXT
+);
