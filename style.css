@@ -466,6 +466,30 @@ td.betrag, .betrag-anzeige {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+
+/* ⚠️ td.betrag allein reicht nicht. Die ÜBERSCHRIFT einer Zahlenspalte
+   muss mitziehen, sonst steht sie links und die Werte rechts — bei sechs
+   Spalten über die volle Breite sieht die Tabelle dann aus, als gehörten
+   Kopf und Zahlen nicht zusammen (von Michel gemeldet).
+   width: 1% schrumpft die Zahlenspalten auf ihren Inhalt (die Zellen
+   tragen ohnehin white-space: nowrap); den freien Rest bekommt die
+   Beschriftungsspalte. Bewusst nur an th.betrag: die älteren Tabellen
+   haben keine Zahlen-Überschrift und bleiben dadurch unverändert. */
+th.betrag {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  /* Ohne Mindestbreite ist jede Zahlenspalte so breit wie ihre
+     Überschrift — "divers" 59 px neben "ohne Angabe" 103 px liest sich
+     als schiefer Block. Mit gleicher Mindestbreite steht rechts ein
+     ruhiges Raster.
+     ⚠️ Hier stand kurz zusätzlich width: 1%, der übliche Kniff zum
+     Schrumpfen. Zusammen mit width:auto an der Tabelle ist das aber ein
+     Zirkelschluss — die Spalte soll 1 % einer Breite sein, die sich erst
+     aus den Spalten ergibt. Der Browser löste ihn auf, indem er die
+     Tabelle auf das Hundertfache aufblies (gemessen: 1186 px statt der
+     erwarteten ~600). Entweder Prozent ODER auto, nie beides. */
+  min-width: 92px;
+}
 .betrag-anzeige {
   padding: 8px 10px;
   font-weight: 600;
@@ -800,6 +824,14 @@ nav a[hidden] { display: none; }
 }
 .kennzahl-text { font-size: 12.5px; color: var(--muted); }
 .kennzahl-hinweis { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+
+/* Kleine Berichtstabellen umarmen ihren Inhalt, statt sich über 1200 px
+   zu spannen: "Jahr" mit "2017" darin braucht keine 900 px, und die
+   Leerfläche dazwischen war der zweite Teil dessen, was an der
+   Formatierung nicht stimmte. Die langen Listen (Saldenliste, Übernahme,
+   Journal) bleiben bewusst voll breit. */
+#k-alter table, #k-entwicklung table, #k-klassen table, #k-meldung table,
+#a-sphaeren table { width: auto; max-width: 100%; }
 
 .balkenliste { margin-top: 4px; }
 .balkenzeile {
