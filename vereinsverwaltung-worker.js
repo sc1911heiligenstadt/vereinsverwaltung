@@ -1307,8 +1307,17 @@ function klassenVorschlag(geburtsdatum) {
 // geht -- aber nicht zweimal. Deshalb erst nachsehen, was schon da ist:
 // die Aktion muss beliebig oft aufrufbar sein, sonst traut sich niemand,
 // sie zu druecken.
+// Absichtlich nicht admin-only: die Aktion fuehrt ausschliesslich fest
+// verdrahtetes ADD COLUMN und CREATE TABLE IF NOT EXISTS aus, nimmt keine
+// Eingabe entgegen, loescht nichts und ist beliebig oft aufrufbar. Am
+// Admin haengend wuerde der Beitragslauf-Reiter fuer den Schatzmeister
+// nur dann funktionieren, wenn vorher zufaellig ein Administrator die
+// Seite geoeffnet hat.
 async function handleMigration(env, me, corsHeaders) {
-  if (!me.isAdmin) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin && !rolle.darfBuchen && !rolle.darfSchreiben) {
+    return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+  }
 
   const spalten = await env.VV_DB.prepare("PRAGMA table_info(mitgliedschaft)").all();
   const da = new Set((spalten.results || []).map((s) => s.name));
@@ -1373,12 +1382,24 @@ function ibanGueltig(roh) {
   return rest === 1;
 }
 
+// Gibt null zurueck, wenn die Tabelle noch nicht existiert -- das ist
+// kein Serverfehler, sondern eine noch nicht gelaufene Einrichtung.
+// handleMigration legt sie an; der Reiter stoesst das beim Oeffnen an.
 async function ladeEinstellungen(env) {
-  const r = await env.VV_DB.prepare("SELECT schluessel, wert FROM einstellung").all();
+  let r;
+  try {
+    r = await env.VV_DB.prepare("SELECT schluessel, wert FROM einstellung").all();
+  } catch (e) {
+    if (/no such table/i.test(e && e.message ? e.message : "")) return null;
+    throw e;
+  }
   const werte = {};
   for (const z of r.results || []) werte[z.schluessel] = z.wert;
   return werte;
 }
+
+const EINRICHTUNG_FEHLT =
+  "Die Einrichtung ist noch nicht gelaufen. Ein Administrator muss die Seite einmal oeffnen.";
 
 async function handleEinstellungen(env, me, corsHeaders) {
   const rolle = await ladeRolle(env, me);
@@ -1386,6 +1407,7 @@ async function handleEinstellungen(env, me, corsHeaders) {
     return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
   }
   const werte = await ladeEinstellungen(env);
+  if (!werte) return json({ error: EINRICHTUNG_FEHLT, code: "einrichtung" }, 409, corsHeaders);
   const felder = Object.keys(EINSTELLUNGEN).map((s) => ({
     schluessel: s,
     label: EINSTELLUNGEN[s].label,
@@ -2212,6 +2234,7 @@ async function handleSepaErzeugen(body, env, me, corsHeaders) {
   }
 
   const cfg = await ladeEinstellungen(env);
+  if (!cfg) return json({ error: EINRICHTUNG_FEHLT, code: "einrichtung" }, 409, corsHeaders);
   const fehlend = Object.keys(EINSTELLUNGEN)
     .filter((s) => EINSTELLUNGEN[s].pflicht && !cfg[s])
     .map((s) => EINSTELLUNGEN[s].label);
@@ -2485,7 +2508,7 @@ async function handleVorabankuendigung(body, env, me, corsHeaders) {
   const lauf = await ladeLauf(env, body.lauf_id);
   if (!lauf) return json({ error: "Beitragslauf nicht gefunden" }, 404, corsHeaders);
 
-  const cfg = await ladeEinstellungen(env);
+  const cfg = (await ladeEinstellungen(env)) || {};
   const datei = await env.VV_DB.prepare(
     "SELECT ausfuehrung_am FROM sepa_datei WHERE beitragslauf_id = ? ORDER BY erstellt_am DESC LIMIT 1"
   ).bind(lauf.id).first();

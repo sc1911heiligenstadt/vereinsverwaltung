@@ -57,10 +57,19 @@ const LAUF_STATUS_TEXT = {
 
 async function ladeStammdaten() {
   const ziel = $("l-stammdaten");
+
+  // Die Tabelle einstellung und die Spalte beitragslauf.optionen_json gibt
+  // es im ursprünglichen Schema nicht. Die Migration ist beliebig oft
+  // aufrufbar und läuft deshalb beim Öffnen mit — sonst hinge der ganze
+  // Reiter davon ab, ob jemand vorher zufällig auf „Beitragsordnung
+  // anlegen" geklickt hat.
+  try { await vvRequest("vv-migration", {}); } catch { /* nicht kritisch */ }
+
   try {
     laufStammdaten = await vvRequest("vv-einstellungen", {});
   } catch (e) {
-    ziel.innerHTML = '<div class="hinweis fehler">' + esc(e.message) + "</div>";
+    ziel.innerHTML = '<div class="hinweis ' + (/Einrichtung/.test(e.message) ? "warn" : "fehler") +
+      '">' + esc(e.message) + "</div>";
     return;
   }
 
