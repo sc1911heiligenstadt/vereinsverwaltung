@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Auswertungen &mdash; 1. SC 1911 Heiligenstadt</title>
+<link rel="stylesheet" href="style.css?v=1.9">
+</head>
+<body>
+
+<header>
+  <a class="dashboard-pille" href="index.html">&larr; Vereinsverwaltung</a>
+  <h1>Auswertungen</h1>
+  <div class="kopf-rechts"><span id="version-badge">v1.0</span></div>
+</header>
+
+<main>
+
+  <section id="anmelde-schirm" class="karte">
+    <h2>Anmeldung erforderlich</h2>
+    <p>Diese Seite zeigt Kennzahlen des Vereins und ist nur für angemeldete Personen
+    zugänglich.</p>
+    <p><a class="btn-link" href="https://tecko1985.github.io/ToolsUebersicht/">Zur Anmeldung</a></p>
+  </section>
+
+  <section id="kein-zugriff" class="karte" hidden>
+    <h2>Kein Zugriff</h2>
+    <p>Für die Auswertungen wird eine Rolle in der Vereinsverwaltung gebraucht —
+    Vorstand, Geschäftsstelle, Schatzmeister oder Abteilungsleitung.</p>
+  </section>
+
+  <!-- Diese Seite lädt bewusst KEINEN Code, der Personendaten anzeigen
+       könnte. Der Vorstand soll den Verein steuern können, ohne Einblick
+       in die Mitgliederliste zu haben — deshalb liefert der Server hier
+       ausschließlich Summen, und die Seite kennt keine andere Aktion. -->
+  <div id="app-bereich" hidden>
+
+    <div class="karte">
+      <div class="filterleiste">
+        <div class="feld">
+          <label for="f-stichtag">Stichtag</label>
+          <input type="date" id="f-stichtag">
+        </div>
+        <div class="feld">
+          <label>&nbsp;</label>
+          <button class="btn" id="btn-laden">Auswerten</button>
+        </div>
+      </div>
+      <p class="fussnote">Gezählt wird der Bestand zum Stichtag: wer da eingetreten und
+      noch nicht ausgetreten war. Alle Zahlen auf dieser Seite sind Summen — Namen
+      werden hier nicht übertragen.</p>
+      <div id="status"></div>
+    </div>
+
+    <div class="karte">
+      <h2>Bestand</h2>
+      <div id="k-bestand" class="kennzahlen"></div>
+    </div>
+
+    <div class="karte">
+      <h2>Mitglieder je Abteilung</h2>
+      <p class="fussnote">Wer in zwei Abteilungen aktiv ist, steht in beiden. Die Summe
+      ist deshalb größer als die Mitgliederzahl.</p>
+      <div id="k-sparten"></div>
+    </div>
+
+    <div class="karte">
+      <h2>Beitragsklassen</h2>
+      <div id="k-klassen"></div>
+    </div>
+
+    <div class="karte">
+      <h2>Altersaufbau</h2>
+      <div id="k-alter"></div>
+    </div>
+
+    <div class="karte">
+      <h2>Entwicklung</h2>
+      <p class="fussnote">Eintritte und Austritte je Jahr, die letzten zehn Jahre.</p>
+      <div id="k-entwicklung"></div>
+    </div>
+
+    <div class="karte">
+      <h2>Beiträge des Jahres</h2>
+      <div id="k-finanzen" class="kennzahlen"></div>
+    </div>
+
+    <div class="karte">
+      <h2>Bestandsmeldung an den Landessportbund</h2>
+      <p class="fussnote">Altersgruppen nach dem üblichen Raster, je Abteilung und
+      Geschlecht. Üblicher Stichtag ist der 1. Januar.</p>
+      <div class="knopfreihe">
+        <button class="btn" id="btn-meldung">Erstellen</button>
+        <button class="btn grau" id="btn-meldung-csv" hidden>Als Tabelle herunterladen</button>
+      </div>
+      <div id="k-meldung"></div>
+    </div>
+
+  </div>
+</main>
+
+<footer>1. SC 1911 Heiligenstadt &mdash; interne Vereinsverwaltung</footer>
+
+<script src="config.js?v=1.8"></script>
+<script src="db.js?v=1.1"></script>
+<script src="auswertung.js?v=1.0"></script>
+</body>
+</html>

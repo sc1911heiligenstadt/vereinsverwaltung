@@ -122,7 +122,12 @@ async function ladeRolle(env, me) {
       || rollen.some((z) => z.rolle === "geschaeftsstelle" || z.rolle === "schatzmeister"),
     darfBuchen: istAdmin || rollen.some((z) => z.rolle === "schatzmeister"),
     darfSchreiben: istAdmin
-      || rollen.some((z) => z.rolle === "geschaeftsstelle" || z.rolle === "schatzmeister")
+      || rollen.some((z) => z.rolle === "geschaeftsstelle" || z.rolle === "schatzmeister"),
+    // Kennzahlen sind Summen ohne Personenbezug. Sie stehen JEDER
+    // hinterlegten Rolle offen -- der Vorstand hat genau dafuer eine:
+    // er soll den Verein steuern koennen, ohne Mitgliederdaten zu sehen.
+    // Ein angemeldetes Konto ohne Rolle bekommt weiterhin nichts.
+    darfKennzahlenSehen: istAdmin || rollen.length > 0
   };
 }
 
@@ -1370,8 +1375,52 @@ async function handleMigration(env, me, corsHeaders) {
     "geaendert_am TEXT, geaendert_von TEXT)"
   ).run();
 
+  // Buchhaltung (Stufe 4). Die Tabellen standen im Plan, aber nie im
+  // eingespielten Schema -- die Datenbank laeuft seit Juli produktiv, ein
+  // zweites Einspielen gibt es nicht. Sie entstehen deshalb hier.
+  // Identisch zu Abschnitt 9 in schema.sql; bei Aenderungen BEIDE Dateien
+  // und schema-kompakt.sql nachziehen.
+  for (const sql of BUCHHALTUNG_SCHEMA) await env.VV_DB.prepare(sql).run();
+
   return json({ ok: true, ergaenzt: fehlend.length, spalten: Array.from(da) }, 200, corsHeaders);
 }
+
+const BUCHHALTUNG_SCHEMA = [
+  "CREATE TABLE IF NOT EXISTS geschaeftsjahr (id TEXT PRIMARY KEY, jahr INTEGER NOT NULL UNIQUE, " +
+  "beginn TEXT NOT NULL, ende TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'offen', " +
+  "abgeschlossen_am TEXT, abgeschlossen_von TEXT, ergebnis_json TEXT, " +
+  "erstellt_am TEXT NOT NULL, erstellt_von TEXT NOT NULL)",
+
+  "CREATE TABLE IF NOT EXISTS konto (id TEXT PRIMARY KEY, nummer TEXT NOT NULL UNIQUE, " +
+  "name TEXT NOT NULL, art TEXT NOT NULL, sphaere TEXT, gruppe TEXT, " +
+  "aktiv INTEGER NOT NULL DEFAULT 1, sortierung INTEGER NOT NULL DEFAULT 100, " +
+  "erstellt_am TEXT NOT NULL, erstellt_von TEXT NOT NULL)",
+
+  "CREATE TABLE IF NOT EXISTS geschaeftsvorfall_vorlage (id TEXT PRIMARY KEY, name TEXT NOT NULL, " +
+  "erklaerung TEXT NOT NULL, soll_nummer TEXT NOT NULL, haben_nummer TEXT NOT NULL, sphaere TEXT, " +
+  "sortierung INTEGER NOT NULL DEFAULT 100, aktiv INTEGER NOT NULL DEFAULT 1, " +
+  "erstellt_am TEXT NOT NULL, erstellt_von TEXT NOT NULL)",
+
+  "CREATE TABLE IF NOT EXISTS buchung (id TEXT PRIMARY KEY, " +
+  "geschaeftsjahr_id TEXT NOT NULL REFERENCES geschaeftsjahr(id), belegnummer INTEGER NOT NULL, " +
+  "belegdatum TEXT NOT NULL, buchungsdatum TEXT NOT NULL, text TEXT NOT NULL, " +
+  "vorlage_id TEXT REFERENCES geschaeftsvorfall_vorlage(id), summe_cent INTEGER NOT NULL, " +
+  "art TEXT NOT NULL DEFAULT 'normal', quelle_typ TEXT, quelle_id TEXT, " +
+  "storniert_am TEXT, storniert_von TEXT, storno_von_id TEXT REFERENCES buchung(id), " +
+  "storno_grund TEXT, erstellt_am TEXT NOT NULL, erstellt_von TEXT NOT NULL)",
+
+  "CREATE TABLE IF NOT EXISTS buchungszeile (id TEXT PRIMARY KEY, " +
+  "buchung_id TEXT NOT NULL REFERENCES buchung(id), konto_id TEXT NOT NULL REFERENCES konto(id), " +
+  "soll_cent INTEGER NOT NULL DEFAULT 0, haben_cent INTEGER NOT NULL DEFAULT 0, " +
+  "sphaere TEXT, sparte_id TEXT REFERENCES sparte(id), text TEXT)",
+
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_buchung_beleg ON buchung(geschaeftsjahr_id, belegnummer)",
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_buchung_quelle ON buchung(quelle_typ, quelle_id) " +
+  "WHERE quelle_typ IS NOT NULL",
+  "CREATE INDEX IF NOT EXISTS idx_buchung_jahr ON buchung(geschaeftsjahr_id, belegdatum)",
+  "CREATE INDEX IF NOT EXISTS idx_bzeile_buchung ON buchungszeile(buchung_id)",
+  "CREATE INDEX IF NOT EXISTS idx_bzeile_konto ON buchungszeile(konto_id)"
+];
 
 // ---------------------------------------------------------------------
 // Vereinsstammdaten
@@ -4221,6 +4270,1100 @@ async function handleAntragAnnehmen(body, env, me, corsHeaders) {
 }
 
 // ---------------------------------------------------------------------
+// STUFE 4 -- BUCHHALTUNG
+// ---------------------------------------------------------------------
+//
+// Doppelte Buchfuehrung mit den vier Sphaeren des
+// Gemeinnuetzigkeitsrechts. Drei Festlegungen tragen alles Weitere:
+//
+//   1. Die SPHAERE HAENGT AM KONTO, nicht an der Buchung. Sonst gaebe es
+//      zwei Wahrheiten darueber, ob eine Einnahme steuerpflichtig ist.
+//      Wer dieselbe Art Einnahme in zwei Sphaeren braucht, legt zwei
+//      Konten an -- genau so ist SKR49 gebaut. Die Buchungszeile
+//      speichert die Sphaere trotzdem MIT: eine spaetere Aenderung am
+//      Konto darf die Vergangenheit nicht umschreiben.
+//   2. GELOESCHT WIRD NIE. Ein Storno ist eine eigene Buchung, die die
+//      urspruengliche spiegelt. Beide bleiben im Journal, und die Salden
+//      gehen von selbst auf -- deshalb rechnet die Saldenliste
+//      ausdruecklich OHNE Filter auf storniert_am.
+//   3. BELEGNUMMERN SIND LUECKENLOS je Jahr. D1 kennt keine Transaktion
+//      ueber mehrere Anweisungen; die Nummer wird deshalb als
+//      Unterabfrage IM INSERT gezogen und der eindeutige Index faengt den
+//      Gleichstand ab. Der Handler wiederholt dann.
+
+const SPHAEREN = {
+  ideell: "Ideeller Bereich",
+  vermoegen: "Vermoegensverwaltung",
+  zweckbetrieb: "Zweckbetrieb",
+  wirtschaft: "Wirtschaftlicher Geschaeftsbetrieb"
+};
+
+const KONTOARTEN = new Set(["aktiv", "passiv", "ertrag", "aufwand"]);
+
+// Startbestand, an SKR49 angelehnt. AUSDRUECKLICH ein Vorschlag: ein
+// Kontenrahmen ist eine Absprache mit dem Steuerberater, kein
+// Programmzustand. Die Konten liegen in der Datenbank und sind aenderbar,
+// eine Korrektur kostet keinen Deploy.
+const KONTENRAHMEN = [
+  { nummer: "0620", name: "Betriebs- und Geschaeftsausstattung", art: "aktiv", gruppe: "Anlagevermoegen", sortierung: 10 },
+  { nummer: "1000", name: "Kasse", art: "aktiv", gruppe: "Umlaufvermoegen", sortierung: 20 },
+  { nummer: "1200", name: "Bank", art: "aktiv", gruppe: "Umlaufvermoegen", sortierung: 21 },
+  { nummer: "1400", name: "Forderungen aus Beitraegen", art: "aktiv", gruppe: "Umlaufvermoegen", sortierung: 22 },
+  { nummer: "1600", name: "Verbindlichkeiten", art: "passiv", gruppe: "Verbindlichkeiten", sortierung: 30 },
+  { nummer: "2000", name: "Vereinsvermoegen", art: "passiv", gruppe: "Eigenkapital", sortierung: 40 },
+  { nummer: "2900", name: "Ruecklagen nach § 62 AO", art: "passiv", gruppe: "Eigenkapital", sortierung: 41 },
+  // Technisches Gegenkonto der Eroeffnungsbuchung. Es steht am Jahresende
+  // wieder auf null; taucht es in der Bilanz auf, ist eine Eroeffnung
+  // schiefgegangen.
+  { nummer: "9000", name: "Saldenvortraege", art: "passiv", gruppe: "Technisch", sortierung: 90 },
+
+  { nummer: "4100", name: "Mitgliedsbeitraege", art: "ertrag", sphaere: "ideell", sortierung: 100 },
+  { nummer: "4110", name: "Aufnahmegebuehren", art: "ertrag", sphaere: "ideell", sortierung: 101 },
+  { nummer: "4120", name: "Umlagen", art: "ertrag", sphaere: "ideell", sortierung: 102 },
+  { nummer: "4200", name: "Spenden", art: "ertrag", sphaere: "ideell", sortierung: 110 },
+  { nummer: "4300", name: "Oeffentliche Zuschuesse", art: "ertrag", sphaere: "ideell", sortierung: 120 },
+  { nummer: "4400", name: "Zinsertraege", art: "ertrag", sphaere: "vermoegen", sortierung: 130 },
+  { nummer: "4450", name: "Mietertraege (langfristig)", art: "ertrag", sphaere: "vermoegen", sortierung: 131 },
+  { nummer: "4500", name: "Sportveranstaltungen", art: "ertrag", sphaere: "zweckbetrieb", sortierung: 140 },
+  { nummer: "4550", name: "Kurs- und Lehrgangsgebuehren", art: "ertrag", sphaere: "zweckbetrieb", sortierung: 141 },
+  { nummer: "4600", name: "Werbung und Sponsoring", art: "ertrag", sphaere: "wirtschaft", sortierung: 150 },
+  { nummer: "4650", name: "Bewirtung und Verkauf", art: "ertrag", sphaere: "wirtschaft", sortierung: 151 },
+
+  { nummer: "5100", name: "Uebungsleiter- und Trainerverguetung", art: "aufwand", sphaere: "zweckbetrieb", sortierung: 200 },
+  { nummer: "5200", name: "Sportmaterial und Ausruestung", art: "aufwand", sphaere: "zweckbetrieb", sortierung: 201 },
+  { nummer: "5300", name: "Verbandsabgaben und Meldegelder", art: "aufwand", sphaere: "zweckbetrieb", sortierung: 202 },
+  { nummer: "5400", name: "Schiedsrichter und Wettkampfkosten", art: "aufwand", sphaere: "zweckbetrieb", sortierung: 203 },
+  { nummer: "6300", name: "Raum- und Hallenkosten", art: "aufwand", sphaere: "zweckbetrieb", sortierung: 210 },
+  { nummer: "6400", name: "Versicherungen", art: "aufwand", sphaere: "ideell", sortierung: 220 },
+  { nummer: "6800", name: "Buerobedarf, Porto, Telefon", art: "aufwand", sphaere: "ideell", sortierung: 230 },
+  { nummer: "6805", name: "Vereinsveranstaltungen und Ehrungen", art: "aufwand", sphaere: "ideell", sortierung: 231 },
+  { nummer: "6855", name: "Nebenkosten des Geldverkehrs", art: "aufwand", sphaere: "ideell", sortierung: 240 },
+  { nummer: "6900", name: "Sonstiger Aufwand", art: "aufwand", sphaere: "ideell", sortierung: 250 },
+  { nummer: "6950", name: "Wareneinsatz Bewirtung", art: "aufwand", sphaere: "wirtschaft", sortierung: 260 }
+];
+
+// Gefuehrte Geschaeftsvorfaelle. Der Erklaerungstext ist kein Beiwerk:
+// eine falsche Sphaere trifft die Gemeinnuetzigkeit, und eine Vorlage
+// verteilt so einen Fehler flaechiger, als ihn jemand von Hand machen
+// wuerde. Deshalb steht bei jeder dabei, WARUM sie dort hingehoert.
+const VORLAGEN = [
+  { name: "Beitragsforderungen aus einem Beitragslauf", soll: "1400", haben: "4100",
+    sphaere: "ideell", sortierung: 10,
+    erklaerung: "Die Sollstellung. Der Ertrag entsteht mit der Forderung, nicht erst mit dem " +
+      "Geldeingang -- deshalb steht hier noch keine Bank. Mitgliedsbeitraege sind ideeller " +
+      "Bereich und damit nicht steuerbar." },
+  { name: "Lastschrifteinzug eingegangen", soll: "1200", haben: "1400",
+    sphaere: null, sortierung: 11,
+    erklaerung: "Reiner Tausch: aus einer Forderung wird Geld. Kein neuer Ertrag, deshalb auch " +
+      "keine Sphaere. Wer hier ein Ertragskonto nimmt, bucht den Beitrag zweimal." },
+  { name: "Beitrag ohne vorherige Sollstellung", soll: "1200", haben: "4100",
+    sphaere: "ideell", sortierung: 12,
+    erklaerung: "Nur wenn zu diesem Beitrag KEINE Forderung gebucht wurde -- sonst die Vorlage " +
+      "darueber nehmen." },
+  { name: "Ruecklastschrift", soll: "1400", haben: "1200", sphaere: null, sortierung: 13,
+    erklaerung: "Der Einzug ist zurueckgegangen, die Forderung lebt wieder auf. Das Entgelt der " +
+      "Bank ist eine EIGENE Buchung auf 6855, kein Aufschlag auf den Beitrag." },
+  { name: "Spende erhalten", soll: "1200", haben: "4200", sphaere: "ideell", sortierung: 20,
+    erklaerung: "Eine Spende ist eine Zuwendung OHNE Gegenleistung. Gibt es eine Gegenleistung " +
+      "-- Bandenwerbung, Logo auf dem Trikot, Anzeige im Heft --, ist es Sponsoring und gehoert " +
+      "in den wirtschaftlichen Geschaeftsbetrieb." },
+  { name: "Sponsoring mit Gegenleistung", soll: "1200", haben: "4600", sphaere: "wirtschaft",
+    sortierung: 21,
+    erklaerung: "Wer Werbung bekommt, spendet nicht, sondern kauft. Das ist steuerpflichtig und " +
+      "darf keine Zuwendungsbestaetigung bekommen." },
+  { name: "Oeffentlicher Zuschuss", soll: "1200", haben: "4300", sphaere: "ideell", sortierung: 22,
+    erklaerung: "Zuschuesse der Kommune, des Kreises oder des Landessportbunds fuer die " +
+      "satzungsgemaesse Arbeit gehoeren in den ideellen Bereich." },
+  { name: "Einnahmen aus einer Sportveranstaltung", soll: "1200", haben: "4500",
+    sphaere: "zweckbetrieb", sortierung: 23,
+    erklaerung: "Eintrittsgelder bei unbezahlten Sportlern sind Zweckbetrieb. Die BEWIRTUNG " +
+      "derselben Veranstaltung ist es nicht -- die wird getrennt gebucht." },
+  { name: "Bewirtung und Verkauf bei einer Veranstaltung", soll: "1200", haben: "4650",
+    sphaere: "wirtschaft", sortierung: 24,
+    erklaerung: "Wurst und Bier sind wirtschaftlicher Geschaeftsbetrieb, auch wenn der Anlass " +
+      "sportlich ist. Getrennt vom Eintritt buchen, sonst faerbt das eine auf das andere ab." },
+  { name: "Zinsertrag", soll: "1200", haben: "4400", sphaere: "vermoegen", sortierung: 25,
+    erklaerung: "Ertraege aus angelegtem Vermoegen sind Vermoegensverwaltung -- weder ideell " +
+      "noch steuerpflichtig." },
+
+  { name: "Uebungsleiter- oder Trainerverguetung gezahlt", soll: "5100", haben: "1200",
+    sphaere: "zweckbetrieb", sortierung: 30,
+    erklaerung: "Der Sportbetrieb ist Zweckbetrieb, und die Verguetung haengt unmittelbar daran " +
+      "-- nicht am ideellen Bereich." },
+  { name: "Sportmaterial gekauft", soll: "5200", haben: "1200", sphaere: "zweckbetrieb", sortierung: 31,
+    erklaerung: "Baelle, Trikots, Geraete: unmittelbar fuer den Sportbetrieb." },
+  { name: "Verbandsabgabe oder Meldegeld", soll: "5300", haben: "1200", sphaere: "zweckbetrieb",
+    sortierung: 32,
+    erklaerung: "Abgaben an Fachverbaende und Meldegelder fuer den Spielbetrieb." },
+  { name: "Hallen- oder Platzmiete", soll: "6300", haben: "1200", sphaere: "zweckbetrieb", sortierung: 33,
+    erklaerung: "Raumkosten des Sportbetriebs. Wird eine Flaeche dauerhaft vermietet, ist der " +
+      "ERTRAG daraus dagegen Vermoegensverwaltung." },
+  { name: "Versicherungsbeitrag", soll: "6400", haben: "1200", sphaere: "ideell", sortierung: 34,
+    erklaerung: "Vereinshaftpflicht und aehnliches gehoeren zum Vereinsbetrieb als solchem." },
+  { name: "Buerobedarf, Porto, Telefon", soll: "6800", haben: "1200", sphaere: "ideell", sortierung: 35,
+    erklaerung: "Verwaltungskosten des Vereins als solchem. Laesst sich ein Posten eindeutig " +
+      "einer Abteilung zuordnen, gehoert er stattdessen in den Zweckbetrieb." },
+  { name: "Kontofuehrung oder Ruecklastschriftentgelt", soll: "6855", haben: "1200",
+    sphaere: "ideell", sortierung: 36,
+    erklaerung: "Bankgebuehren. Das Entgelt einer Ruecklastschrift gehoert hierher und nicht auf " +
+      "den Beitrag des Mitglieds -- sonst laesst sich spaeter nicht mehr erklaeren, woraus " +
+      "seine Schuld besteht." },
+  { name: "Bareinzahlung auf das Bankkonto", soll: "1200", haben: "1000", sphaere: null, sortierung: 40,
+    erklaerung: "Geldtransit zwischen zwei eigenen Konten. Kein Ertrag, keine Sphaere." }
+];
+
+// Altersgruppen der Bestandsmeldung an den Landessportbund. Als
+// SQL-Ausdruck, damit die Auszaehlung ueber 540 Mitglieder in EINER
+// Abfrage laeuft statt in einer Schleife.
+function altersGruppeSql(alterAusdruck) {
+  return "CASE" +
+    " WHEN " + alterAusdruck + " IS NULL THEN 'unbekannt'" +
+    " WHEN " + alterAusdruck + " <= 6 THEN 'bis 6'" +
+    " WHEN " + alterAusdruck + " <= 14 THEN '7 bis 14'" +
+    " WHEN " + alterAusdruck + " <= 18 THEN '15 bis 18'" +
+    " WHEN " + alterAusdruck + " <= 26 THEN '19 bis 26'" +
+    " WHEN " + alterAusdruck + " <= 40 THEN '27 bis 40'" +
+    " WHEN " + alterAusdruck + " <= 60 THEN '41 bis 60'" +
+    " ELSE 'ueber 60' END";
+}
+
+const ALTERSGRUPPEN = ["bis 6", "7 bis 14", "15 bis 18", "19 bis 26",
+                       "27 bis 40", "41 bis 60", "ueber 60", "unbekannt"];
+
+// Satzung § 8 Abs. 2.
+const STIMMRECHT_ALTER = 16;
+
+// Alter zum Stichtag, in SQL. Der Geburtstag im laufenden Jahr zaehlt nur,
+// wenn er schon war -- ohne die zweite CASE-Zeile waere rund die Haelfte
+// aller Mitglieder ein Jahr zu alt.
+//
+// Der Stichtag wird als LITERAL eingesetzt, nicht als Platzhalter. Grund:
+// altersGruppeSql() wiederholt diesen Ausdruck siebenmal, und jede
+// Wiederholung braeuchte zwei weitere gebundene Werte in exakt der
+// richtigen Reihenfolge. Diese Zaehlerei geht irgendwann daneben, ohne
+// dass es auffaellt. Sicher ist das Einsetzen nur, weil istIsoDatum()
+// den Wert vorher auf ^\d{4}-\d{2}-\d{2}$ festnagelt -- ein Datum in
+// diesem Format kann kein Anfuehrungszeichen enthalten.
+// ⚠️ Diese Funktion NIE mit einem ungeprueften Wert aufrufen.
+function alterSql(stichtag) {
+  if (!istIsoDatum(stichtag)) throw new Error("alterSql: ungeprueftes Datum");
+  const d = "'" + stichtag + "'";
+  return "(CASE WHEN p.geburtsdatum IS NULL OR length(p.geburtsdatum) < 10 THEN NULL ELSE " +
+    " CAST(substr(" + d + ", 1, 4) AS INTEGER) - CAST(substr(p.geburtsdatum, 1, 4) AS INTEGER) - " +
+    " (CASE WHEN substr(" + d + ", 6, 5) < substr(p.geburtsdatum, 6, 5) THEN 1 ELSE 0 END) END)";
+}
+
+// Bestandsfilter zum Stichtag, aus demselben Grund ebenfalls mit
+// eingesetztem Datum.
+function bestandSql(stichtag) {
+  if (!istIsoDatum(stichtag)) throw new Error("bestandSql: ungeprueftes Datum");
+  const d = "'" + stichtag + "'";
+  return "m.status IN ('aktiv','ruhend') AND m.eintritt <= " + d +
+         " AND (m.austritt IS NULL OR m.austritt >= " + d + ")";
+}
+
+async function handleBuchInit(env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfBuchen) {
+    return json({ error: "Nur der Schatzmeister kann die Buchhaltung einrichten" }, 403, corsHeaders);
+  }
+  for (const sql of BUCHHALTUNG_SCHEMA) await env.VV_DB.prepare(sql).run();
+
+  const jetzt = new Date().toISOString();
+  const daKonten = await env.VV_DB.prepare("SELECT nummer FROM konto").all();
+  const hatKonto = new Set((daKonten.results || []).map((z) => z.nummer));
+  const daVorlagen = await env.VV_DB.prepare("SELECT name FROM geschaeftsvorfall_vorlage").all();
+  const hatVorlage = new Set((daVorlagen.results || []).map((z) => z.name));
+
+  // Vorhandenes wird nicht angefasst: ein von Hand geaendertes Konto darf
+  // ein zweiter Klick nicht zurueckdrehen.
+  const an = [];
+  for (const k of KONTENRAHMEN) {
+    if (hatKonto.has(k.nummer)) continue;
+    an.push(env.VV_DB.prepare(
+      "INSERT INTO konto (id, nummer, name, art, sphaere, gruppe, sortierung, erstellt_am, erstellt_von) " +
+      "VALUES (?,?,?,?,?,?,?,?,?)"
+    ).bind(uuid(), k.nummer, k.name, k.art, k.sphaere || null, k.gruppe || null,
+           k.sortierung, jetzt, me.username));
+  }
+  for (const v of VORLAGEN) {
+    if (hatVorlage.has(v.name)) continue;
+    an.push(env.VV_DB.prepare(
+      "INSERT INTO geschaeftsvorfall_vorlage (id, name, erklaerung, soll_nummer, haben_nummer, " +
+      "sphaere, sortierung, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?,?,?,?)"
+    ).bind(uuid(), v.name, v.erklaerung, v.soll, v.haben, v.sphaere || null,
+           v.sortierung, jetzt, me.username));
+  }
+  if (an.length) await env.VV_DB.batch(an);
+
+  return json({ ok: true, konten_angelegt: an.length ? KONTENRAHMEN.filter((k) => !hatKonto.has(k.nummer)).length : 0,
+                vorlagen_angelegt: VORLAGEN.filter((v) => !hatVorlage.has(v.name)).length }, 200, corsHeaders);
+}
+
+async function handleBuchStammdaten(env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfBuchen) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+
+  let jahre = [], konten = [], vorlagen = [];
+  try {
+    jahre = ((await env.VV_DB.prepare(
+      "SELECT * FROM geschaeftsjahr ORDER BY jahr DESC").all()).results) || [];
+    konten = ((await env.VV_DB.prepare(
+      "SELECT id, nummer, name, art, sphaere, gruppe, aktiv FROM konto ORDER BY sortierung, nummer").all()).results) || [];
+    vorlagen = ((await env.VV_DB.prepare(
+      "SELECT id, name, erklaerung, soll_nummer, haben_nummer, sphaere FROM geschaeftsvorfall_vorlage " +
+      "WHERE aktiv = 1 ORDER BY sortierung, name").all()).results) || [];
+  } catch (e) {
+    if (/no such table/i.test(e && e.message ? e.message : "")) {
+      return json({ ok: true, eingerichtet: false, jahre: [], konten: [], vorlagen: [],
+                    sphaeren: SPHAEREN }, 200, corsHeaders);
+    }
+    throw e;
+  }
+
+  return json({
+    ok: true,
+    eingerichtet: konten.length > 0,
+    jahre, konten, vorlagen,
+    sphaeren: SPHAEREN
+  }, 200, corsHeaders);
+}
+
+async function handleJahrAnlegen(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfBuchen) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+
+  const jahr = parseInt(body.jahr, 10);
+  if (!Number.isFinite(jahr) || jahr < 2000 || jahr > 2100) {
+    return json({ error: "Bitte ein Jahr zwischen 2000 und 2100 angeben" }, 400, corsHeaders);
+  }
+  const da = await env.VV_DB.prepare("SELECT id FROM geschaeftsjahr WHERE jahr = ?").bind(jahr).first();
+  if (da) return json({ error: "Das Geschaeftsjahr " + jahr + " gibt es schon" }, 409, corsHeaders);
+
+  const jetzt = new Date().toISOString();
+  const id = uuid();
+  await env.VV_DB.prepare(
+    "INSERT INTO geschaeftsjahr (id, jahr, beginn, ende, status, erstellt_am, erstellt_von) " +
+    "VALUES (?,?,?,?,'offen',?,?)"
+  ).bind(id, jahr, jahr + "-01-01", jahr + "-12-31", jetzt, me.username).run();
+
+  await protokolliere(env, me.username, "geschaeftsjahr-angelegt", "geschaeftsjahr", id, { jahr });
+  return json({ ok: true, id, jahr }, 200, corsHeaders);
+}
+
+async function handleKontoSpeichern(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfBuchen) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+
+  const nummer = sauber(body.nummer, 10);
+  const name = sauber(body.name, 120);
+  if (!nummer || !name) return json({ error: "Nummer und Bezeichnung sind erforderlich" }, 400, corsHeaders);
+  if (!KONTOARTEN.has(body.art)) return json({ error: "Unbekannte Kontoart" }, 400, corsHeaders);
+
+  // Ertrag und Aufwand OHNE Sphaere gaebe es nicht: dann liesse sich am
+  // Jahresende nicht sagen, was steuerpflichtig war.
+  const sphaere = (body.art === "ertrag" || body.art === "aufwand")
+    ? (SPHAEREN[body.sphaere] ? body.sphaere : null) : null;
+  if ((body.art === "ertrag" || body.art === "aufwand") && !sphaere) {
+    return json({ error: "Ertrags- und Aufwandskonten brauchen eine Sphaere" }, 400, corsHeaders);
+  }
+
+  const jetzt = new Date().toISOString();
+  const id = sauber(body.id, 40);
+  if (id) {
+    const vorhanden = await env.VV_DB.prepare("SELECT id FROM konto WHERE id = ?").bind(id).first();
+    if (!vorhanden) return json({ error: "Konto nicht gefunden" }, 404, corsHeaders);
+    // ⚠️ Die Sphaere darf sich aendern -- gebuchte Zeilen behalten aber
+    // ihre eigene. Die Vergangenheit wird nicht umgeschrieben.
+    await env.VV_DB.prepare(
+      "UPDATE konto SET nummer = ?, name = ?, art = ?, sphaere = ?, gruppe = ?, aktiv = ? WHERE id = ?"
+    ).bind(nummer, name, body.art, sphaere, sauber(body.gruppe, 60),
+           body.aktiv === false ? 0 : 1, id).run();
+    await protokolliere(env, me.username, "konto-geaendert", "konto", id, { nummer, name });
+    return json({ ok: true, id }, 200, corsHeaders);
+  }
+
+  const belegt = await env.VV_DB.prepare("SELECT id FROM konto WHERE nummer = ?").bind(nummer).first();
+  if (belegt) return json({ error: "Die Kontonummer " + nummer + " ist schon vergeben" }, 409, corsHeaders);
+  const neu = uuid();
+  await env.VV_DB.prepare(
+    "INSERT INTO konto (id, nummer, name, art, sphaere, gruppe, sortierung, erstellt_am, erstellt_von) " +
+    "VALUES (?,?,?,?,?,?,?,?,?)"
+  ).bind(neu, nummer, name, body.art, sphaere, sauber(body.gruppe, 60),
+         parseInt(body.sortierung, 10) || 500, jetzt, me.username).run();
+  await protokolliere(env, me.username, "konto-angelegt", "konto", neu, { nummer, name });
+  return json({ ok: true, id: neu }, 200, corsHeaders);
+}
+
+// Prueft die Zeilen einer Buchung und baut sie fertig. Gibt { fehler }
+// oder { zeilen, summe } zurueck.
+function pruefeBuchungszeilen(roh, kontenNachId) {
+  if (!Array.isArray(roh) || roh.length < 2) {
+    return { fehler: "Eine Buchung braucht mindestens zwei Zeilen" };
+  }
+  if (roh.length > 60) return { fehler: "Zu viele Zeilen fuer eine Buchung" };
+
+  let soll = 0, haben = 0;
+  const zeilen = [];
+  for (const z of roh) {
+    const konto = kontenNachId.get(String(z.konto_id || ""));
+    if (!konto) return { fehler: "Unbekanntes Konto in einer Zeile" };
+    if (!konto.aktiv) return { fehler: "Konto " + konto.nummer + " ist stillgelegt" };
+
+    const s = Math.round(Number(z.soll_cent) || 0);
+    const h = Math.round(Number(z.haben_cent) || 0);
+    if (s < 0 || h < 0) return { fehler: "Negative Betraege gibt es nicht -- dafuer ist die andere Spalte da" };
+    if (s > 0 && h > 0) return { fehler: "Eine Zeile steht im Soll ODER im Haben, nie in beidem" };
+    if (s === 0 && h === 0) continue;
+
+    soll += s; haben += h;
+    zeilen.push({
+      konto_id: konto.id, soll_cent: s, haben_cent: h,
+      // Abzug der Konto-Sphaere. Nicht vom Client entgegennehmen -- sonst
+      // liesse sich eine steuerpflichtige Einnahme als ideell buchen.
+      sphaere: konto.sphaere || null,
+      sparte_id: z.sparte_id ? String(z.sparte_id) : null,
+      text: z.text ? String(z.text).slice(0, 200) : null
+    });
+  }
+
+  if (zeilen.length < 2) return { fehler: "Mindestens zwei Zeilen muessen einen Betrag tragen" };
+  if (soll === 0) return { fehler: "Die Buchung hat keinen Betrag" };
+  if (soll !== haben) {
+    return { fehler: "Soll und Haben gehen nicht auf: " + (soll / 100).toFixed(2) +
+                     " gegen " + (haben / 100).toFixed(2) };
+  }
+  return { zeilen, summe: soll };
+}
+
+// Legt eine Buchung an. Wiederholt bei einem Gleichstand auf der
+// Belegnummer -- die Nummer wird als Unterabfrage im INSERT gezogen, der
+// eindeutige Index entscheidet, wer sie bekommt.
+async function schreibeBuchung(env, plan, username) {
+  const jetzt = new Date().toISOString();
+  for (let versuch = 0; versuch < 4; versuch++) {
+    const buchungId = uuid();
+    const an = [];
+    an.push(env.VV_DB.prepare(
+      "INSERT INTO buchung (id, geschaeftsjahr_id, belegnummer, belegdatum, buchungsdatum, text, " +
+      "vorlage_id, summe_cent, art, quelle_typ, quelle_id, storno_von_id, storno_grund, " +
+      "erstellt_am, erstellt_von) VALUES (?,?," +
+      "(SELECT COALESCE(MAX(belegnummer),0)+1 FROM buchung WHERE geschaeftsjahr_id = ?)," +
+      "?,?,?,?,?,?,?,?,?,?,?,?)"
+    ).bind(buchungId, plan.jahr_id, plan.jahr_id, plan.belegdatum, jetzt.slice(0, 10),
+           plan.text, plan.vorlage_id || null, plan.summe, plan.art || "normal",
+           plan.quelle_typ || null, plan.quelle_id || null, plan.storno_von_id || null,
+           plan.storno_grund || null, jetzt, username));
+
+    for (const z of plan.zeilen) {
+      an.push(env.VV_DB.prepare(
+        "INSERT INTO buchungszeile (id, buchung_id, konto_id, soll_cent, haben_cent, sphaere, sparte_id, text) " +
+        "VALUES (?,?,?,?,?,?,?,?)"
+      ).bind(uuid(), buchungId, z.konto_id, z.soll_cent, z.haben_cent,
+             z.sphaere, z.sparte_id, z.text));
+    }
+    if (plan.zusatz) for (const st of plan.zusatz(buchungId)) an.push(st);
+
+    try {
+      await env.VV_DB.batch(an);
+      const r = await env.VV_DB.prepare("SELECT belegnummer FROM buchung WHERE id = ?")
+        .bind(buchungId).first();
+      return { id: buchungId, belegnummer: r ? r.belegnummer : null };
+    } catch (e) {
+      const txt = e && e.message ? e.message : String(e);
+      // ⚠️ SQLite nennt in der Meldung die SPALTEN, nicht den Indexnamen:
+      // "UNIQUE constraint failed: buchung.quelle_typ, buchung.quelle_id".
+      // Wer nur auf den Indexnamen prueft, faengt gar nichts.
+      //
+      // Nur der Gleichstand auf der Belegnummer wird wiederholt -- zwei
+      // Leute koennen gleichzeitig buchen. Ein zweiter Buchungsversuch
+      // derselben Quelle ist dagegen ein echter Fehler und wird gemeldet,
+      // nicht wegretryt.
+      if (/quelle_typ|quelle_id|idx_buchung_quelle/i.test(txt)) {
+        return { fehler: "Dieser Vorgang ist bereits gebucht" };
+      }
+      if (!/belegnummer|idx_buchung_beleg/i.test(txt) || versuch === 3) throw e;
+    }
+  }
+  return { fehler: "Belegnummer konnte nicht vergeben werden" };
+}
+
+async function ladeJahrFuer(env, datum, jahrId) {
+  if (jahrId) {
+    return env.VV_DB.prepare("SELECT * FROM geschaeftsjahr WHERE id = ?").bind(jahrId).first();
+  }
+  return env.VV_DB.prepare(
+    "SELECT * FROM geschaeftsjahr WHERE beginn <= ? AND ende >= ?").bind(datum, datum).first();
+}
+
+async function handleBuchen(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfBuchen) return json({ error: "Nur der Schatzmeister kann buchen" }, 403, corsHeaders);
+
+  const belegdatum = sauber(body.belegdatum, 10);
+  if (!belegdatum || !istIsoDatum(belegdatum)) {
+    return json({ error: "Das Belegdatum fehlt oder ist kein gueltiges Datum" }, 400, corsHeaders);
+  }
+  const text = sauber(body.text, 200);
+  if (!text) return json({ error: "Ohne Buchungstext ist ein Beleg nicht nachvollziehbar" }, 400, corsHeaders);
+
+  const jahr = await ladeJahrFuer(env, belegdatum, sauber(body.geschaeftsjahr_id, 40));
+  if (!jahr) {
+    return json({ error: "Fuer den " + belegdatum + " gibt es kein Geschaeftsjahr. " +
+                         "Bitte zuerst anlegen." }, 400, corsHeaders);
+  }
+  if (jahr.status !== "offen") {
+    return json({ error: "Das Geschaeftsjahr " + jahr.jahr + " ist abgeschlossen. " +
+                         "Korrekturen laufen ueber eine Buchung im Folgejahr." }, 409, corsHeaders);
+  }
+  if (belegdatum < jahr.beginn || belegdatum > jahr.ende) {
+    return json({ error: "Das Belegdatum liegt ausserhalb des Geschaeftsjahrs " + jahr.jahr }, 400, corsHeaders);
+  }
+
+  const konten = await env.VV_DB.prepare("SELECT id, nummer, sphaere, aktiv FROM konto").all();
+  const nachId = new Map((konten.results || []).map((k) => [k.id, k]));
+  const geprueft = pruefeBuchungszeilen(body.zeilen, nachId);
+  if (geprueft.fehler) return json({ error: geprueft.fehler }, 400, corsHeaders);
+
+  // Die Vorlage traegt ihre Sphaere doppelt -- als Pruefung, nicht als
+  // zweite Wahrheit. Weicht sie von der des Kontos ab, ist eines von
+  // beiden falsch gepflegt, und das soll auffallen statt still zu wirken.
+  let vorlageId = sauber(body.vorlage_id, 40);
+  if (vorlageId) {
+    const v = await env.VV_DB.prepare(
+      "SELECT id, name, sphaere FROM geschaeftsvorfall_vorlage WHERE id = ?").bind(vorlageId).first();
+    if (!v) return json({ error: "Vorlage nicht gefunden" }, 400, corsHeaders);
+    if (v.sphaere) {
+      const passt = geprueft.zeilen.some((z) => z.sphaere === v.sphaere);
+      if (!passt) {
+        return json({ error: "Die Vorlage \"" + v.name + "\" gehoert in die Sphaere " +
+          (SPHAEREN[v.sphaere] || v.sphaere) + ", die gewaehlten Konten aber nicht. " +
+          "Bitte Kontenrahmen und Vorlage abgleichen." }, 400, corsHeaders);
+      }
+    }
+  }
+
+  const ergebnis = await schreibeBuchung(env, {
+    jahr_id: jahr.id, belegdatum, text, vorlage_id: vorlageId,
+    summe: geprueft.summe, zeilen: geprueft.zeilen
+  }, me.username);
+  if (ergebnis.fehler) return json({ error: ergebnis.fehler }, 409, corsHeaders);
+
+  await protokolliere(env, me.username, "gebucht", "buchung", ergebnis.id,
+                      { belegnummer: ergebnis.belegnummer, summe_cent: geprueft.summe });
+  return json({ ok: true, id: ergebnis.id, belegnummer: ergebnis.belegnummer,
+                jahr: jahr.jahr }, 200, corsHeaders);
+}
+
+async function handleJournal(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfBuchen) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+
+  const jahrId = sauber(body.geschaeftsjahr_id, 40);
+  if (!jahrId) return json({ error: "Kein Geschaeftsjahr gewaehlt" }, 400, corsHeaders);
+
+  const suche = sauber(body.suche, 60);
+  const bedingungen = ["b.geschaeftsjahr_id = ?"];
+  const werte = [jahrId];
+  if (suche) {
+    bedingungen.push("(b.text LIKE ? OR CAST(b.belegnummer AS TEXT) = ?)");
+    werte.push("%" + suche + "%", suche);
+  }
+
+  // Kopf und Zeilen in ZWEI Abfragen, nicht in einer je Buchung. Bei 800
+  // Belegen waere das N+1-Muster wieder da, an dem der Worker in Stufe 0
+  // gestorben ist.
+  const kopf = await env.VV_DB.prepare(
+    "SELECT b.*, v.name AS vorlage FROM buchung b " +
+    "LEFT JOIN geschaeftsvorfall_vorlage v ON v.id = b.vorlage_id " +
+    "WHERE " + bedingungen.join(" AND ") +
+    " ORDER BY b.belegnummer DESC LIMIT 300"
+  ).bind(...werte).all();
+
+  const ids = (kopf.results || []).map((b) => b.id);
+  let zeilen = [];
+  if (ids.length) {
+    const p = ids.map(() => "?").join(",");
+    zeilen = ((await env.VV_DB.prepare(
+      "SELECT z.buchung_id, z.soll_cent, z.haben_cent, z.sphaere, z.text, " +
+      "k.nummer, k.name FROM buchungszeile z JOIN konto k ON k.id = z.konto_id " +
+      "WHERE z.buchung_id IN (" + p + ") ORDER BY z.soll_cent DESC"
+    ).bind(...ids).all()).results) || [];
+  }
+  const nachBuchung = new Map();
+  for (const z of zeilen) {
+    if (!nachBuchung.has(z.buchung_id)) nachBuchung.set(z.buchung_id, []);
+    nachBuchung.get(z.buchung_id).push(z);
+  }
+
+  return json({
+    ok: true,
+    buchungen: (kopf.results || []).map((b) => Object.assign({}, b, {
+      zeilen: nachBuchung.get(b.id) || []
+    }))
+  }, 200, corsHeaders);
+}
+
+async function handleBuchungStornieren(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfBuchen) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+
+  const original = await env.VV_DB.prepare("SELECT * FROM buchung WHERE id = ?")
+    .bind(sauber(body.id, 40)).first();
+  if (!original) return json({ error: "Buchung nicht gefunden" }, 404, corsHeaders);
+  if (original.storniert_am) return json({ error: "Diese Buchung ist bereits storniert" }, 409, corsHeaders);
+  if (original.storno_von_id) {
+    return json({ error: "Eine Stornobuchung wird nicht noch einmal storniert. " +
+                         "Buchen Sie den Vorgang bei Bedarf neu." }, 409, corsHeaders);
+  }
+
+  const jahr = await env.VV_DB.prepare("SELECT * FROM geschaeftsjahr WHERE id = ?")
+    .bind(original.geschaeftsjahr_id).first();
+  if (jahr && jahr.status !== "offen") {
+    return json({ error: "Das Geschaeftsjahr " + jahr.jahr + " ist abgeschlossen" }, 409, corsHeaders);
+  }
+
+  const zeilen = ((await env.VV_DB.prepare(
+    "SELECT * FROM buchungszeile WHERE buchung_id = ?").bind(original.id).all()).results) || [];
+  if (!zeilen.length) return json({ error: "Buchung ohne Zeilen" }, 409, corsHeaders);
+
+  const grund = sauber(body.grund, 200);
+  const jetzt = new Date().toISOString();
+
+  // Soll und Haben getauscht. Die Salden gehen dadurch von selbst auf --
+  // deshalb rechnet die Saldenliste ohne Filter auf storniert_am.
+  const ergebnis = await schreibeBuchung(env, {
+    jahr_id: original.geschaeftsjahr_id,
+    belegdatum: sauber(body.belegdatum, 10) && istIsoDatum(body.belegdatum)
+      ? body.belegdatum : jetzt.slice(0, 10),
+    text: "Storno zu Beleg " + original.belegnummer + (grund ? " -- " + grund : ""),
+    summe: original.summe_cent,
+    art: "storno",
+    storno_von_id: original.id,
+    storno_grund: grund,
+    zeilen: zeilen.map((z) => ({
+      konto_id: z.konto_id, soll_cent: z.haben_cent, haben_cent: z.soll_cent,
+      sphaere: z.sphaere, sparte_id: z.sparte_id, text: z.text
+    })),
+    zusatz: () => [env.VV_DB.prepare(
+      "UPDATE buchung SET storniert_am = ?, storniert_von = ?, storno_grund = ? WHERE id = ?"
+    ).bind(jetzt, me.username, grund, original.id)]
+  }, me.username);
+  if (ergebnis.fehler) return json({ error: ergebnis.fehler }, 409, corsHeaders);
+
+  await protokolliere(env, me.username, "buchung-storniert", "buchung", original.id,
+                      { storno_beleg: ergebnis.belegnummer });
+  return json({ ok: true, storno_id: ergebnis.id, belegnummer: ergebnis.belegnummer }, 200, corsHeaders);
+}
+
+// Summen- und Saldenliste plus Ergebnis je Sphaere. EINE Abfrage ueber
+// alle Zeilen des Jahres.
+async function summenJeKonto(env, jahrId) {
+  const r = await env.VV_DB.prepare(
+    "SELECT k.id, k.nummer, k.name, k.art, k.sphaere, k.gruppe, " +
+    "  SUM(z.soll_cent) AS soll, SUM(z.haben_cent) AS haben " +
+    "FROM buchungszeile z JOIN buchung b ON b.id = z.buchung_id " +
+    "JOIN konto k ON k.id = z.konto_id " +
+    "WHERE b.geschaeftsjahr_id = ? " +
+    "GROUP BY k.id ORDER BY k.sortierung, k.nummer"
+  ).bind(jahrId).all();
+
+  return (r.results || []).map((k) => {
+    const soll = k.soll || 0, haben = k.haben || 0;
+    // Aktiv und Aufwand haben einen Sollsaldo, Passiv und Ertrag einen
+    // Habensaldo. Ohne diese Unterscheidung stimmt kein Vorzeichen.
+    const saldo = (k.art === "aktiv" || k.art === "aufwand") ? soll - haben : haben - soll;
+    return { id: k.id, nummer: k.nummer, name: k.name, art: k.art, sphaere: k.sphaere,
+             gruppe: k.gruppe, soll_cent: soll, haben_cent: haben, saldo_cent: saldo };
+  });
+}
+
+function ergebnisJeSphaere(konten) {
+  const je = {};
+  for (const s of Object.keys(SPHAEREN)) {
+    je[s] = { ertrag_cent: 0, aufwand_cent: 0, ergebnis_cent: 0 };
+  }
+  for (const k of konten) {
+    if (k.art !== "ertrag" && k.art !== "aufwand") continue;
+    const s = k.sphaere && je[k.sphaere] ? k.sphaere : "ideell";
+    if (k.art === "ertrag") je[s].ertrag_cent += k.saldo_cent;
+    else je[s].aufwand_cent += k.saldo_cent;
+  }
+  let gesamt = 0;
+  for (const s of Object.keys(je)) {
+    je[s].ergebnis_cent = je[s].ertrag_cent - je[s].aufwand_cent;
+    gesamt += je[s].ergebnis_cent;
+  }
+  return { je, gesamt_cent: gesamt };
+}
+
+async function handleSaldenliste(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfBuchen) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+
+  const jahrId = sauber(body.geschaeftsjahr_id, 40);
+  const jahr = jahrId
+    ? await env.VV_DB.prepare("SELECT * FROM geschaeftsjahr WHERE id = ?").bind(jahrId).first()
+    : null;
+  if (!jahr) return json({ error: "Kein Geschaeftsjahr gewaehlt" }, 400, corsHeaders);
+
+  const konten = await summenJeKonto(env, jahr.id);
+  const erg = ergebnisJeSphaere(konten);
+
+  const bestand = konten.filter((k) => k.art === "aktiv" || k.art === "passiv");
+  const aktiva = bestand.filter((k) => k.art === "aktiv").reduce((s, k) => s + k.saldo_cent, 0);
+  const passiva = bestand.filter((k) => k.art === "passiv").reduce((s, k) => s + k.saldo_cent, 0);
+
+  const anzahl = await env.VV_DB.prepare(
+    "SELECT COUNT(*) AS n, SUM(CASE WHEN storniert_am IS NOT NULL THEN 1 ELSE 0 END) AS storniert " +
+    "FROM buchung WHERE geschaeftsjahr_id = ?").bind(jahr.id).first();
+
+  return json({
+    ok: true, jahr,
+    konten, sphaeren: SPHAEREN,
+    ergebnis: erg.je, ergebnis_gesamt_cent: erg.gesamt_cent,
+    aktiva_cent: aktiva, passiva_cent: passiva,
+    // Aktiva und Passiva gehen erst NACH dem Abschluss auf: bis dahin
+    // steht das Ergebnis noch auf den Erfolgskonten und nicht im
+    // Vereinsvermoegen. Die Differenz MUSS genau das Ergebnis sein.
+    differenz_cent: aktiva - passiva,
+    buchungen: anzahl ? anzahl.n : 0,
+    stornierte: anzahl ? (anzahl.storniert || 0) : 0
+  }, 200, corsHeaders);
+}
+
+// Was aus der Beitragsverwaltung noch nicht gebucht ist. Zwei Abfragen,
+// beide mengenbasiert.
+async function handleUebernahmeVorschau(env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfBuchen) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+
+  const laeufe = ((await env.VV_DB.prepare(
+    "SELECT l.id, l.bezeichnung, l.jahr, l.summe_cent, l.anzahl_erzeugt, l.festgeschrieben_am " +
+    "FROM beitragslauf l WHERE l.status = 'festgeschrieben' AND NOT EXISTS " +
+    "(SELECT 1 FROM buchung b WHERE b.quelle_typ = 'beitragslauf' AND b.quelle_id = l.id) " +
+    "ORDER BY l.jahr DESC").all()).results) || [];
+
+  const dateien = ((await env.VV_DB.prepare(
+    "SELECT d.id, d.ausfuehrung_am, d.summe_cent, d.anzahl_posten, d.gebucht_am " +
+    "FROM sepa_datei d WHERE d.gebucht_am IS NOT NULL AND NOT EXISTS " +
+    "(SELECT 1 FROM buchung b WHERE b.quelle_typ = 'sepa_datei' AND b.quelle_id = d.id) " +
+    "ORDER BY d.ausfuehrung_am DESC").all()).results) || [];
+
+  return json({
+    ok: true,
+    laeufe: laeufe.map((l) => ({
+      quelle_typ: "beitragslauf", quelle_id: l.id,
+      bezeichnung: l.bezeichnung, datum: l.festgeschrieben_am ? l.festgeschrieben_am.slice(0, 10) : null,
+      summe_cent: l.summe_cent, anzahl: l.anzahl_erzeugt,
+      soll: "1400", haben: "4100",
+      text: "Beitragsforderungen " + l.bezeichnung
+    })),
+    dateien: dateien.map((d) => ({
+      quelle_typ: "sepa_datei", quelle_id: d.id,
+      bezeichnung: "Lastschrifteinzug vom " + d.ausfuehrung_am,
+      datum: d.ausfuehrung_am, summe_cent: d.summe_cent, anzahl: d.anzahl_posten,
+      soll: "1200", haben: "1400",
+      text: "Lastschrifteinzug " + d.ausfuehrung_am
+    }))
+  }, 200, corsHeaders);
+}
+
+async function handleUebernahmeBuchen(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfBuchen) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+
+  const typ = String(body.quelle_typ || "");
+  if (typ !== "beitragslauf" && typ !== "sepa_datei") {
+    return json({ error: "Unbekannte Quelle" }, 400, corsHeaders);
+  }
+  const quelleId = sauber(body.quelle_id, 40);
+  if (!quelleId) return json({ error: "Keine Quelle angegeben" }, 400, corsHeaders);
+
+  let datum, summe, text, sollNr, habenNr;
+  if (typ === "beitragslauf") {
+    const l = await env.VV_DB.prepare(
+      "SELECT * FROM beitragslauf WHERE id = ?").bind(quelleId).first();
+    if (!l) return json({ error: "Beitragslauf nicht gefunden" }, 404, corsHeaders);
+    if (l.status !== "festgeschrieben") {
+      return json({ error: "Nur ein festgeschriebener Lauf wird gebucht. Bis dahin kann er " +
+                           "sich noch aendern." }, 409, corsHeaders);
+    }
+    // ⚠️ Die FAELLIGKEIT bestimmt das Geschaeftsjahr, nicht der Tag, an
+    // dem jemand auf "festschreiben" geklickt hat. Ein Lauf fuer 2027
+    // wird oft schon im Dezember 2026 vorbereitet -- gebucht ueber das
+    // Erstelldatum landete die komplette Jahressollstellung im falschen
+    // Jahr und beide Jahresergebnisse waeren falsch.
+    datum = l.faelligkeit;
+    summe = l.summe_cent; text = "Beitragsforderungen " + l.bezeichnung;
+    sollNr = "1400"; habenNr = "4100";
+  } else {
+    const d = await env.VV_DB.prepare("SELECT * FROM sepa_datei WHERE id = ?").bind(quelleId).first();
+    if (!d) return json({ error: "SEPA-Datei nicht gefunden" }, 404, corsHeaders);
+    if (!d.gebucht_am) {
+      return json({ error: "Diese Einreichung ist in der Beitragsverwaltung noch nicht als " +
+                           "eingegangen gebucht" }, 409, corsHeaders);
+    }
+    datum = d.ausfuehrung_am;
+    summe = d.summe_cent; text = "Lastschrifteinzug " + d.ausfuehrung_am;
+    sollNr = "1200"; habenNr = "1400";
+  }
+
+  if (!summe) return json({ error: "Der Vorgang hat keinen Betrag" }, 400, corsHeaders);
+
+  const jahr = await ladeJahrFuer(env, datum, null);
+  if (!jahr) return json({ error: "Fuer den " + datum + " gibt es kein Geschaeftsjahr" }, 400, corsHeaders);
+  if (jahr.status !== "offen") {
+    return json({ error: "Das Geschaeftsjahr " + jahr.jahr + " ist abgeschlossen" }, 409, corsHeaders);
+  }
+
+  const konten = ((await env.VV_DB.prepare(
+    "SELECT id, nummer, sphaere, aktiv FROM konto WHERE nummer IN (?,?)").bind(sollNr, habenNr).all()).results) || [];
+  const nachNr = new Map(konten.map((k) => [k.nummer, k]));
+  if (!nachNr.has(sollNr) || !nachNr.has(habenNr)) {
+    return json({ error: "Die Konten " + sollNr + " und " + habenNr + " fehlen im Kontenrahmen" }, 400, corsHeaders);
+  }
+
+  const ergebnis = await schreibeBuchung(env, {
+    jahr_id: jahr.id, belegdatum: datum, text, summe,
+    quelle_typ: typ, quelle_id: quelleId,
+    zeilen: [
+      { konto_id: nachNr.get(sollNr).id, soll_cent: summe, haben_cent: 0,
+        sphaere: nachNr.get(sollNr).sphaere || null, sparte_id: null, text: null },
+      { konto_id: nachNr.get(habenNr).id, soll_cent: 0, haben_cent: summe,
+        sphaere: nachNr.get(habenNr).sphaere || null, sparte_id: null, text: null }
+    ]
+  }, me.username);
+  if (ergebnis.fehler) return json({ error: ergebnis.fehler }, 409, corsHeaders);
+
+  await protokolliere(env, me.username, "uebernahme-gebucht", "buchung", ergebnis.id,
+                      { quelle_typ: typ, quelle_id: quelleId, summe_cent: summe });
+  return json({ ok: true, id: ergebnis.id, belegnummer: ergebnis.belegnummer,
+                summe_cent: summe, jahr: jahr.jahr }, 200, corsHeaders);
+}
+
+// Jahresabschluss: Erfolgskonten gegen das Vereinsvermoegen glattstellen,
+// Jahr schliessen, und -- falls das Folgejahr schon angelegt ist -- dessen
+// Eroeffnungsbuchung schreiben. In einem Zug, damit kein halber Abschluss
+// stehen bleibt.
+async function handleJahresabschluss(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfBuchen) return json({ error: "Nur der Schatzmeister kann abschliessen" }, 403, corsHeaders);
+
+  const jahr = await env.VV_DB.prepare("SELECT * FROM geschaeftsjahr WHERE id = ?")
+    .bind(sauber(body.geschaeftsjahr_id, 40)).first();
+  if (!jahr) return json({ error: "Geschaeftsjahr nicht gefunden" }, 404, corsHeaders);
+  if (jahr.status !== "offen") {
+    return json({ error: "Das Jahr " + jahr.jahr + " ist bereits abgeschlossen" }, 409, corsHeaders);
+  }
+
+  const konten = await summenJeKonto(env, jahr.id);
+  const erg = ergebnisJeSphaere(konten);
+
+  const alle = ((await env.VV_DB.prepare(
+    "SELECT id, nummer, sphaere FROM konto").all()).results) || [];
+  const nachNr = new Map(alle.map((k) => [k.nummer, k]));
+  const kapital = nachNr.get("2000");
+  const vortrag = nachNr.get("9000");
+  if (!kapital || !vortrag) {
+    return json({ error: "Die Konten 2000 (Vereinsvermoegen) und 9000 (Saldenvortraege) " +
+                         "werden fuer den Abschluss gebraucht" }, 400, corsHeaders);
+  }
+
+  // 1) Abschlussbuchung. Jedes Erfolgskonto wird auf null gestellt, die
+  //    Summe landet im Vereinsvermoegen.
+  const abschlussZeilen = [];
+  let ertragSumme = 0, aufwandSumme = 0;
+  for (const k of konten) {
+    if (k.art !== "ertrag" && k.art !== "aufwand") continue;
+    if (!k.saldo_cent) continue;
+    if (k.art === "ertrag") {
+      abschlussZeilen.push({ konto_id: k.id, soll_cent: k.saldo_cent, haben_cent: 0,
+                             sphaere: k.sphaere, sparte_id: null, text: "Abschluss" });
+      ertragSumme += k.saldo_cent;
+    } else {
+      abschlussZeilen.push({ konto_id: k.id, soll_cent: 0, haben_cent: k.saldo_cent,
+                             sphaere: k.sphaere, sparte_id: null, text: "Abschluss" });
+      aufwandSumme += k.saldo_cent;
+    }
+  }
+  const jahresergebnis = ertragSumme - aufwandSumme;
+  let abschluss = null;
+  if (abschlussZeilen.length) {
+    if (jahresergebnis >= 0) {
+      abschlussZeilen.push({ konto_id: kapital.id, soll_cent: 0, haben_cent: jahresergebnis,
+                             sphaere: null, sparte_id: null, text: "Jahresergebnis" });
+    } else {
+      abschlussZeilen.push({ konto_id: kapital.id, soll_cent: -jahresergebnis, haben_cent: 0,
+                             sphaere: null, sparte_id: null, text: "Jahresergebnis" });
+    }
+    const summeSoll = abschlussZeilen.reduce((s, z) => s + z.soll_cent, 0);
+    abschluss = await schreibeBuchung(env, {
+      jahr_id: jahr.id, belegdatum: jahr.ende,
+      text: "Abschluss " + jahr.jahr, summe: summeSoll, art: "abschluss",
+      zeilen: abschlussZeilen
+    }, me.username);
+    if (abschluss.fehler) return json({ error: abschluss.fehler }, 409, corsHeaders);
+  }
+
+  // 2) Jahr schliessen -- mit dem Ergebnis je Sphaere als Beleg dafuer,
+  //    wonach abgeschlossen wurde.
+  const jetzt = new Date().toISOString();
+  await env.VV_DB.prepare(
+    "UPDATE geschaeftsjahr SET status = 'abgeschlossen', abgeschlossen_am = ?, " +
+    "abgeschlossen_von = ?, ergebnis_json = ? WHERE id = ?"
+  ).bind(jetzt, me.username, JSON.stringify({
+    je_sphaere: erg.je, ergebnis_cent: jahresergebnis
+  }), jahr.id).run();
+
+  // 3) Eroeffnung des Folgejahres, falls es schon existiert.
+  let eroeffnung = null;
+  const folge = await env.VV_DB.prepare(
+    "SELECT * FROM geschaeftsjahr WHERE jahr = ?").bind(jahr.jahr + 1).first();
+  if (folge && folge.status === "offen") {
+    eroeffnung = await eroeffnungSchreiben(env, jahr, folge, vortrag, me.username);
+    if (eroeffnung && eroeffnung.fehler) return json({ error: eroeffnung.fehler }, 409, corsHeaders);
+  }
+
+  await protokolliere(env, me.username, "jahresabschluss", "geschaeftsjahr", jahr.id,
+                      { jahr: jahr.jahr, ergebnis_cent: jahresergebnis });
+
+  return json({
+    ok: true, jahr: jahr.jahr,
+    ergebnis_cent: jahresergebnis,
+    je_sphaere: erg.je,
+    abschluss_beleg: abschluss ? abschluss.belegnummer : null,
+    eroeffnung_beleg: eroeffnung ? eroeffnung.belegnummer : null,
+    folgejahr: folge ? folge.jahr : null,
+    // ⚠️ Der Hinweis muss auf etwas zeigen, das es GIBT. Ein zweiter
+    // Aufruf des Abschlusses ist gesperrt (409) -- er waere hier also ein
+    // Versprechen, das der Code selbst verweigert. Deshalb die eigene
+    // Aktion.
+    hinweis: folge ? null : "Ein Folgejahr ist noch nicht angelegt. Legen Sie es an und rufen " +
+                            "Sie danach \"Eroeffnungsbilanz uebernehmen\" auf -- der Abschluss " +
+                            "selbst laesst sich nicht wiederholen."
+  }, 200, corsHeaders);
+}
+
+// Traegt die Bestandskonten eines abgeschlossenen Jahres ins Folgejahr
+// vor. Gegenkonto ist 9000; geht die Bilanz auf, bleibt es auf null.
+// Wird vom Abschluss aufgerufen UND von der eigenen Aktion, wenn das
+// Folgejahr erst spaeter angelegt wurde.
+async function eroeffnungSchreiben(env, vorjahr, folge, vortragKonto, username) {
+  const nachSchluss = await summenJeKonto(env, vorjahr.id);
+  const zeilen = [];
+  let sollSumme = 0, habenSumme = 0;
+  for (const k of nachSchluss) {
+    if (k.art !== "aktiv" && k.art !== "passiv") continue;
+    if (!k.saldo_cent) continue;
+    if (k.nummer === "9000") continue;
+    if (k.art === "aktiv") {
+      zeilen.push({ konto_id: k.id, soll_cent: k.saldo_cent, haben_cent: 0,
+                    sphaere: null, sparte_id: null, text: "Vortrag" });
+      sollSumme += k.saldo_cent;
+    } else {
+      zeilen.push({ konto_id: k.id, soll_cent: 0, haben_cent: k.saldo_cent,
+                    sphaere: null, sparte_id: null, text: "Vortrag" });
+      habenSumme += k.saldo_cent;
+    }
+  }
+  if (!zeilen.length) return null;
+
+  const diff = sollSumme - habenSumme;
+  if (diff > 0) {
+    zeilen.push({ konto_id: vortragKonto.id, soll_cent: 0, haben_cent: diff,
+                  sphaere: null, sparte_id: null, text: "Saldenvortrag" });
+  } else if (diff < 0) {
+    zeilen.push({ konto_id: vortragKonto.id, soll_cent: -diff, haben_cent: 0,
+                  sphaere: null, sparte_id: null, text: "Saldenvortrag" });
+    sollSumme += -diff;
+  }
+  return schreibeBuchung(env, {
+    jahr_id: folge.id, belegdatum: folge.beginn,
+    text: "Eroeffnungsbilanz " + folge.jahr, summe: sollSumme, art: "eroeffnung",
+    zeilen
+  }, username);
+}
+
+async function handleEroeffnung(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfBuchen) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+
+  const folge = await env.VV_DB.prepare("SELECT * FROM geschaeftsjahr WHERE id = ?")
+    .bind(sauber(body.geschaeftsjahr_id, 40)).first();
+  if (!folge) return json({ error: "Geschaeftsjahr nicht gefunden" }, 404, corsHeaders);
+  if (folge.status !== "offen") {
+    return json({ error: "Das Jahr " + folge.jahr + " ist bereits abgeschlossen" }, 409, corsHeaders);
+  }
+
+  const da = await env.VV_DB.prepare(
+    "SELECT id FROM buchung WHERE geschaeftsjahr_id = ? AND art = 'eroeffnung'")
+    .bind(folge.id).first();
+  if (da) return json({ error: "Das Jahr " + folge.jahr + " hat schon eine Eroeffnungsbilanz" }, 409, corsHeaders);
+
+  const vorjahr = await env.VV_DB.prepare("SELECT * FROM geschaeftsjahr WHERE jahr = ?")
+    .bind(folge.jahr - 1).first();
+  if (!vorjahr) {
+    return json({ error: "Es gibt kein Geschaeftsjahr " + (folge.jahr - 1) + ", aus dem " +
+                         "vorgetragen werden koennte" }, 400, corsHeaders);
+  }
+  if (vorjahr.status !== "abgeschlossen") {
+    return json({ error: "Das Jahr " + vorjahr.jahr + " ist noch nicht abgeschlossen. " +
+                         "Solange kann sich sein Bestand noch aendern." }, 409, corsHeaders);
+  }
+
+  const vortrag = await env.VV_DB.prepare("SELECT id FROM konto WHERE nummer = '9000'").first();
+  if (!vortrag) return json({ error: "Das Konto 9000 (Saldenvortraege) fehlt" }, 400, corsHeaders);
+
+  const ergebnis = await eroeffnungSchreiben(env, vorjahr, folge, vortrag, me.username);
+  if (!ergebnis) {
+    return json({ ok: true, belegnummer: null,
+                  hinweis: "Im Jahr " + vorjahr.jahr + " stand nichts auf den Bestandskonten, " +
+                           "es gibt nichts vorzutragen." }, 200, corsHeaders);
+  }
+  if (ergebnis.fehler) return json({ error: ergebnis.fehler }, 409, corsHeaders);
+
+  await protokolliere(env, me.username, "eroeffnungsbilanz", "geschaeftsjahr", folge.id,
+                      { jahr: folge.jahr, aus: vorjahr.jahr });
+  return json({ ok: true, belegnummer: ergebnis.belegnummer,
+                jahr: folge.jahr, aus: vorjahr.jahr }, 200, corsHeaders);
+}
+
+// ---------------------------------------------------------------------
+// STUFE 5 -- AUSWERTUNGEN
+// ---------------------------------------------------------------------
+//
+// Alles hier sind SUMMEN ohne Personenbezug. Deshalb steht es dem
+// Vorstand offen, der bewusst keine Mitgliederdaten sehen darf -- und
+// deshalb liefert jede Abfrage Gruppen, nie Zeilen mit Namen.
+
+async function handleKennzahlen(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfKennzahlenSehen) {
+    return json({ error: "Fuer diese Auswertung fehlt eine Rolle in der Vereinsverwaltung" },
+                403, corsHeaders);
+  }
+
+  const stichtag = istIsoDatum(body.stichtag) ? body.stichtag
+                                              : new Date().toISOString().slice(0, 10);
+  const imBestand = bestandSql(stichtag);
+  const alter = alterSql(stichtag);
+
+  const bestand = await env.VV_DB.prepare(
+    "SELECT COUNT(*) AS gesamt, " +
+    " SUM(CASE WHEN m.status = 'aktiv' THEN 1 ELSE 0 END) AS aktiv, " +
+    " SUM(CASE WHEN m.status = 'ruhend' THEN 1 ELSE 0 END) AS ruhend, " +
+    " SUM(CASE WHEN m.art = 'ehrenmitglied' THEN 1 ELSE 0 END) AS ehren, " +
+    " SUM(CASE WHEN " + alter + " >= " + STIMMRECHT_ALTER + " THEN 1 ELSE 0 END) AS stimmberechtigt " +
+    "FROM mitgliedschaft m JOIN person p ON p.id = m.person_id WHERE " + imBestand
+  ).bind().first();
+
+  const jeSparte = ((await env.VV_DB.prepare(
+    "SELECT s.name, COUNT(*) AS n FROM mitgliedschaft_sparte ms " +
+    "JOIN mitgliedschaft m ON m.id = ms.mitgliedschaft_id " +
+    "JOIN person p ON p.id = m.person_id JOIN sparte s ON s.id = ms.sparte_id " +
+    "WHERE (ms.austritt IS NULL OR ms.austritt >= ?) AND " + imBestand +
+    " GROUP BY s.id ORDER BY n DESC"
+  ).bind(stichtag).all()).results) || [];
+
+  const jeKlasse = ((await env.VV_DB.prepare(
+    "SELECT COALESCE(k.name, 'ohne Klasse') AS name, COUNT(*) AS n, " +
+    " SUM(COALESCE((SELECT bs.betrag_cent FROM beitragssatz bs WHERE bs.beitragsklasse_id = k.id " +
+    "   AND bs.gueltig_ab <= ? AND (bs.gueltig_bis IS NULL OR bs.gueltig_bis >= ?) " +
+    "   ORDER BY bs.gueltig_ab DESC LIMIT 1), 0)) AS summe_cent " +
+    "FROM mitgliedschaft m JOIN person p ON p.id = m.person_id " +
+    "LEFT JOIN beitragsklasse k ON k.id = m.beitragsklasse_id " +
+    "WHERE " + imBestand + " GROUP BY k.id ORDER BY n DESC"
+  ).bind(stichtag, stichtag).all()).results) || [];
+
+  const jeAlter = ((await env.VV_DB.prepare(
+    "SELECT " + altersGruppeSql(alter) + " AS gruppe, " +
+    " COALESCE(p.geschlecht, 'ohne') AS geschlecht, COUNT(*) AS n " +
+    "FROM mitgliedschaft m JOIN person p ON p.id = m.person_id " +
+    "WHERE " + imBestand + " GROUP BY gruppe, geschlecht"
+  ).bind().all()).results) || [];
+
+  // Zu- und Abgaenge der letzten zehn Jahre, in einer Abfrage je Richtung.
+  const jahr = Number(stichtag.slice(0, 4));
+  const von = String(jahr - 9) + "-01-01";
+  const zugaenge = ((await env.VV_DB.prepare(
+    "SELECT substr(eintritt, 1, 4) AS jahr, COUNT(*) AS n FROM mitgliedschaft " +
+    "WHERE eintritt >= ? AND eintritt <= ? GROUP BY jahr ORDER BY jahr"
+  ).bind(von, stichtag).all()).results) || [];
+  const abgaenge = ((await env.VV_DB.prepare(
+    "SELECT substr(austritt, 1, 4) AS jahr, COUNT(*) AS n FROM mitgliedschaft " +
+    "WHERE austritt IS NOT NULL AND austritt >= ? AND austritt <= ? GROUP BY jahr ORDER BY jahr"
+  ).bind(von, stichtag).all()).results) || [];
+
+  const finanzen = await env.VV_DB.prepare(
+    "SELECT COUNT(*) AS forderungen, SUM(betrag_cent) AS summe_cent, " +
+    " SUM(CASE WHEN status = 'offen' OR status = 'teilbezahlt' THEN betrag_cent ELSE 0 END) AS offen_cent, " +
+    " SUM(CASE WHEN status = 'bezahlt' THEN betrag_cent ELSE 0 END) AS bezahlt_cent " +
+    "FROM forderung WHERE storniert_am IS NULL AND jahr = ?"
+  ).bind(jahr).first();
+
+  return json({
+    ok: true, stichtag, jahr,
+    bestand: bestand || {},
+    stimmrecht_ab: STIMMRECHT_ALTER,
+    je_sparte: jeSparte,
+    je_klasse: jeKlasse,
+    je_alter: jeAlter,
+    altersgruppen: ALTERSGRUPPEN,
+    zugaenge, abgaenge,
+    finanzen: finanzen || {}
+  }, 200, corsHeaders);
+}
+
+// Bestandsmeldung an den Landessportbund: Altersgruppen mal Geschlecht,
+// je Abteilung. Eine Abfrage, danach nur noch Umsortieren.
+async function handleBestandsmeldung(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfKennzahlenSehen) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+
+  const stichtag = istIsoDatum(body.stichtag) ? body.stichtag
+                                              : (new Date().getFullYear() + "-01-01");
+
+  const roh = ((await env.VV_DB.prepare(
+    "SELECT s.name AS sparte, " + altersGruppeSql(alterSql(stichtag)) + " AS gruppe, " +
+    " COALESCE(p.geschlecht, 'ohne') AS geschlecht, COUNT(*) AS n " +
+    "FROM mitgliedschaft_sparte ms JOIN mitgliedschaft m ON m.id = ms.mitgliedschaft_id " +
+    "JOIN person p ON p.id = m.person_id JOIN sparte s ON s.id = ms.sparte_id " +
+    "WHERE (ms.austritt IS NULL OR ms.austritt >= ?) AND " + bestandSql(stichtag) + " " +
+    "GROUP BY s.name, gruppe, geschlecht ORDER BY s.name"
+  ).bind(stichtag).all()).results) || [];
+
+  const nachSparte = new Map();
+  for (const z of roh) {
+    if (!nachSparte.has(z.sparte)) nachSparte.set(z.sparte, {});
+    const s = nachSparte.get(z.sparte);
+    if (!s[z.gruppe]) s[z.gruppe] = { w: 0, m: 0, d: 0, ohne: 0, gesamt: 0 };
+    const schluessel = ["w", "m", "d"].includes(z.geschlecht) ? z.geschlecht : "ohne";
+    s[z.gruppe][schluessel] += z.n;
+    s[z.gruppe].gesamt += z.n;
+  }
+
+  const zeilen = [];
+  for (const [sparte, gruppen] of nachSparte) {
+    for (const g of ALTERSGRUPPEN) {
+      if (!gruppen[g]) continue;
+      zeilen.push(Object.assign({ sparte, altersgruppe: g }, gruppen[g]));
+    }
+  }
+
+  return json({
+    ok: true, stichtag, altersgruppen: ALTERSGRUPPEN,
+    zeilen,
+    gesamt: zeilen.reduce((s, z) => s + z.gesamt, 0),
+    // ⚠️ Wer in zwei Abteilungen ist, steht in beiden Zeilen. Das ist beim
+    // Landessportbund so gewollt (gemeldet werden Mitgliedschaften je
+    // Sportart), aber die Summe ist deshalb NICHT die Mitgliederzahl.
+    hinweis: "Mehrfachmitgliedschaften stehen in jeder Abteilung. Die Summe ist die Zahl " +
+             "der Abteilungsmitgliedschaften, nicht die der Personen."
+  }, 200, corsHeaders);
+}
+
+// ---------------------------------------------------------------------
 // Belastungstest (Stufe 0) -- misst, ob der kostenlose Cloudflare-Tarif
 // den Beitragslauf traegt. Kann nach der Tarifentscheidung raus.
 //
@@ -4618,6 +5761,20 @@ export default {
         case "vv-antrag-status":   return handleAntragStatus(body, env, me, corsHeaders);
         case "vv-antrag-annehmen": return handleAntragAnnehmen(body, env, me, corsHeaders);
         case "vv-sparte-aktiv":    return handleSparteAktiv(body, env, me, corsHeaders);
+        case "vv-buch-init":       return handleBuchInit(env, me, corsHeaders);
+        case "vv-buch-stammdaten": return handleBuchStammdaten(env, me, corsHeaders);
+        case "vv-jahr-anlegen":    return handleJahrAnlegen(body, env, me, corsHeaders);
+        case "vv-konto-speichern": return handleKontoSpeichern(body, env, me, corsHeaders);
+        case "vv-buchen":          return handleBuchen(body, env, me, corsHeaders);
+        case "vv-journal":         return handleJournal(body, env, me, corsHeaders);
+        case "vv-buchung-stornieren": return handleBuchungStornieren(body, env, me, corsHeaders);
+        case "vv-saldenliste":     return handleSaldenliste(body, env, me, corsHeaders);
+        case "vv-uebernahme":      return handleUebernahmeVorschau(env, me, corsHeaders);
+        case "vv-uebernahme-buchen": return handleUebernahmeBuchen(body, env, me, corsHeaders);
+        case "vv-jahresabschluss": return handleJahresabschluss(body, env, me, corsHeaders);
+        case "vv-eroeffnung":      return handleEroeffnung(body, env, me, corsHeaders);
+        case "vv-kennzahlen":      return handleKennzahlen(body, env, me, corsHeaders);
+        case "vv-bestandsmeldung": return handleBestandsmeldung(body, env, me, corsHeaders);
         case "vv-sparten-init":    return handleSpartenInit(env, me, corsHeaders);
         case "vv-seed":            return handleSeed(body, env, me, corsHeaders);
         case "vv-messlauf":        return handleMesslauf(body, env, me, corsHeaders);

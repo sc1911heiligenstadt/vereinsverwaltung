@@ -710,3 +710,116 @@ table.zusammenfassung td { white-space: normal; }
   button.btn.gross { width: 100%; }
   table.zusammenfassung th { width: 130px; white-space: normal; }
 }
+
+/* ---------- Buchhaltung und Auswertungen (Stufe 4 und 5) ---------- */
+
+/* Als Link gestalteter Knopf. a.btn gab es schon, aber die beiden neuen
+   Seiten brauchen ihn auch ohne die Beitragslauf-Umgebung. */
+a.btn-link {
+  display: inline-block;
+  background: var(--blue);
+  color: #fff;
+  text-decoration: none;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+a.btn-link:hover { background: var(--blue-dark); }
+
+/* Die beiden Verweise in der Reiterleiste sehen aus wie Reiter, führen
+   aber auf eine andere Seite. Der Pfeil im Text sagt das; die Optik
+   folgt nav button, damit die Zeile nicht auseinanderfällt. */
+nav a {
+  border-bottom: 3px solid transparent;
+  padding: 13px 16px;
+  font-size: 15px;
+  color: var(--muted);
+  text-decoration: none;
+  align-self: center;
+}
+nav a:hover { color: var(--blue); }
+nav a[hidden] { display: none; }
+
+/* Eine Buchungszeile: Konto, Soll, Haben, Wegwerfen. Am Handy bricht sie
+   um, statt die Seite seitlich zu sprengen. */
+/* ⚠️ minmax(0, 1fr), nicht 1fr. Ein blosses 1fr hat min-content als
+   Mindestbreite, und die Kontoauswahl traegt lange Beschriftungen
+   ("1200 Bank"). Die Spalte wuchs dadurch ueber die Karte hinaus --
+   gemessen: Zeile 318 px breit, Inhalt bis 490 px. min-width am Element
+   allein reicht nicht, weil die SPUR die Mindestbreite bestimmt. */
+.buchungszeile {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 130px 130px 40px;
+  gap: 8px;
+  margin-bottom: 8px;
+  align-items: center;
+}
+.buchungszeile input { text-align: right; font-variant-numeric: tabular-nums; }
+.buchungszeile select { min-width: 0; }
+.buchungszeile > * { min-width: 0; }
+
+/* Ein Beleg im Journal: Kopfzeile plus Zeilen, keine flache Tabelle --
+   Soll und Haben gehören sichtbar zusammen. */
+.beleg {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  background: #fff;
+}
+.beleg-kopf {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+.beleg-summe {
+  margin-left: auto;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.beleg-zeilen { font-size: 13.5px; }
+.beleg-zeilen td { padding: 4px 8px; }
+.beleg-zeilen td.betrag { width: 130px; }
+/* Storniert wird durchgestrichen, nicht ausgeblendet: die Buchung bleibt
+   Teil des Journals, sie ist nur unwirksam. */
+.beleg.storniert { background: #fbfbfc; }
+.beleg.storniert .beleg-kopf strong { text-decoration: line-through; }
+.beleg.storniert .beleg-zeilen { color: var(--muted); }
+
+/* Kennzahlen-Kacheln der Auswertungsseite. Die bestehende .kennzahlen
+   arbeitet mit dt/dd, hier stehen eigene Kinder drin. */
+.kennzahl { text-align: left; }
+.kennzahl-zahl {
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.kennzahl-text { font-size: 12.5px; color: var(--muted); }
+.kennzahl-hinweis { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+
+.balkenliste { margin-top: 4px; }
+.balkenzeile {
+  display: grid;
+  grid-template-columns: 190px 1fr 60px;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 5px;
+  font-size: 14px;
+}
+.balken-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.balken-wert { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+
+@media (max-width: 720px) {
+  /* Vier Spalten passen bei 375px nicht. Konto über die volle Breite,
+     Soll und Haben nebeneinander darunter. */
+  .buchungszeile {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 40px;
+  }
+  .buchungszeile select { grid-column: 1 / -1; }
+  .balkenzeile { grid-template-columns: 110px minmax(0, 1fr) 46px; font-size: 13px; }
+  .beleg-summe { margin-left: 0; width: 100%; }
+}

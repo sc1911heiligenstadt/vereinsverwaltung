@@ -128,6 +128,13 @@ async function start() {
   // dasselbe Recht wie das Anlegen von Hand.
   $("nav-antraege").hidden = !meineRechte.darfSchreiben;
 
+  // Verweise auf die beiden eigenen Seiten. Die Buchhaltung ist dem
+  // Schatzmeister vorbehalten; die Auswertungen stehen jeder hinterlegten
+  // Rolle offen — der Vorstand hat genau dafür eine.
+  $("nav-buchhaltung").hidden = !meineRechte.darfBuchen;
+  $("nav-auswertung").hidden = !(meineRechte.isAdmin
+    || (meineRechte.rollen && meineRechte.rollen.length > 0));
+
   await ladeSpartenAuswahl();
   await ladeUndZeige();
   if (meineRechte.isAdmin) ladeRollen();

@@ -539,3 +539,126 @@ CREATE UNIQUE INDEX idx_mandat_aktiv
 CREATE UNIQUE INDEX idx_mgspa_aktiv
   ON mitgliedschaft_sparte(mitgliedschaft_id, sparte_id)
   WHERE austritt IS NULL;
+
+
+-- ---------------------------------------------------------------------
+-- 9) BUCHHALTUNG (Stufe 4)
+-- ---------------------------------------------------------------------
+--
+-- Doppelte Buchführung mit den vier Sphären des Gemeinnützigkeitsrechts.
+-- Diese Tabellen entstehen NICHT beim Einspielen des Schemas, sondern über
+-- handleMigration (CREATE TABLE IF NOT EXISTS) -- die Datenbank läuft seit
+-- Juli 2026 produktiv, ein zweites Einspielen des Schemas gibt es nicht.
+-- Hier stehen sie als Referenz und für neue Instanzen.
+
+-- Ein Kalenderjahr. Abgeschlossen wird es genau einmal; danach entstehen
+-- Korrekturen nur noch als Storno im Folgejahr.
+CREATE TABLE geschaeftsjahr (
+  id                TEXT PRIMARY KEY,
+  jahr              INTEGER NOT NULL UNIQUE,
+  beginn            TEXT NOT NULL,
+  ende              TEXT NOT NULL,
+  status            TEXT NOT NULL DEFAULT 'offen',   -- 'offen' | 'abgeschlossen'
+  abgeschlossen_am  TEXT,
+  abgeschlossen_von TEXT,
+  ergebnis_json     TEXT,                   -- Ergebnis je Sphäre beim Abschluss
+  erstellt_am       TEXT NOT NULL,
+  erstellt_von      TEXT NOT NULL
+);
+
+-- Kontenrahmen, an SKR49 angelehnt. Die Nummern sind ein Startbestand und
+-- ausdrücklich änderbar -- ein Kontenrahmen ist eine Absprache mit dem
+-- Steuerberater, kein Programmzustand.
+--
+-- Die SPHÄRE hängt am Konto, nicht an der Buchung. Sonst gäbe es zwei
+-- Wahrheiten darüber, ob eine Einnahme steuerpflichtig ist. Wer dieselbe
+-- Art Einnahme in zwei Sphären braucht, legt zwei Konten an -- genau so
+-- ist SKR49 aufgebaut.
+CREATE TABLE konto (
+  id                TEXT PRIMARY KEY,
+  nummer            TEXT NOT NULL UNIQUE,
+  name              TEXT NOT NULL,
+  art               TEXT NOT NULL,          -- 'aktiv' | 'passiv' | 'ertrag' | 'aufwand'
+  sphaere           TEXT,                   -- nur bei ertrag/aufwand gesetzt
+                    -- 'ideell' | 'vermoegen' | 'zweckbetrieb' | 'wirtschaft'
+  gruppe            TEXT,                   -- Gliederung in der Auswertung
+  aktiv             INTEGER NOT NULL DEFAULT 1,
+  sortierung        INTEGER NOT NULL DEFAULT 100,
+  erstellt_am       TEXT NOT NULL,
+  erstellt_von      TEXT NOT NULL
+);
+
+-- Geführter Geschäftsvorfall in Klartext. Der Erklärungstext ist Pflicht:
+-- die Sphäre falsch zu wählen trifft die Gemeinnützigkeit, und eine
+-- Vorlage verteilt einen solchen Fehler flächiger als Handarbeit.
+CREATE TABLE geschaeftsvorfall_vorlage (
+  id                TEXT PRIMARY KEY,
+  name              TEXT NOT NULL,
+  erklaerung        TEXT NOT NULL,
+  soll_nummer       TEXT NOT NULL,
+  haben_nummer      TEXT NOT NULL,
+  sphaere           TEXT,                   -- muss zur Sphäre der Konten passen
+  sortierung        INTEGER NOT NULL DEFAULT 100,
+  aktiv             INTEGER NOT NULL DEFAULT 1,
+  erstellt_am       TEXT NOT NULL,
+  erstellt_von      TEXT NOT NULL
+);
+
+-- Ein Beleg. Belegnummern sind je Geschäftsjahr lückenlos -- das erzwingt
+-- der eindeutige Index unten, weil D1 keine Transaktion über mehrere
+-- Anweisungen kennt.
+CREATE TABLE buchung (
+  id                TEXT PRIMARY KEY,
+  geschaeftsjahr_id TEXT NOT NULL REFERENCES geschaeftsjahr(id),
+  belegnummer       INTEGER NOT NULL,
+  belegdatum        TEXT NOT NULL,
+  buchungsdatum     TEXT NOT NULL,
+  text              TEXT NOT NULL,
+  vorlage_id        TEXT REFERENCES geschaeftsvorfall_vorlage(id),
+  summe_cent        INTEGER NOT NULL,       -- Sollsumme; Haben ist gleich groß
+  art               TEXT NOT NULL DEFAULT 'normal',
+                    -- 'normal' | 'eroeffnung' | 'abschluss' | 'storno'
+
+  -- Herkunft aus der Beitragsverwaltung. Der eindeutige Teilindex darauf
+  -- verhindert, dass derselbe Vorgang zweimal gebucht wird.
+  quelle_typ        TEXT,                   -- 'beitragslauf' | 'sepa_datei' | 'zahlung'
+  quelle_id         TEXT,
+
+  -- GoBD: gelöscht wird nie. Ein Storno ist eine eigene Buchung, die auf
+  -- die stornierte zeigt.
+  storniert_am      TEXT,
+  storniert_von     TEXT,
+  storno_von_id     TEXT REFERENCES buchung(id),
+  storno_grund      TEXT,
+
+  erstellt_am       TEXT NOT NULL,
+  erstellt_von      TEXT NOT NULL
+);
+
+CREATE TABLE buchungszeile (
+  id                TEXT PRIMARY KEY,
+  buchung_id        TEXT NOT NULL REFERENCES buchung(id),
+  konto_id          TEXT NOT NULL REFERENCES konto(id),
+  soll_cent         INTEGER NOT NULL DEFAULT 0,
+  haben_cent        INTEGER NOT NULL DEFAULT 0,
+
+  -- Abzug der Konto-Sphäre zum Buchungszeitpunkt. Eine spätere Änderung
+  -- am Konto darf die Vergangenheit nicht umschreiben -- dieselbe Regel
+  -- wie beim Beitragssatz mit Stichtag.
+  sphaere           TEXT,
+  sparte_id         TEXT REFERENCES sparte(id),
+  text              TEXT
+);
+
+-- Lückenlose Belegnummern je Jahr. OHNE diesen Index vergibt ein zweiter
+-- gleichzeitiger Klick dieselbe Nummer, und die Buchführung ist nicht
+-- mehr ordnungsgemäß.
+CREATE UNIQUE INDEX idx_buchung_beleg ON buchung(geschaeftsjahr_id, belegnummer);
+
+-- Ein Vorgang aus der Beitragsverwaltung wird höchstens einmal gebucht.
+CREATE UNIQUE INDEX idx_buchung_quelle ON buchung(quelle_typ, quelle_id)
+  WHERE quelle_typ IS NOT NULL;
+
+CREATE INDEX idx_buchung_jahr    ON buchung(geschaeftsjahr_id, belegdatum);
+CREATE INDEX idx_bzeile_buchung  ON buchungszeile(buchung_id);
+CREATE INDEX idx_bzeile_konto    ON buchungszeile(konto_id);

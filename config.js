@@ -39,6 +39,21 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Buchhaltung und Auswertungen",
+    datum: "2026-07-30",
+    punkte: [
+      "Neue Seite Buchhaltung für den Schatzmeister: doppelte Buchführung mit den vier Sphären des Gemeinnützigkeitsrechts.",
+      "Kontenrahmen an SKR49 angelehnt, mit Klartext-Vorlagen für die üblichen Vorgänge. Jede Vorlage sagt, in welche Sphäre der Vorgang gehört und warum — daran hängt die Steuerpflicht.",
+      "Die Sphäre hängt am Konto, nicht an der einzelnen Buchung. Eine Spende lässt sich nicht als ideell buchen, wenn sie auf dem Sponsoring-Konto landet.",
+      "Beitragsläufe und Lastschrift-Einzüge werden auf Knopfdruck übernommen. Jeder Vorgang kann nur einmal gebucht werden, das erzwingt die Datenbank.",
+      "Gelöscht wird nie: eine falsche Buchung wird storniert, und beide bleiben im Journal stehen. Belegnummern sind je Jahr lückenlos.",
+      "Jahresabschluss stellt die Erfolgskonten glatt, bucht das Ergebnis ins Vereinsvermögen und schreibt die Eröffnungsbilanz des Folgejahres.",
+      "Neue Seite Auswertungen: Bestand, Altersaufbau, Entwicklung über zehn Jahre, Beitragsklassen und Stimmberechtigte nach § 8 Abs. 2.",
+      "Bestandsmeldung an den Landessportbund als Tabelle zum Herunterladen — Altersgruppen mal Geschlecht je Abteilung.",
+      "Die Auswertungsseite lädt keinen Code, der Personendaten anzeigen könnte. Der Vorstand sieht Summen, keine Namen."
+    ]
+  },
+  {
     version: "Online-Aufnahmeantrag nach § 4",
     datum: "2026-07-30",
     punkte: [
