@@ -36,8 +36,11 @@
 // In D1 stehen NIE Passwoerter und NIE Gruppen, nur der username als
 // Verweis. Sonst laufen die beiden Quellen auseinander, sobald ein Konto
 // im Gateway geloescht wird -- und ein neu angelegter gleichnamiger
-// Nutzer wuerde die alte Rolle erben. Die Aktion vv-rollen-abgleich
-// listet Rollen ohne Gateway-Konto.
+// Nutzer wuerde die alte Rolle erben. Der Abgleich steckt in
+// vv-rollen: die Antwort enthaelt "verwaist", also die Rollen ohne
+// Gateway-Konto. (Frueher stand hier eine eigene Aktion
+// vv-rollen-abgleich -- die gibt es nicht, der Name war ein Ueberbleibsel
+// aus dem Plan.)
 // =====================================================================
 
 const ALLOWED_ORIGINS = [
