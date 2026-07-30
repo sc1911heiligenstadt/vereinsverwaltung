@@ -143,8 +143,8 @@ function zeichneVorschau() {
   ziel.innerHTML =
     "<p><strong>" + mAnzahl(v.faellig.length, "Haushalt", "Haushalte") +
     "</strong> mit zusammen <strong>" + lEur(v.summeCent) + "</strong> Rückstand.</p>" +
-    '<div class="tabelle-scroll"><table><thead><tr><th>Stufe</th><th>Anzahl</th>' +
-    "<th>Summe</th></tr></thead><tbody>" +
+    '<div class="tabelle-scroll"><table class="schmal"><thead><tr><th>Stufe</th><th class="betrag">Anzahl</th>' +
+    "<th class=\"betrag\">Summe</th></tr></thead><tbody>" +
     v.nachStufe.map((s) => '<tr><td class="name">' + esc(s.text) + '</td><td class="betrag">' +
       s.anzahl + '</td><td class="betrag">' + lEur(s.summe_cent) + "</td></tr>").join("") +
     "</tbody></table></div>" +
@@ -157,7 +157,7 @@ function zeichneVorschau() {
       : "") +
     "<h3>Wer gemahnt würde</h3>" +
     '<div class="tabelle-scroll"><table><thead><tr><th>Empfänger</th><th>Stufe</th>' +
-    "<th>Mitglieder</th><th>Rückstand</th><th>Frist bis</th><th>Weg</th>" +
+    "<th>Mitglieder</th><th class=\"betrag\">Rückstand</th><th>Frist bis</th><th>Weg</th>" +
     "</tr></thead><tbody>" +
     v.faellig.slice(0, 60).map((f) =>
       "<tr><td class=\"name\">" + esc(f.empfaenger) + "</td>" +
@@ -254,8 +254,8 @@ async function ladeMahnungen() {
         : "") +
       "</div>").join("") +
     '<div class="tabelle-scroll"><table><thead><tr>' +
-    "<th>Empfänger</th><th>Stufe</th><th>Erstellt</th><th>Frist</th><th>Rückstand damals</th>" +
-    "<th>heute offen</th><th>Versand</th>" + (antwort.darfBuchen ? "<th></th>" : "") +
+    "<th>Empfänger</th><th>Stufe</th><th>Erstellt</th><th>Frist</th><th class=\"betrag\">Rückstand damals</th>" +
+    "<th class=\"betrag\">heute offen</th><th>Versand</th>" + (antwort.darfBuchen ? "<th></th>" : "") +
     "</tr></thead><tbody>" +
     mListe.map((m) =>
       '<tr' + (m.erledigt_am ? ' class="erledigt"' : "") + ">" +
@@ -419,7 +419,7 @@ async function ladeAusschluss() {
         " alle drei Voraussetzungen: zwei versendete Mahnungen, versendete Anhörung, " +
         "Frist abgelaufen, Rückstand weiterhin offen. Der Vorstand kann entscheiden.</div>" +
         '<div class="tabelle-scroll"><table><thead><tr><th>Nr.</th><th>Name</th>' +
-        "<th>Rückstand</th><th>Anhörungsfrist lief bis</th></tr></thead><tbody>" +
+        "<th class=\"betrag\">Rückstand</th><th>Anhörungsfrist lief bis</th></tr></thead><tbody>" +
         a.kandidaten.map((k) => "<tr><td>" + esc(k.mitgliedsnummer || "—") +
           '</td><td class="name">' + esc(k.name || "—") + '</td><td class="betrag">' +
           lEur(k.offen_cent) + "</td><td>" + lDatum(k.frist_bis) + "</td></tr>").join("") +
@@ -433,7 +433,7 @@ async function ladeAusschluss() {
     (a.nochNicht.length
       ? "<h3>Verfahren läuft — noch nicht entscheidungsreif</h3>" +
         '<div class="tabelle-scroll"><table><thead><tr><th>Nr.</th><th>Name</th>' +
-        "<th>Rückstand</th><th>Was noch fehlt</th></tr></thead><tbody>" +
+        "<th class=\"betrag\">Rückstand</th><th>Was noch fehlt</th></tr></thead><tbody>" +
         a.nochNicht.slice(0, 60).map((k) => "<tr><td>" + esc(k.mitgliedsnummer || "—") +
           '</td><td class="name">' + esc(k.name || "—") + '</td><td class="betrag">' +
           lEur(k.offen_cent) + "</td><td>" + esc(mGrund(k)) + "</td></tr>").join("") +

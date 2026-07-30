@@ -72,8 +72,8 @@ async function ladeOffenePosten() {
         "oben zählt trotzdem alle.</div>"
       : "") +
     '<div class="tabelle-scroll"><table><thead><tr>' +
-    "<th>Nr.</th><th>Name</th><th>Forderung</th><th>Fällig</th><th>Betrag</th>" +
-    "<th>bezahlt</th><th>offen</th><th>Status</th>" +
+    "<th>Nr.</th><th>Name</th><th>Forderung</th><th>Fällig</th><th class=\"betrag\">Betrag</th>" +
+    "<th class=\"betrag\">bezahlt</th><th class=\"betrag\">offen</th><th>Status</th>" +
     "</tr></thead><tbody>" +
     zOffene.zeilen.map((z) =>
       '<tr class="klickbar" data-haushalt="' + esc(z.haushalt_id) + '" data-name="' + esc(z.name) + '">' +
@@ -142,7 +142,7 @@ async function oeffneKonto(haushaltId, name) {
     "</dl>" +
     "<h3>Forderungen</h3>" +
     '<div class="tabelle-scroll"><table><thead><tr><th>Nr.</th><th>Name</th>' +
-    "<th>Bezeichnung</th><th>Fällig</th><th>Betrag</th><th>offen</th><th>Status</th>" +
+    "<th>Bezeichnung</th><th>Fällig</th><th class=\"betrag\">Betrag</th><th class=\"betrag\">offen</th><th>Status</th>" +
     (zKonto.darfBuchen ? "<th></th>" : "") + "</tr></thead><tbody>" +
     f.map((x) =>
       "<tr><td>" + esc(x.mitgliedsnummer) + '</td><td class="name">' + esc(x.name) + "</td>" +
@@ -161,7 +161,7 @@ async function oeffneKonto(haushaltId, name) {
     (z.length
       ? "<h3>Zahlungen</h3>" +
         '<div class="tabelle-scroll"><table><thead><tr><th>Eingang</th><th>Art</th>' +
-        "<th>Betrag</th><th>Zweck</th><th>Zuordnung</th>" +
+        "<th class=\"betrag\">Betrag</th><th>Zweck</th><th>Zuordnung</th>" +
         (zKonto.darfBuchen ? "<th></th>" : "") + "</tr></thead><tbody>" +
         z.map((x) =>
           '<tr' + (x.storniert_am ? ' class="storniert"' : "") + ">" +

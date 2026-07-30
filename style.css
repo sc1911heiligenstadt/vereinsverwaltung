@@ -828,10 +828,14 @@ nav a[hidden] { display: none; }
 /* Kleine Berichtstabellen umarmen ihren Inhalt, statt sich über 1200 px
    zu spannen: "Jahr" mit "2017" darin braucht keine 900 px, und die
    Leerfläche dazwischen war der zweite Teil dessen, was an der
-   Formatierung nicht stimmte. Die langen Listen (Saldenliste, Übernahme,
-   Journal) bleiben bewusst voll breit. */
-#k-alter table, #k-entwicklung table, #k-klassen table, #k-meldung table,
-#a-sphaeren table, #s-liste table { width: auto; max-width: 100%; }
+   Formatierung nicht stimmte.
+   Regel für neue Tabellen: class="schmal" bekommt, wer in JEDER Spalte
+   kurze Werte trägt — Zahlen, Kategorien, Daten. Sobald eine Spalte
+   Freitext oder Namenslisten enthält (Journal, Saldenliste, offene
+   Posten, Mitgliederliste), bleibt sie voll breit; da hilft die Breite.
+   Vorher stand hier eine Liste von Element-Ids — die veraltet still,
+   sobald jemand eine Tabelle ergänzt. */
+table.schmal { width: auto; max-width: 100%; }
 
 .balkenliste { margin-top: 4px; }
 .balkenzeile {

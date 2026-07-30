@@ -150,7 +150,7 @@ async function ladeLaeufe() {
 
   ziel.innerHTML = '<div class="tabelle-scroll"><table><thead><tr>' +
     "<th>Bezeichnung</th><th>Jahr</th><th>Fällig</th><th>Status</th>" +
-    "<th>Forderungen</th><th>Summe</th><th>SEPA</th>" +
+    "<th class=\"betrag\">Forderungen</th><th class=\"betrag\">Summe</th><th class=\"betrag\">SEPA</th>" +
     "</tr></thead><tbody>" +
     laufListe.map((l) =>
       '<tr class="klickbar" data-id="' + esc(l.id) + '">' +
@@ -274,7 +274,7 @@ async function oeffneLauf(id) {
         "<em>Zahlungen</em> erfasst. Andersherum, 441 Zahlungen von Hand, macht das niemand.</p>" +
         '<div class="tabelle-scroll"><table><thead><tr>' +
         "<th>Nachrichten-Kennung</th><th>Erstellt</th><th>Einzug am</th><th>Art</th>" +
-        "<th>Posten</th><th>Summe</th><th>gebucht</th>" +
+        "<th class=\"betrag\">Posten</th><th class=\"betrag\">Summe</th><th>gebucht</th>" +
         (d.darfBuchen ? "<th></th>" : "") + "</tr></thead><tbody>" +
         d.dateien.map((f) => "<tr><td>" + esc(f.msg_id) + "</td><td>" + lDatum(f.erstellt_datum) +
           "</td><td>" + lDatum(f.ausfuehrung_am) + "</td><td>" + esc(f.seq_typ) +
@@ -293,7 +293,7 @@ async function oeffneLauf(id) {
       ? "<h3>Stichproben</h3><p class=\"fussnote\">Die vollständige Herleitung steht bei jeder " +
         "Forderung — wer einem Mitglied den Betrag erklären muss, braucht diese Zeile.</p>" +
         '<div class="tabelle-scroll"><table><thead><tr><th>Nr.</th><th>Name</th>' +
-        "<th>Klasse</th><th>Zeitraum</th><th>Betrag</th></tr></thead><tbody>" +
+        "<th>Klasse</th><th>Zeitraum</th><th class=\"betrag\">Betrag</th></tr></thead><tbody>" +
         d.proben.map((p) => "<tr><td>" + esc(p.mitgliedsnummer) + '</td><td class="name">' +
           esc(p.name) + "</td><td>" + esc(p.berechnung.klasse || "—") + "</td><td>" +
           (p.berechnung.anteilig
@@ -401,8 +401,8 @@ async function zeigeVorschau(id) {
   ergebnis("Vorschau — es wurde nichts geschrieben",
     '<p><strong>' + v.anzahl + " Forderungen</strong> über zusammen <strong>" +
     lEur(v.summeCent) + "</strong>.</p>" +
-    '<div class="tabelle-scroll"><table><thead><tr><th>Klasse</th><th>Anzahl</th>' +
-    "<th>Summe</th></tr></thead><tbody>" +
+    '<div class="tabelle-scroll"><table class="schmal"><thead><tr><th>Klasse</th><th class="betrag">Anzahl</th>' +
+    "<th class=\"betrag\">Summe</th></tr></thead><tbody>" +
     v.verteilung.map((x) => '<tr><td class="name">' + esc(x.klasse) + '</td><td class="betrag">' +
       x.anzahl + '</td><td class="betrag">' + lEur(x.summe_cent) + "</td></tr>").join("") +
     "</tbody></table></div>" +
@@ -518,7 +518,7 @@ async function erzeugeSepa(id, nurPruefen) {
       '<p class="fussnote">Diese Beiträge bleiben offen und müssen auf anderem Weg eingefordert ' +
       "werden. Die Forderungen dazu stehen weiterhin in der Datenbank.</p>" +
       '<div class="tabelle-scroll"><table><thead><tr><th>Zahler</th><th>Grund</th>' +
-      "<th>Betrag</th></tr></thead><tbody>" +
+      "<th class=\"betrag\">Betrag</th></tr></thead><tbody>" +
       s.uebersprungen.map((u) => '<tr><td class="name">' + esc(u.name) + "</td><td>" +
         esc(u.grund) + '</td><td class="betrag">' + lEur(u.betrag_cent) + "</td></tr>").join("") +
       "</tbody></table></div>"
@@ -602,7 +602,7 @@ async function zeigeVorab(id) {
     "Mandatsreferenz und Gläubiger-Identifikationsnummer. Die IBAN steht bewusst nur verkürzt " +
     "darin — mehr braucht eine Ankündigung nicht.</p>" +
     '<div class="tabelle-scroll"><table><thead><tr><th>Zahler</th><th>E-Mail</th>' +
-    "<th>Mitglieder</th><th>Betrag</th></tr></thead><tbody>" +
+    "<th>Mitglieder</th><th class=\"betrag\">Betrag</th></tr></thead><tbody>" +
     v.empfaenger.slice(0, 25).map((e) => '<tr><td class="name">' + esc(e.empfaenger) +
       "</td><td>" + (e.email ? esc(e.email) : '<span class="fussnote">Brief</span>') +
       "</td><td>" + esc(e.mitglieder.map((m) => m.name).join(", ")) +

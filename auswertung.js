@@ -96,7 +96,7 @@ async function laden() {
 
   const klassenSumme = k.je_klasse.reduce((s, z) => s + (z.summe_cent || 0), 0);
   $("k-klassen").innerHTML =
-    '<div class="tabelle-scroll"><table><thead><tr><th>Klasse</th>' +
+    '<div class="tabelle-scroll"><table class="schmal"><thead><tr><th>Klasse</th>' +
     '<th class="betrag">Mitglieder</th><th class="betrag">Jahresbeitrag gesamt</th>' +
     "</tr></thead><tbody>" +
     k.je_klasse.map((z) => "<tr><td>" + esc(z.name) + "</td>" +
@@ -120,7 +120,7 @@ async function laden() {
   }
   const gruppen = k.altersgruppen.filter((g) => nachGruppe[g]);
   $("k-alter").innerHTML = gruppen.length
-    ? '<div class="tabelle-scroll"><table><thead><tr><th>Alter</th>' +
+    ? '<div class="tabelle-scroll"><table class="schmal"><thead><tr><th>Alter</th>' +
       '<th class="betrag">weiblich</th><th class="betrag">männlich</th>' +
       '<th class="betrag">divers</th><th class="betrag">ohne Angabe</th>' +
       '<th class="betrag">gesamt</th></tr></thead><tbody>' +
@@ -141,7 +141,7 @@ async function laden() {
   }
   const reihe = Object.values(jahre).sort((a, b2) => a.jahr.localeCompare(b2.jahr));
   $("k-entwicklung").innerHTML = reihe.length
-    ? '<div class="tabelle-scroll"><table><thead><tr><th>Jahr</th>' +
+    ? '<div class="tabelle-scroll"><table class="schmal"><thead><tr><th>Jahr</th>' +
       '<th class="betrag">Eintritte</th><th class="betrag">Austritte</th>' +
       '<th class="betrag">Saldo</th></tr></thead><tbody>' +
       reihe.map((z) => "<tr><td>" + esc(z.jahr) + "</td>" +
@@ -172,7 +172,7 @@ async function ladeMeldung() {
 
   $("k-meldung").innerHTML =
     '<div class="hinweis info">' + esc(m.hinweis) + "</div>" +
-    '<div class="tabelle-scroll"><table><thead><tr><th>Abteilung</th><th>Alter</th>' +
+    '<div class="tabelle-scroll"><table class="schmal"><thead><tr><th>Abteilung</th><th>Alter</th>' +
     '<th class="betrag">weiblich</th><th class="betrag">männlich</th>' +
     '<th class="betrag">divers</th><th class="betrag">ohne Angabe</th>' +
     '<th class="betrag">gesamt</th></tr></thead><tbody>' +

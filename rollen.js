@@ -248,7 +248,7 @@ async function ladeSicherung() {
   }).join("");
 
   liste.innerHTML = laeufe.length
-    ? '<div class="tabelle-scroll"><table><thead><tr><th>Zeitpunkt</th><th>Ergebnis</th>' +
+    ? '<div class="tabelle-scroll"><table class="schmal"><thead><tr><th>Zeitpunkt</th><th>Ergebnis</th>' +
       '<th>Auslöser</th><th class="betrag">Zeilen</th><th class="betrag">Größe</th>' +
       '<th class="betrag">Dauer</th></tr></thead><tbody>' + zeilen + "</tbody></table></div>"
     : "";

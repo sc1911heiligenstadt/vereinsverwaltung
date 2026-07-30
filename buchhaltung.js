@@ -374,7 +374,7 @@ async function ladeAuswertung() {
   }
 
   $("a-sphaeren").innerHTML =
-    '<div class="tabelle-scroll"><table><thead><tr><th>Sphäre</th>' +
+    '<div class="tabelle-scroll"><table class="schmal"><thead><tr><th>Sphäre</th>' +
     '<th class="betrag">Erträge</th><th class="betrag">Aufwendungen</th>' +
     '<th class="betrag">Ergebnis</th><th>steuerlich</th></tr></thead><tbody>' +
     Object.keys(a.sphaeren).map((s) => {
@@ -477,8 +477,8 @@ function zeigeAbschlussJahre() {
     return;
   }
   $("ab-jahre").innerHTML =
-    '<div class="tabelle-scroll"><table><thead><tr><th>Jahr</th><th>Status</th>' +
-    "<th>Abgeschlossen</th><th>Ergebnis</th><th></th></tr></thead><tbody>" +
+    '<div class="tabelle-scroll"><table class="schmal"><thead><tr><th>Jahr</th><th>Status</th>' +
+    "<th>Abgeschlossen</th><th class=\"betrag\">Ergebnis</th><th></th></tr></thead><tbody>" +
     stamm.jahre.map((j) => {
       let erg = null;
       try { erg = j.ergebnis_json ? JSON.parse(j.ergebnis_json) : null; } catch { erg = null; }
@@ -523,7 +523,7 @@ async function abschluss(id) {
       ? " Eröffnungsbilanz " + r.folgejahr + " als Beleg " + r.eroeffnung_beleg + "."
       : "") +
     (r.hinweis ? " " + esc(r.hinweis) : "") + "</div>" +
-    '<div class="tabelle-scroll"><table><thead><tr><th>Sphäre</th>' +
+    '<div class="tabelle-scroll"><table class="schmal"><thead><tr><th>Sphäre</th>' +
     '<th class="betrag">Ergebnis</th></tr></thead><tbody>' +
     Object.keys(r.je_sphaere).map((s) =>
       "<tr><td>" + esc(stamm.sphaeren[s] || s) + "</td>" +

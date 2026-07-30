@@ -61,8 +61,8 @@ async function ladeBeitraege() {
   $("btn-b-init").hidden = true;
   $("btn-b-zuordnen").hidden = false;
 
-  ziel.innerHTML = '<div class="tabelle-scroll"><table><thead><tr>' +
-    "<th>Klasse</th><th>Jahresbeitrag</th><th>Mitglieder</th><th>Jahressumme</th>" +
+  ziel.innerHTML = '<div class="tabelle-scroll"><table class="schmal"><thead><tr>' +
+    "<th>Klasse</th><th class=\"betrag\">Jahresbeitrag</th><th class=\"betrag\">Mitglieder</th><th class=\"betrag\">Jahressumme</th>" +
     "</tr></thead><tbody>" +
     klassen.map((k) =>
       "<tr>" +
@@ -89,8 +89,8 @@ async function ladeBeitraege() {
   const auffaellig = beitragStand.auffaellig || [];
   $("b-karte-pruefen").hidden = !auffaellig.length;
   if (auffaellig.length) {
-    $("b-auffaellig").innerHTML = '<div class="tabelle-scroll"><table><thead><tr>' +
-      "<th>Name</th><th>Nr.</th><th>Alter</th><th>Klasse</th>" +
+    $("b-auffaellig").innerHTML = '<div class="tabelle-scroll"><table class="schmal"><thead><tr>' +
+      "<th>Name</th><th>Nr.</th><th class=\"betrag\">Alter</th><th>Klasse</th>" +
       "</tr></thead><tbody>" +
       auffaellig.map((a) =>
         '<tr data-id="' + esc(a.id) + '">' +
@@ -194,7 +194,7 @@ function zeichneUneindeutig(liste, gesamt) {
   if (!gesamt) return;
 
   $("b-uneindeutig").innerHTML =
-    '<div class="tabelle-scroll"><table><thead><tr>' +
+    '<div class="tabelle-scroll"><table class="schmal"><thead><tr>' +
     "<th>Im Vereinsmeister hinterlegt</th><th>übernommen als</th>" +
     "</tr></thead><tbody>" +
     liste.map((x) =>
