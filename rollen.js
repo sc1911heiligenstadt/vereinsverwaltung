@@ -156,4 +156,125 @@ function rollenVerdrahten() {
   rolleGewaehlt();
 
   $("btn-rolle-setzen").addEventListener("click", setzeRolle);
+  $("btn-sicherung-jetzt").addEventListener("click", sicherungJetzt);
+}
+
+// ---------------------------------------------------------------------
+// Sicherung
+// ---------------------------------------------------------------------
+//
+// Die Anzeige ist der eigentliche Zweck dieses Blocks. Eine Sicherung,
+// die nachts still ausfaellt, ist keine -- man merkt es erst an dem Tag,
+// an dem man sie braucht. Deshalb steht hier nicht nur ein Knopf, sondern
+// der Verlauf der letzten Laeufe.
+
+function sicherungGroesse(zeichen) {
+  if (!zeichen && zeichen !== 0) return "";
+  if (zeichen < 1024) return zeichen + " Zeichen";
+  if (zeichen < 1024 * 1024) return Math.round(zeichen / 1024) + " KB";
+  return (zeichen / 1024 / 1024).toFixed(1).replace(".", ",") + " MB";
+}
+
+function sicherungDauer(ms) {
+  if (ms === null || ms === undefined) return "";
+  if (ms < 1000) return ms + " ms";
+  return (ms / 1000).toFixed(1).replace(".", ",") + " s";
+}
+
+function sicherungDatum(iso) {
+  if (!iso) return "";
+  const t = String(iso).slice(0, 10).split("-");
+  if (t.length !== 3) return String(iso);
+  return t[2] + "." + t[1] + "." + t[0];
+}
+
+async function ladeSicherung() {
+  const stand = $("s-stand");
+  const liste = $("s-liste");
+  stand.innerHTML = '<div class="leer">Wird geladen …</div>';
+  liste.innerHTML = "";
+
+  let daten;
+  try {
+    daten = await vvRequest("vv-sicherung", {});
+  } catch (e) {
+    stand.innerHTML = '<div class="hinweis fehler">' + esc(e.message) + "</div>";
+    return;
+  }
+
+  if (!daten.eingerichtet) {
+    stand.innerHTML = '<div class="hinweis warn"><strong>Noch nicht eingerichtet.</strong> ' +
+      "Es gibt derzeit keine Sicherung dieser Datenbank. Im Cloudflare-Dashboard fehlen " +
+      "unter Settings → Variables and Secrets: <code>" +
+      daten.fehlendeSecrets.map(esc).join("</code>, <code>") + "</code>.</div>";
+    $("btn-sicherung-jetzt").disabled = true;
+    return;
+  }
+  $("btn-sicherung-jetzt").disabled = false;
+
+  const laeufe = daten.laeufe || [];
+  if (!laeufe.length) {
+    stand.innerHTML = '<div class="hinweis warn">Eingerichtet, aber noch nie gelaufen. ' +
+      "Einmal von Hand auslösen, dann ist geprüft, dass der Weg nach Nextcloud steht.</div>";
+  } else {
+    const l = laeufe[0];
+    const wann = (l.zeitpunktBerlin || sicherungDatum(l.zeit)).replace(/^(\d{4})-(\d{2})-(\d{2})/,
+      function (_, j, m, t) { return t + "." + m + "." + j; });
+    if (l.erfolg) {
+      const teile = [wann + " Uhr"];
+      if (l.zeilen) teile.push(l.zeilen.toLocaleString("de-DE") + " Zeilen");
+      if (l.zeichen) teile.push(sicherungGroesse(l.zeichen));
+      if (l.dauerMs !== null && l.dauerMs !== undefined) teile.push(sicherungDauer(l.dauerMs));
+      stand.innerHTML = '<div class="hinweis ' + (l.vollstaendig === false ? "warn" : "info") +
+        '"><strong>Letzte Sicherung:</strong> ' + esc(teile.join(" · ")) +
+        (l.vollstaendig === false
+          ? "<br>Achtung, unvollständig: " + esc((l.warnungen || []).join("; "))
+          : "") + "</div>";
+    } else {
+      stand.innerHTML = '<div class="hinweis fehler"><strong>Die letzte Sicherung ist ' +
+        "fehlgeschlagen</strong> (" + esc(wann) + "): " + esc(l.fehler || "Grund unbekannt") +
+        "</div>";
+    }
+  }
+
+  const zeilen = laeufe.map(function (l) {
+    return "<tr><td>" + esc((l.zeitpunktBerlin || l.zeit || "").replace("T", " ").slice(0, 16)) +
+      "</td><td>" + (l.erfolg ? "erfolgreich" : '<span class="warnung">fehlgeschlagen</span>') +
+      "</td><td>" + esc(l.ausloeser === "hand" ? "von Hand" : "nachts") +
+      '</td><td class="betrag">' + (l.zeilen ? l.zeilen.toLocaleString("de-DE") : "") +
+      '</td><td class="betrag">' + esc(sicherungGroesse(l.zeichen)) +
+      '</td><td class="betrag">' + esc(sicherungDauer(l.dauerMs)) +
+      "</td></tr>";
+  }).join("");
+
+  liste.innerHTML = laeufe.length
+    ? '<div class="tabelle-scroll"><table><thead><tr><th>Zeitpunkt</th><th>Ergebnis</th>' +
+      '<th>Auslöser</th><th class="betrag">Zeilen</th><th class="betrag">Größe</th>' +
+      '<th class="betrag">Dauer</th></tr></thead><tbody>' + zeilen + "</tbody></table></div>"
+    : "";
+}
+
+async function sicherungJetzt() {
+  const knopf = $("btn-sicherung-jetzt");
+  const meldung = $("s-meldung");
+  knopf.disabled = true;
+  knopf.textContent = "Wird gesichert …";
+  meldung.hidden = true;
+
+  try {
+    const e = await vvRequest("vv-sicherung-jetzt", {});
+    meldung.hidden = false;
+    meldung.className = "hinweis " + (e.vollstaendig === false ? "warn" : "info");
+    meldung.innerHTML = "Gesichert: " + e.zeilen.toLocaleString("de-DE") + " Zeilen aus " +
+      e.tabellen + " Tabellen, " + esc(sicherungGroesse(e.zeichen)) + ", " + sicherungDauer(e.dauerMs) + "." +
+      (e.vollstaendig === false ? "<br>Unvollständig: " + esc((e.warnungen || []).join("; ")) : "");
+  } catch (e) {
+    meldung.hidden = false;
+    meldung.className = "hinweis fehler";
+    meldung.textContent = "Die Sicherung ist fehlgeschlagen: " + e.message;
+  } finally {
+    knopf.disabled = false;
+    knopf.textContent = "Jetzt sichern";
+    await ladeSicherung();
+  }
 }

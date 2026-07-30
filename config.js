@@ -39,6 +39,17 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Nächtliche Sicherung",
+    datum: "2026-07-30",
+    punkte: [
+      "Jede Nacht um kurz nach vier schreibt der Server den vollständigen Datenbestand nach Nextcloud. Bis dahin gab es von dieser Datenbank keine Sicherung.",
+      "Die Datei enthält den Aufbau der Datenbank gleich mit. Zum Zurückspielen genügt sie allein — auch dann noch, wenn die App längst weitergewachsen ist.",
+      "Daneben liegt eine Mitgliederliste als Tabelle zum Öffnen und Ausdrucken. Ohne Bankdaten: sie ist für den Notfall gedacht, und dafür braucht niemand eine IBAN.",
+      "Die sieben Wochentagsdateien überschreiben sich der Reihe nach, vom Monatsersten bleibt eine Kopie dauerhaft stehen. Gelöscht wird nichts.",
+      "Im Reiter Rollen steht, wann zuletzt gesichert wurde und wie lange es gedauert hat — samt Knopf für eine Sicherung von Hand. Eine Sicherung, die still ausfällt, merkt man sonst erst, wenn man sie braucht."
+    ]
+  },
+  {
     version: "Buchhaltung und Auswertungen",
     datum: "2026-07-30",
     punkte: [

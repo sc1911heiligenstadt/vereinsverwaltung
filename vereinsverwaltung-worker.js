@@ -18,6 +18,13 @@
 //   4. Schema einspielen: Inhalt von schema.sql in der D1-Konsole
 //      des Dashboards ausfuehren (Dashboard -> D1 -> vereinsverwaltung
 //      -> Console).
+//   5. Settings -> Variables and Secrets, drei Secrets fuer die
+//      naechtliche Sicherung: NEXTCLOUD_BACKUP_URL, NEXTCLOUD_USERNAME,
+//      NEXTCLOUD_PASSWORD. Fehlen sie, laeuft alles weiter -- nur
+//      gesichert wird nichts. Einzelheiten weiter unten bei
+//      "SICHERUNG NACH NEXTCLOUD".
+//   6. Settings -> Triggers -> Cron Triggers: "20 2 * * *" (UTC).
+//      deploy-worker.ps1 deployt den Cron NICHT mit.
 //
 // Deploy danach ueber E:\ToolsUebersicht\deploy-worker.ps1
 // (Eintrag in $REGISTRY ergaenzen). NIE per PUT ohne keep_bindings --
@@ -5647,7 +5654,331 @@ async function handleStatus(env, me, corsHeaders) {
 
 // ---------------------------------------------------------------------
 
+// =====================================================================
+// SICHERUNG NACH NEXTCLOUD
+// =====================================================================
+//
+// WARUM UEBERHAUPT: D1 hat keine Datei, die man wegkopieren koennte, und
+// die Flotten-Sicherung greift hier nicht -- die sichert Nextcloud-JSONs,
+// und genau die gibt es fuer diese App nicht. In dieser einen Datenbank
+// liegen Mitglieder, Mandate, Forderungen und die Buchhaltung.
+//
+// WARUM EIGENE ZUGANGSDATEN statt ueber das Service Binding: Der Cron hat
+// keine Sitzung. Eine Aktion im landingpage-Worker, die ohne Sitzung
+// schreibt, waere eine Hintertuer im heikelsten Worker der Flotte --
+// dauerhaft offen, damit einmal pro Nacht etwas durchgeht. Eigene
+// Zugangsdaten sind die kleinere Angriffsflaeche und lassen sich in
+// Nextcloud einzeln widerrufen.
+//
+// EINRICHTUNG (Dashboard -> Worker -> Settings -> Variables and Secrets):
+//
+//   NEXTCLOUD_BACKUP_URL   Ordner-URL, OHNE Schraegstrich am Ende
+//   NEXTCLOUD_USERNAME     Nextcloud-Konto
+//   NEXTCLOUD_PASSWORD     App-Passwort (nicht das Anmeldepasswort).
+//                          Eigenes App-Passwort anlegen, nicht das des
+//                          admin-workers mitbenutzen -- sonst sperrt ein
+//                          Widerruf beide Apps zugleich aus.
+//
+//   Cron: Settings -> Triggers -> Cron Triggers -> "20 2 * * *"
+//   Cron laeuft in UTC. 02:20 UTC = 04:20 Sommerzeit / 03:20 Winterzeit.
+//   deploy-worker.ps1 deployt den Trigger NICHT mit; er ueberlebt einen
+//   Deploy aber, weil das Skript mit keep_bindings arbeitet.
+//
+// KEIN AUTOMATISCHES LOESCHEN. Die Wochentagsdateien ueberschreiben sich
+// selbst (sieben Tage feinkoernig zurueck), der Monatserste legt eine
+// Kopie an, die stehen bleibt. Wachstum dadurch etwa ein Dutzend Dateien
+// im Jahr statt 365 -- ohne dass je ein DELETE noetig waere.
+// =====================================================================
+
+const SICHERUNG_SECRETS = ["NEXTCLOUD_BACKUP_URL", "NEXTCLOUD_USERNAME", "NEXTCLOUD_PASSWORD"];
+
+// Notbremse, keine stille Kuerzung: reisst eine Tabelle die Grenze, steht
+// das in der Datei, in der Statusdatei und in der Antwort. protokoll ist
+// die einzige Tabelle, die unbegrenzt waechst.
+const SICHERUNG_MAX_ZEILEN = 60000;
+const SICHERUNG_BLOCK = 5000;
+
+const WOCHENTAGE = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
+
+function fehlendeSicherungSecrets(env) {
+  return SICHERUNG_SECRETS.filter((n) => !env[n] || !String(env[n]).trim());
+}
+
+// Der Worker laeuft in UTC, benannt wird nach deutschem Kalender.
+// toISOString() waere hier die bekannte Falle -- es liefert in deutscher
+// Sommerzeit vor 02:00 Uhr noch den Vortag, und ein Handstart um
+// Mitternacht wuerde die Datei des falschen Wochentags ueberschreiben.
+function berlinStempel(d) {
+  const teile = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Berlin",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23"
+  }).formatToParts(d);
+  const w = {};
+  for (const t of teile) w[t.type] = t.value;
+  const iso = w.year + "-" + w.month + "-" + w.day;
+  return {
+    iso,
+    uhr: w.hour + ":" + w.minute,
+    tagImMonat: Number(w.day),
+    monat: w.year + "-" + w.month,
+    // Wochentag selbst rechnen statt ueber das Locale: weekday "short"
+    // liefert je nach ICU-Version "Do" oder "Do." -- ein Punkt im
+    // Dateinamen wuerde die Rotation lautlos verdoppeln.
+    wochentag: WOCHENTAGE[new Date(iso + "T12:00:00Z").getUTCDay()]
+  };
+}
+
+async function davPut(url, auth, inhalt, typ) {
+  const headers = { Authorization: auth, "Content-Type": typ };
+  let resp = await fetch(url, { method: "PUT", headers, body: inhalt });
+  // 409/404 heisst in WebDAV: ein Elternordner fehlt (409 bei einer
+  // Ebene, 404 bei mehreren). Gleiche Bauart wie writeJson im
+  // admin-worker: anlegen und genau einmal wiederholen.
+  if (resp.status === 409 || resp.status === 404) {
+    await davOrdner(url.slice(0, url.lastIndexOf("/")), auth, 0);
+    resp = await fetch(url, { method: "PUT", headers, body: inhalt });
+  }
+  if (!resp.ok) {
+    throw new Error("Nextcloud PUT " + resp.status + " (" + url.slice(url.lastIndexOf("/") + 1) + ")");
+  }
+}
+
+async function davOrdner(collUrl, auth, tiefe) {
+  if (tiefe > 15) throw new Error("Ordnerpfad zu tief zum Anlegen");
+  let resp = await fetch(collUrl, { method: "MKCOL", headers: { Authorization: auth } });
+  if (resp.status === 201 || resp.status === 405) return; // neu bzw. vorhanden
+  if (resp.status === 409) {
+    await davOrdner(collUrl.slice(0, collUrl.lastIndexOf("/")), auth, tiefe + 1);
+    resp = await fetch(collUrl, { method: "MKCOL", headers: { Authorization: auth } });
+    if (resp.status === 201 || resp.status === 405) return;
+  }
+  throw new Error("Ordner anlegen fehlgeschlagen (MKCOL " + resp.status + ")");
+}
+
+// Blockweise, nicht zeilenweise -- und mit ORDER BY rowid, weil LIMIT/
+// OFFSET ohne feste Sortierung in SQLite nicht garantiert ueberschneidungs-
+// frei ist. Ohne das koennte eine Sicherung Zeilen doppeln und andere
+// auslassen, ohne dass es jemand merkt.
+async function tabelleLesen(env, name) {
+  const daten = [];
+  for (;;) {
+    const block = await env.VV_DB
+      .prepare('SELECT * FROM "' + name + '" ORDER BY rowid LIMIT ? OFFSET ?')
+      .bind(SICHERUNG_BLOCK, daten.length)
+      .all();
+    const zeilen = block.results || [];
+    for (const z of zeilen) daten.push(z);
+    if (zeilen.length < SICHERUNG_BLOCK) return { daten, abgeschnitten: false };
+    if (daten.length >= SICHERUNG_MAX_ZEILEN) return { daten, abgeschnitten: true };
+  }
+}
+
+function csvFeld(wert) {
+  const s = wert === null || wert === undefined ? "" : String(wert);
+  return /[";\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+// Menschenlesbare Notfallliste. BEWUSST OHNE BANKDATEN: sie soll der
+// Geschaeftsstelle helfen, wenn gar nichts mehr laeuft, und dafuer braucht
+// niemand eine IBAN. Der vollstaendige Dump daneben hat sie -- aber der
+// wird nicht beilaeufig geoeffnet.
+async function mitgliederCsv(env) {
+  const z = await env.VV_DB.prepare(
+    "SELECT m.mitgliedsnummer, p.nachname, p.vorname, p.geburtsdatum, " +
+    "  m.art, m.status, m.eintritt, m.austritt, " +
+    "  p.strasse, p.plz, p.ort, p.email, p.telefon, p.mobil, " +
+    "  (SELECT group_concat(s.name, ', ') FROM mitgliedschaft_sparte ms " +
+    "     JOIN sparte s ON s.id = ms.sparte_id " +
+    "    WHERE ms.mitgliedschaft_id = m.id AND ms.austritt IS NULL) AS sparten " +
+    "FROM mitgliedschaft m JOIN person p ON p.id = m.person_id " +
+    "ORDER BY p.nachname, p.vorname"
+  ).all();
+
+  const kopf = ["Mitgliedsnummer", "Nachname", "Vorname", "Geburtsdatum", "Art", "Status",
+                "Eintritt", "Austritt", "Strasse", "PLZ", "Ort", "E-Mail", "Telefon",
+                "Mobil", "Sparten"];
+  const zeilen = [kopf.join(";")];
+  for (const r of z.results || []) {
+    zeilen.push([r.mitgliedsnummer, r.nachname, r.vorname, r.geburtsdatum, r.art, r.status,
+                 r.eintritt, r.austritt, r.strasse, r.plz, r.ort, r.email, r.telefon,
+                 r.mobil, r.sparten].map(csvFeld).join(";"));
+  }
+  // BOM, sonst zeigt Excel die Umlaute falsch an.
+  return "﻿" + zeilen.join("\r\n") + "\r\n";
+}
+
+async function sicherungErstellen(env, ausloeser, wer) {
+  const fehlend = fehlendeSicherungSecrets(env);
+  if (fehlend.length) {
+    return { ok: false, grund: "nicht eingerichtet", fehlendeSecrets: fehlend };
+  }
+
+  const start = Date.now();
+  const jetzt = new Date();
+  const stempel = berlinStempel(jetzt);
+  const basis = String(env.NEXTCLOUD_BACKUP_URL).trim().replace(/\/+$/, "");
+  const auth = "Basic " + btoa(env.NEXTCLOUD_USERNAME + ":" + env.NEXTCLOUD_PASSWORD);
+
+  // Das SCHEMA kommt mit in die Datei. Eine Sicherung, die zum
+  // Zurueckspielen eine passende schema.sql braucht, haengt an der
+  // Codeversion von damals -- und genau die fehlt im Notfall. Mit den
+  // CREATE-Anweisungen traegt sich die Datei selbst.
+  const bau = await env.VV_DB.prepare(
+    "SELECT type, name, sql FROM sqlite_master " +
+    " WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' " +
+    "   AND name NOT LIKE '_cf_%' AND name <> 'd1_migrations' " +
+    " ORDER BY CASE type WHEN 'table' THEN 0 WHEN 'view' THEN 1 " +
+    "                    WHEN 'index' THEN 2 ELSE 3 END, name"
+  ).all();
+  const objekte = bau.results || [];
+
+  const tabellen = objekte.filter(
+    (o) => o.type === "table" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(o.name)
+  );
+
+  const inhalt = {};
+  const warnungen = [];
+  let zeilenGesamt = 0;
+  for (const t of tabellen) {
+    const gelesen = await tabelleLesen(env, t.name);
+    inhalt[t.name] = gelesen.daten;
+    zeilenGesamt += gelesen.daten.length;
+    if (gelesen.abgeschnitten) {
+      warnungen.push("Tabelle " + t.name + " bei " + gelesen.daten.length + " Zeilen abgeschnitten");
+    }
+  }
+
+  const dump = {
+    app: "vereinsverwaltung",
+    formatVersion: 1,
+    erstellt: jetzt.toISOString(),
+    erstelltBerlin: stempel.iso + " " + stempel.uhr,
+    ausloeser,
+    ausgeloestVon: wer || null,
+    vollstaendig: warnungen.length === 0,
+    warnungen,
+    tabellenAnzahl: tabellen.length,
+    zeilenGesamt,
+    // Reihenfolge ist die Wiederherstellungsreihenfolge: erst Tabellen,
+    // dann Sichten, dann Indizes.
+    schema: objekte.map((o) => ({ type: o.type, name: o.name, sql: o.sql })),
+    tabellen: inhalt
+  };
+
+  // Ohne Einrueckung: bei dieser Groesse verdoppelt Pretty-Print die
+  // Datei und kostet CPU, die auf dem kostenlosen Tarif knapp ist.
+  const text = JSON.stringify(dump);
+
+  const dateien = [];
+  const tagesName = "vereinsverwaltung-" + stempel.wochentag + ".json";
+  await davPut(basis + "/taeglich/" + tagesName, auth, text, "application/json; charset=utf-8");
+  dateien.push("taeglich/" + tagesName);
+
+  if (stempel.tagImMonat === 1) {
+    const monatsName = "vereinsverwaltung-" + stempel.monat + ".json";
+    await davPut(basis + "/monatlich/" + monatsName, auth, text, "application/json; charset=utf-8");
+    dateien.push("monatlich/" + monatsName);
+  }
+
+  const csv = await mitgliederCsv(env);
+  const csvName = "mitglieder-" + stempel.wochentag + ".csv";
+  await davPut(basis + "/taeglich/" + csvName, auth, csv, "text/csv; charset=utf-8");
+  dateien.push("taeglich/" + csvName);
+
+  const ergebnis = {
+    ok: true,
+    zeitpunkt: jetzt.toISOString(),
+    zeitpunktBerlin: stempel.iso + " " + stempel.uhr,
+    ausloeser,
+    ausgeloestVon: wer || null,
+    tabellen: tabellen.length,
+    zeilen: zeilenGesamt,
+    zeichen: text.length,
+    dateien,
+    vollstaendig: warnungen.length === 0,
+    warnungen,
+    dauerMs: Date.now() - start
+  };
+
+  // Kleine Statusdatei neben den grossen: sie laesst sich oeffnen, ohne
+  // zwei Megabyte zu laden, und beantwortet die einzige Frage, die man an
+  // eine Sicherung wirklich hat -- lief sie letzte Nacht durch?
+  await davPut(basis + "/letzte-sicherung.json", auth,
+               JSON.stringify(ergebnis, null, 2), "application/json; charset=utf-8");
+
+  return ergebnis;
+}
+
+// Ein Fehlschlag darf nicht im Cloudflare-Log versanden -- dort sieht ihn
+// niemand. Er landet als Protokollzeile in D1, und die App zeigt ihn an.
+async function sicherungLaufen(env, ausloeser, wer) {
+  try {
+    const e = await sicherungErstellen(env, ausloeser, wer);
+    await protokolliere(env, wer || "system", e.ok ? "sicherung" : "sicherung-fehler",
+                        "sicherung", null, e);
+    return e;
+  } catch (fehler) {
+    const text = fehler && fehler.message ? fehler.message : String(fehler);
+    const e = { ok: false, zeitpunkt: new Date().toISOString(), ausloeser, fehler: text };
+    await protokolliere(env, wer || "system", "sicherung-fehler", "sicherung", null, e);
+    return e;
+  }
+}
+
+async function handleSicherung(env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+
+  const letzte = await env.VV_DB.prepare(
+    "SELECT zeit, aktion, detail_json FROM protokoll " +
+    " WHERE aktion IN ('sicherung', 'sicherung-fehler') ORDER BY zeit DESC LIMIT 14"
+  ).all();
+
+  const laeufe = (letzte.results || []).map((z) => {
+    let d = null;
+    try { d = z.detail_json ? JSON.parse(z.detail_json) : null; } catch { d = null; }
+    return {
+      zeit: z.zeit,
+      erfolg: z.aktion === "sicherung",
+      zeitpunktBerlin: d && d.zeitpunktBerlin ? d.zeitpunktBerlin : null,
+      ausloeser: d ? d.ausloeser : null,
+      zeilen: d ? d.zeilen : null,
+      zeichen: d ? d.zeichen : null,
+      dauerMs: d ? d.dauerMs : null,
+      vollstaendig: d ? d.vollstaendig !== false : null,
+      warnungen: d && d.warnungen ? d.warnungen : [],
+      fehler: d ? (d.fehler || d.grund || null) : null
+    };
+  });
+
+  return json({
+    eingerichtet: fehlendeSicherungSecrets(env).length === 0,
+    fehlendeSecrets: fehlendeSicherungSecrets(env),
+    laeufe
+  }, 200, corsHeaders);
+}
+
+async function handleSicherungJetzt(env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+  const e = await sicherungLaufen(env, "hand", me.username);
+  if (e.ok) return json(e, 200, corsHeaders);
+  // Der Grund muss als "error" mit: vvRequest im Client liest genau
+  // dieses Feld. Ohne das steht beim Nutzer "Fehler 500" und die
+  // eigentliche Ursache bliebe im Worker liegen.
+  return json({ ...e, error: e.fehler || e.grund || "Sicherung fehlgeschlagen" }, 500, corsHeaders);
+}
+
 export default {
+  // Naechtliche Sicherung. Bewusster Bruch mit der Flottenentscheidung
+  // gegen Cron-Trigger: eine Sicherung, die nur laeuft, wenn jemand die
+  // App oeffnet, ist keine.
+  async scheduled(event, env, ctx) {
+    if (!env.VV_DB) return;
+    ctx.waitUntil(sicherungLaufen(env, "cron", null));
+  },
+
   async fetch(request, env) {
     const origin = request.headers.get("Origin") || "";
     const allowOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[1];
@@ -5778,6 +6109,8 @@ export default {
         case "vv-eroeffnung":      return handleEroeffnung(body, env, me, corsHeaders);
         case "vv-kennzahlen":      return handleKennzahlen(body, env, me, corsHeaders);
         case "vv-bestandsmeldung": return handleBestandsmeldung(body, env, me, corsHeaders);
+        case "vv-sicherung":       return handleSicherung(env, me, corsHeaders);
+        case "vv-sicherung-jetzt": return handleSicherungJetzt(env, me, corsHeaders);
         case "vv-sparten-init":    return handleSpartenInit(env, me, corsHeaders);
         case "vv-seed":            return handleSeed(body, env, me, corsHeaders);
         case "vv-messlauf":        return handleMesslauf(body, env, me, corsHeaders);

@@ -831,7 +831,7 @@ nav a[hidden] { display: none; }
    Formatierung nicht stimmte. Die langen Listen (Saldenliste, Übernahme,
    Journal) bleiben bewusst voll breit. */
 #k-alter table, #k-entwicklung table, #k-klassen table, #k-meldung table,
-#a-sphaeren table { width: auto; max-width: 100%; }
+#a-sphaeren table, #s-liste table { width: auto; max-width: 100%; }
 
 .balkenliste { margin-top: 4px; }
 .balkenzeile {

@@ -137,7 +137,7 @@ async function start() {
 
   await ladeSpartenAuswahl();
   await ladeUndZeige();
-  if (meineRechte.isAdmin) ladeRollen();
+  if (meineRechte.isAdmin) { ladeRollen(); ladeSicherung(); }
   if (meineRechte.darfSchreiben || meineRechte.darfBuchen) ladeBeitraege();
   if (meineRechte.darfBuchen || meineRechte.darfSchreiben) {
     // Reihenfolge zwingend: ladeStammdaten stößt die Migration an, und
