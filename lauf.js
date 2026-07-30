@@ -260,13 +260,25 @@ async function oeffneLauf(id) {
       ? " Festgeschrieben am " + lDatum(l.festgeschrieben_am) + " von " + esc(l.festgeschrieben_von) + "."
       : "") + "</p>" +
     (d.dateien.length
-      ? "<h3>SEPA-Dateien</h3>" + '<div class="tabelle-scroll"><table><thead><tr>' +
+      ? "<h3>SEPA-Dateien</h3>" +
+        '<p class="fussnote">Wenn der Einzug durch ist: hier als eingegangen buchen. Das setzt alle ' +
+        "Posten dieser Datei auf bezahlt — die wenigen Rückläufer werden danach einzeln unter " +
+        "<em>Zahlungen</em> erfasst. Andersherum, 441 Zahlungen von Hand, macht das niemand.</p>" +
+        '<div class="tabelle-scroll"><table><thead><tr>' +
         "<th>Nachrichten-Kennung</th><th>Erstellt</th><th>Einzug am</th><th>Art</th>" +
-        "<th>Posten</th><th>Summe</th></tr></thead><tbody>" +
+        "<th>Posten</th><th>Summe</th><th>gebucht</th>" +
+        (d.darfBuchen ? "<th></th>" : "") + "</tr></thead><tbody>" +
         d.dateien.map((f) => "<tr><td>" + esc(f.msg_id) + "</td><td>" + lDatum(f.erstellt_datum) +
           "</td><td>" + lDatum(f.ausfuehrung_am) + "</td><td>" + esc(f.seq_typ) +
           '</td><td class="betrag">' + f.anzahl_posten + '</td><td class="betrag">' +
-          lEur(f.summe_cent) + "</td></tr>").join("") +
+          lEur(f.summe_cent) + "</td><td>" +
+          (f.gebucht_am ? lDatum(f.gebucht_am) : '<span class="fussnote">offen</span>') + "</td>" +
+          (d.darfBuchen
+            ? "<td>" + (f.gebucht_am ? "" :
+                '<button class="btn klein" data-buchen="' + esc(f.id) + '" data-am="' +
+                esc(f.ausfuehrung_am) + '">als eingegangen buchen</button>') + "</td>"
+            : "") +
+          "</tr>").join("") +
         "</tbody></table></div>"
       : "") +
     (d.proben.length
@@ -282,6 +294,10 @@ async function oeffneLauf(id) {
           '</td><td class="betrag">' + lEur(p.betrag_cent) + "</td></tr>").join("") +
         "</tbody></table></div>"
       : "");
+
+  $("l-detail").querySelectorAll("[data-buchen]").forEach((b) => {
+    b.addEventListener("click", () => bucheSepaDatei(b.dataset.buchen, b.dataset.am, l.id));
+  });
 
   if (!d.darfBuchen) return;
 
@@ -318,6 +334,37 @@ async function oeffneLauf(id) {
   binde("btn-l-vorab", () => zeigeVorab(l.id));
   binde("btn-l-fest", () => schreibeFest(l.id));
   binde("btn-l-verwerfen", () => verwirf(l.id));
+}
+
+// Sammelbuchung: erst zeigen, was gebucht würde, dann fragen. Bei 497
+// Forderungen ist ein Fehlklick sonst nur noch von Hand zu heilen.
+async function bucheSepaDatei(dateiId, ausfuehrung, laufId) {
+  let probe;
+  try {
+    probe = await vvRequest("vv-zahlung-sammel", { sepa_datei_id: dateiId, pruefen: true });
+  } catch (e) {
+    lMeldung("l-detail-status", "fehler", esc(e.message));
+    return;
+  }
+  if (!probe.anzahl) {
+    lMeldung("l-detail-status", "info", "Alle Posten dieser Datei sind bereits verbucht.");
+    return;
+  }
+  if (!confirm(probe.anzahl + " Forderungen über " + lEur(probe.summeCent) +
+               " werden als bezahlt gebucht,\nmit Eingangsdatum " + lDatum(probe.eingang) + ".\n\n" +
+               "Rückläufer danach einzeln unter „Zahlungen" + String.fromCharCode(8220) +
+               " erfassen.")) return;
+  try {
+    const r = await vvRequest("vv-zahlung-sammel",
+      { sepa_datei_id: dateiId, eingang_am: ausfuehrung });
+    await oeffneLauf(laufId);
+    lMeldung("l-detail-status", "erfolg",
+      "<strong>" + r.anzahl + " Forderungen</strong> über <strong>" + lEur(r.summeCent) +
+      "</strong> als bezahlt gebucht. Was offen bleibt, steht im Reiter „Zahlungen" +
+      String.fromCharCode(8220) + ".");
+  } catch (e) {
+    lMeldung("l-detail-status", "fehler", esc(e.message));
+  }
 }
 
 function ergebnis(titel, html) {

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vereinsverwaltung &mdash; 1. SC 1911 Heiligenstadt</title>
-<link rel="stylesheet" href="style.css?v=1.5">
+<link rel="stylesheet" href="style.css?v=1.6">
 </head>
 <body>
 
@@ -21,6 +21,7 @@
   <button data-tab="tab-mitglieder" class="aktiv">Mitglieder</button>
   <button data-tab="tab-beitraege" id="nav-beitraege" hidden>Beiträge</button>
   <button data-tab="tab-lauf" id="nav-lauf" hidden>Beitragslauf</button>
+  <button data-tab="tab-zahlungen" id="nav-zahlungen" hidden>Zahlungen</button>
   <button data-tab="tab-import" id="nav-import" hidden>Import</button>
   <button data-tab="tab-rollen" id="nav-rollen" hidden>Rollen</button>
   <button data-tab="tab-info">Info</button>
@@ -252,7 +253,7 @@
         <div id="l-ergebnis"></div>
       </div>
 
-      <div class="karte">
+      <div class="karte" id="l-karte-mandate">
         <h2>Übernommene Mandate</h2>
         <p class="fussnote">Im Altbestand steht nicht, wann ein Mandat zuletzt benutzt wurde. Ohne
         diese Angabe behandelt die App jeden Einzug als <strong>Erstlastschrift</strong> — die braucht
@@ -269,6 +270,43 @@
           </div>
         </div>
         <div id="l-mandat-status" class="hinweis info" hidden></div>
+      </div>
+
+    </section>
+
+    <!-- Zahlungseingänge. forderung.status wird nie von Hand gesetzt,
+         sondern immer aus den Zahlungen abgeleitet -- sonst steht in
+         dieser Liste etwas anderes als auf dem Konto. -->
+    <section id="tab-zahlungen" class="tab">
+
+      <div class="karte">
+        <h2>Offene Posten</h2>
+        <div class="filterleiste">
+          <div class="feld">
+            <label for="z-jahr">Beitragsjahr</label>
+            <select id="z-jahr"><option value="">Alle</option></select>
+          </div>
+          <div class="feld">
+            <label>&nbsp;</label>
+            <label class="ankreuz"><input type="checkbox" id="z-nur-faellig"> nur bereits fällige</label>
+          </div>
+          <div class="feld">
+            <label>&nbsp;</label>
+            <button class="btn grau" id="btn-z-neu-laden">Neu laden</button>
+          </div>
+        </div>
+        <div id="z-summe" class="betrag-anzeige"></div>
+        <div id="z-liste"></div>
+      </div>
+
+      <div class="karte" id="z-karte-konto" hidden>
+        <h2 id="z-konto-titel">Kontoauszug</h2>
+        <p class="fussnote">Alles, was diesem Haushalt in Rechnung gestellt und von ihm gezahlt
+        wurde. Stornierte Zahlungen bleiben sichtbar — eine Rücklastschrift ist genau das, wonach
+        hier jemand sucht.</p>
+        <div id="z-konto"></div>
+        <div id="z-konto-status" class="hinweis info" hidden></div>
+        <div class="knopfreihe" id="z-konto-knoepfe"></div>
       </div>
 
     </section>
@@ -511,6 +549,72 @@
   </div>
 </div>
 
+<div class="overlay" id="zahlung-overlay" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="zahlung-titel">
+    <div class="dialog-kopf">
+      <h2 id="zahlung-titel">Zahlung erfassen</h2>
+      <button class="dialog-zu" id="btn-zahlung-zu" aria-label="Schließen">&times;</button>
+    </div>
+    <div class="dialog-inhalt">
+      <p class="fussnote" id="nz-empfaenger"></p>
+      <div class="formraster">
+        <div class="feld"><label for="nz-betrag">Betrag (€) *</label>
+          <input id="nz-betrag" inputmode="decimal" placeholder="96,00"></div>
+        <div class="feld"><label for="nz-datum">Eingegangen am *</label>
+          <input type="date" id="nz-datum"></div>
+        <div class="feld"><label for="nz-art">Art</label>
+          <select id="nz-art">
+            <option value="ueberweisung">Überweisung</option>
+            <option value="bar">Bar</option>
+            <option value="lastschrift">Lastschrift</option>
+            <option value="verrechnung">Verrechnung</option>
+          </select>
+        </div>
+        <div class="feld breit"><label for="nz-zweck">Verwendungszweck</label>
+          <input id="nz-zweck" placeholder="wie auf dem Kontoauszug"></div>
+      </div>
+      <p class="fussnote">Der Betrag wird auf die offenen Forderungen dieses Haushalts verteilt,
+      die <strong>zuerst fällige zuerst</strong>. Bleibt etwas übrig, wird das gemeldet und nicht
+      still einbehalten.</p>
+    </div>
+    <div class="dialog-fuss">
+      <span id="zahlung-status"></span>
+      <button class="btn grau" id="btn-zahlung-abbrechen">Abbrechen</button>
+      <button class="btn" id="btn-zahlung-speichern">Buchen</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="rueck-overlay" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="rueck-titel">
+    <div class="dialog-kopf">
+      <h2 id="rueck-titel">Rücklastschrift</h2>
+      <button class="dialog-zu" id="btn-rueck-zu" aria-label="Schließen">&times;</button>
+    </div>
+    <div class="dialog-inhalt">
+      <p class="fussnote" id="nr-zahlung"></p>
+      <div class="formraster">
+        <div class="feld breit"><label for="nr-grund">Grund der Bank *</label>
+          <input id="nr-grund" placeholder="z. B. Konto erloschen, Widerspruch, keine Deckung"></div>
+        <div class="feld"><label for="nr-entgelt">Entgelt der Bank (€)</label>
+          <input id="nr-entgelt" inputmode="decimal" placeholder="3,00"></div>
+      </div>
+      <label class="ankreuz"><input type="checkbox" id="nr-weiter">
+        Entgelt dem Mitglied weiterberechnen
+        <span class="fussnote">Legt eine eigene Forderung an, statt den Beitrag zu erhöhen — sonst
+        lässt sich später nicht mehr erklären, woraus die Summe besteht.</span>
+      </label>
+      <p class="fussnote">Die ursprüngliche Zahlung wird storniert, nicht gelöscht, und die
+      Forderung lebt wieder auf.</p>
+    </div>
+    <div class="dialog-fuss">
+      <span id="rueck-status"></span>
+      <button class="btn grau" id="btn-rueck-abbrechen">Abbrechen</button>
+      <button class="btn warn" id="btn-rueck-speichern">Rücklastschrift buchen</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="lauf-overlay" hidden>
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="lauf-titel">
     <div class="dialog-kopf">
@@ -553,12 +657,13 @@
 
 <footer>1. SC 1911 Heiligenstadt &mdash; interne Vereinsverwaltung</footer>
 
-<script src="config.js?v=1.4"></script>
+<script src="config.js?v=1.5"></script>
 <script src="db.js?v=1.1"></script>
 <script src="import.js?v=1.1"></script>
 <script src="rollen.js?v=1.0"></script>
 <script src="beitraege.js?v=1.0"></script>
-<script src="lauf.js?v=1.1"></script>
-<script src="app.js?v=1.5"></script>
+<script src="lauf.js?v=1.2"></script>
+<script src="zahlungen.js?v=1.0"></script>
+<script src="app.js?v=1.6"></script>
 </body>
 </html>

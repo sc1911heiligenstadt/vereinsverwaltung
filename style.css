@@ -541,7 +541,29 @@ a.btn:hover { background: var(--blue-dark); }
 }
 .einzugsfeld label { font-size: 12px; color: var(--muted); }
 
+/* ---------- Zahlungen ---------- */
+
+.chip.offen { background: #fdf2e3; color: var(--amber); }
+.chip.teilbezahlt { background: #eaf0fb; color: var(--blue); }
+.chip.bezahlt { background: #e7f5ed; color: var(--green); }
+.chip.storniert { background: #eee; color: var(--muted); }
+
+td.ueberfaellig { color: var(--red); font-weight: 600; }
+
+/* Eine stornierte Zahlung bleibt lesbar, ist aber erkennbar nicht mehr
+   wirksam -- durchgestrichen waere bei einem Betrag zu leicht zu
+   uebersehen, deshalb zusaetzlich blass. */
+tr.storniert td { color: var(--muted); text-decoration: line-through; }
+tr.storniert td:last-child, tr.storniert .fussnote { text-decoration: none; }
+
+#z-konto tbody tr, #z-liste tbody tr[data-storno] { cursor: default; }
+#z-liste tbody tr.klickbar { cursor: pointer; }
+
 @media (max-width: 720px) {
+  /* 27 px hoch trifft am Handy niemand zuverlaessig. Betrifft die Knoepfe
+     in den Tabellen (stornieren, Ruecklastschrift, buchen). */
+  button.btn.klein { padding: 9px 14px; }
+
   .overlay { padding: 0; }
   .dialog { max-height: 100vh; border-radius: 0; }
   .formraster { grid-template-columns: 1fr; }

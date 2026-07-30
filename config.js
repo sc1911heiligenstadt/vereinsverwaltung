@@ -39,6 +39,18 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Zahlungseingänge",
+    datum: "2026-07-30",
+    punkte: [
+      "Neuer Reiter Zahlungen: wer schuldet was, seit wann — über den gesamten Bestand.",
+      "Eine eingereichte SEPA-Datei wird mit einem Klick als eingegangen gebucht. Die wenigen Rückläufer werden danach einzeln erfasst; 441 Zahlungen von Hand macht niemand.",
+      "Rücklastschrift: die ursprüngliche Zahlung wird storniert statt gelöscht und bleibt sichtbar, die Forderung lebt wieder auf. Das Entgelt der Bank wird als eigene Forderung angelegt, statt den Beitrag zu erhöhen.",
+      "Einzelzahlungen (Überweisung, bar) werden auf die offenen Forderungen des Haushalts verteilt, die zuerst fällige zuerst. Bleibt etwas übrig, wird das gemeldet und nicht still einbehalten.",
+      "Kontoauszug je Haushalt: alle Forderungen und alle Zahlungen, auch die zurückgegangenen.",
+      "Eine Forderung wird nie gelöscht, nur storniert — mit Grund und Zeitstempel."
+    ]
+  },
+  {
     version: "Beitragslauf und SEPA",
     datum: "2026-07-30",
     punkte: [

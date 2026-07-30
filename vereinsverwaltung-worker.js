@@ -1340,6 +1340,20 @@ async function handleMigration(env, me, corsHeaders) {
     fehlend.push("ALTER TABLE beitragslauf ADD COLUMN optionen_json TEXT");
   }
 
+  // Welche Forderungen in einer SEPA-Datei standen, muss festgehalten
+  // werden: die Datei ist ein Schnappschuss. Wird spaeter eine Forderung
+  // storniert, wuerde eine nachgerechnete Liste andere Posten liefern als
+  // die, die tatsaechlich bei der Bank eingereicht wurden -- und die
+  // Sammelbuchung buchte dann das Falsche als bezahlt.
+  const dateiSpalten = await env.VV_DB.prepare("PRAGMA table_info(sepa_datei)").all();
+  const dateiDa = new Set((dateiSpalten.results || []).map((s) => s.name));
+  if (!dateiDa.has("forderungen_json")) {
+    fehlend.push("ALTER TABLE sepa_datei ADD COLUMN forderungen_json TEXT");
+  }
+  if (!dateiDa.has("gebucht_am")) {
+    fehlend.push("ALTER TABLE sepa_datei ADD COLUMN gebucht_am TEXT");
+  }
+
   for (const sql of fehlend) await env.VV_DB.prepare(sql).run();
 
   // Vereinsstammdaten fuer die SEPA-Datei. Eigene Tabelle statt Konstanten
@@ -2278,13 +2292,14 @@ async function handleSepaErzeugen(body, env, me, corsHeaders) {
         haushalt_id: z.haushalt_id, zahlungsart: z.zahlungsart,
         mandat_id: z.mandat_id, referenz: z.referenz, kontoinhaber: z.kontoinhaber,
         iban: z.iban, bic: z.bic, erteilt_am: z.erteilt_am, erste_nutzung_am: z.erste_nutzung_am,
-        betrag_cent: 0, nummern: [], namen: []
+        betrag_cent: 0, nummern: [], namen: [], forderungen: []
       });
     }
     const h = haushalte.get(z.haushalt_id);
     h.betrag_cent += z.betrag_cent;
     h.nummern.push(z.mitgliedsnummer);
     h.namen.push((z.vorname + " " + z.nachname).trim());
+    h.forderungen.push(z.forderung_id);
   }
 
   const posten = [];
@@ -2420,11 +2435,16 @@ async function handleSepaErzeugen(body, env, me, corsHeaders) {
 
   const jetzt = new Date().toISOString();
   const dateiId = uuid();
+  // Die Forderungs-Ids mit ablegen: nur so kann die Sammelbuchung spaeter
+  // genau die Posten als bezahlt buchen, die wirklich in dieser Datei
+  // standen -- und nicht das, was zum Buchungszeitpunkt offen aussieht.
+  const enthaltene = posten.reduce((a, p) => a.concat(p.forderungen), []);
   const anweisungen = [env.VV_DB.prepare(
     "INSERT INTO sepa_datei (id, beitragslauf_id, msg_id, erstellt_datum, ausfuehrung_am, seq_typ, " +
-    "anzahl_posten, summe_cent, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?,?,?,?,?)"
+    "anzahl_posten, summe_cent, forderungen_json, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
   ).bind(dateiId, lauf.id, msgId, heuteIso, ausfuehrung,
-         gruppen.map((g) => g.seq).join("+"), posten.length, summeCent, jetzt, me.username)];
+         gruppen.map((g) => g.seq).join("+"), posten.length, summeCent,
+         JSON.stringify(enthaltene), jetzt, me.username)];
 
   // Erste Nutzung nur setzen, wo sie noch fehlt -- ab dann ist es eine
   // Folgelastschrift. Bloecke zu 50 wegen der Parametergrenze.
@@ -2455,6 +2475,347 @@ async function handleSepaErzeugen(body, env, me, corsHeaders) {
     warnungen,
     dateiname: "SEPA-Beitrag-" + lauf.jahr + "-" + heuteIso + ".xml",
     xml
+  }, 200, corsHeaders);
+}
+
+// ---------------------------------------------------------------------
+// Zahlungseingaenge, Ruecklastschriften, offene Posten
+// ---------------------------------------------------------------------
+//
+// forderung.status wird NIE von Hand gesetzt, sondern immer aus den
+// Zahlungen abgeleitet. Sonst laufen die beiden auseinander, und dann
+// steht in der offenen-Posten-Liste etwas anderes als auf dem Konto.
+// Diese eine Anweisung rechnet den Status fuer beliebig viele
+// Forderungen neu -- mengenbasiert, nicht je Zeile.
+function statusNeuBerechnen(env, ids) {
+  const p = ids.map(() => "?").join(",");
+  return env.VV_DB.prepare(
+    "UPDATE forderung SET status = CASE " +
+    "  WHEN storniert_am IS NOT NULL THEN 'storniert' " +
+    "  WHEN (SELECT COALESCE(SUM(z.betrag_cent),0) FROM zahlung z " +
+    "        WHERE z.forderung_id = forderung.id AND z.storniert_am IS NULL) >= betrag_cent THEN 'bezahlt' " +
+    "  WHEN (SELECT COALESCE(SUM(z.betrag_cent),0) FROM zahlung z " +
+    "        WHERE z.forderung_id = forderung.id AND z.storniert_am IS NULL) > 0 THEN 'teilbezahlt' " +
+    "  ELSE 'offen' END " +
+    "WHERE id IN (" + p + ")"
+  ).bind(...ids);
+}
+
+// Bucht eine ganze SEPA-Datei als eingegangen. Das ist der Normalfall:
+// von 441 Einzuegen kommen 435 durch, und die sechs Ruecklaeufer werden
+// danach einzeln erfasst. Andersherum -- 441 Zahlungen von Hand -- macht
+// das niemand.
+async function handleZahlungSammel(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin && !rolle.darfBuchen) {
+    return json({ error: "Nur der Schatzmeister kann Zahlungen verbuchen" }, 403, corsHeaders);
+  }
+
+  const datei = await env.VV_DB.prepare("SELECT * FROM sepa_datei WHERE id = ?")
+    .bind(String(body.sepa_datei_id || "")).first();
+  if (!datei) return json({ error: "SEPA-Datei nicht gefunden" }, 404, corsHeaders);
+  if (datei.gebucht_am && !body.trotzdem) {
+    return json({ error: "Diese Datei wurde am " + datei.gebucht_am.slice(0, 10) + " bereits gebucht",
+                  code: "schon_gebucht" }, 409, corsHeaders);
+  }
+
+  let ids = [];
+  try { ids = JSON.parse(datei.forderungen_json || "[]"); } catch { ids = []; }
+  if (!ids.length) {
+    return json({ error: "Zu dieser Datei sind keine Forderungen vermerkt. Sie stammt aus einer " +
+                         "Fassung vor dieser Funktion und muss einzeln gebucht werden." }, 409, corsHeaders);
+  }
+
+  const eingang = istIsoDatum(body.eingang_am) ? body.eingang_am : datei.ausfuehrung_am;
+
+  // Nur was noch nicht bezahlt ist. Ein zweiter Klick darf nicht doppelt
+  // buchen -- und eine zwischenzeitlich stornierte Forderung nicht wieder
+  // aufleben lassen.
+  const offen = [];
+  for (let i = 0; i < ids.length; i += 50) {
+    const b = ids.slice(i, i + 50);
+    const r = await env.VV_DB.prepare(
+      "SELECT f.id, f.haushalt_id, f.betrag_cent, f.status, " +
+      "  (SELECT COALESCE(SUM(z.betrag_cent),0) FROM zahlung z " +
+      "   WHERE z.forderung_id = f.id AND z.storniert_am IS NULL) AS bezahlt " +
+      "FROM forderung f WHERE f.storniert_am IS NULL AND f.id IN (" + b.map(() => "?").join(",") + ")"
+    ).bind(...b).all();
+    for (const z of r.results || []) if (z.bezahlt < z.betrag_cent) offen.push(z);
+  }
+
+  const summe = offen.reduce((s, z) => s + (z.betrag_cent - z.bezahlt), 0);
+  if (body.pruefen) {
+    return json({ ok: true, pruefung: true, anzahl: offen.length, summeCent: summe,
+                  inDatei: ids.length, eingang }, 200, corsHeaders);
+  }
+  if (!offen.length) {
+    return json({ error: "Alle Posten dieser Datei sind bereits verbucht" }, 409, corsHeaders);
+  }
+
+  const jetzt = new Date().toISOString();
+  const anweisungen = [];
+  for (const z of offen) {
+    anweisungen.push(env.VV_DB.prepare(
+      "INSERT INTO zahlung (id, forderung_id, haushalt_id, sepa_datei_id, betrag_cent, eingang_am, " +
+      "art, verwendungszweck, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?,'lastschrift',?,?,?)"
+    ).bind(uuid(), z.id, z.haushalt_id, datei.id, z.betrag_cent - z.bezahlt, eingang,
+           "SEPA-Einzug " + datei.msg_id, jetzt, me.username));
+  }
+  const alleIds = offen.map((z) => z.id);
+  for (let i = 0; i < alleIds.length; i += 50) {
+    anweisungen.push(statusNeuBerechnen(env, alleIds.slice(i, i + 50)));
+  }
+  anweisungen.push(env.VV_DB.prepare("UPDATE sepa_datei SET gebucht_am = ? WHERE id = ?")
+    .bind(jetzt, datei.id));
+
+  await env.VV_DB.batch(anweisungen);
+  await protokolliere(env, me.username, "sepa-datei-gebucht", "sepa_datei", datei.id,
+                      { anzahl: offen.length, summeCent: summe });
+  return json({ ok: true, anzahl: offen.length, summeCent: summe, eingang }, 200, corsHeaders);
+}
+
+// Einzelzahlung. Ohne forderung_id wird auf die offenen Forderungen des
+// Haushalts verteilt, aelteste zuerst -- so, wie es jede Buchhaltung
+// macht, wenn der Zahler keinen Verwendungszweck angibt.
+async function handleZahlungErfassen(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin && !rolle.darfBuchen) {
+    return json({ error: "Nur der Schatzmeister kann Zahlungen verbuchen" }, 403, corsHeaders);
+  }
+
+  let betrag = parseInt(body.betrag_cent, 10);
+  if (!Number.isFinite(betrag) || betrag <= 0) {
+    return json({ error: "Betrag fehlt oder ist nicht plausibel" }, 400, corsHeaders);
+  }
+  const eingang = istIsoDatum(body.eingang_am) ? body.eingang_am
+                                               : new Date().toISOString().slice(0, 10);
+  const art = ["ueberweisung", "bar", "lastschrift", "verrechnung"].indexOf(String(body.art)) > -1
+    ? String(body.art) : "ueberweisung";
+
+  let zeilen;
+  if (body.forderung_id) {
+    const f = await env.VV_DB.prepare(
+      "SELECT f.id, f.haushalt_id, f.betrag_cent, " +
+      "  (SELECT COALESCE(SUM(z.betrag_cent),0) FROM zahlung z " +
+      "   WHERE z.forderung_id = f.id AND z.storniert_am IS NULL) AS bezahlt " +
+      "FROM forderung f WHERE f.id = ? AND f.storniert_am IS NULL"
+    ).bind(String(body.forderung_id)).first();
+    if (!f) return json({ error: "Forderung nicht gefunden oder storniert" }, 404, corsHeaders);
+    zeilen = [f];
+  } else if (body.haushalt_id) {
+    const r = await env.VV_DB.prepare(
+      "SELECT f.id, f.haushalt_id, f.betrag_cent, " +
+      "  (SELECT COALESCE(SUM(z.betrag_cent),0) FROM zahlung z " +
+      "   WHERE z.forderung_id = f.id AND z.storniert_am IS NULL) AS bezahlt " +
+      "FROM forderung f WHERE f.haushalt_id = ? AND f.storniert_am IS NULL " +
+      "  AND f.status <> 'bezahlt' ORDER BY f.faellig_am, f.erstellt_am"
+    ).bind(String(body.haushalt_id)).all();
+    zeilen = (r.results || []).filter((f) => f.bezahlt < f.betrag_cent);
+    if (!zeilen.length) {
+      return json({ error: "Dieser Haushalt hat keine offene Forderung" }, 409, corsHeaders);
+    }
+  } else {
+    return json({ error: "Weder Forderung noch Haushalt angegeben" }, 400, corsHeaders);
+  }
+
+  const jetzt = new Date().toISOString();
+  const anweisungen = [];
+  const verteilt = [];
+  let rest = betrag;
+
+  for (const f of zeilen) {
+    if (rest <= 0) break;
+    const noetig = f.betrag_cent - f.bezahlt;
+    const teil = Math.min(rest, noetig);
+    rest -= teil;
+    verteilt.push({ forderung_id: f.id, betrag_cent: teil });
+    anweisungen.push(env.VV_DB.prepare(
+      "INSERT INTO zahlung (id, forderung_id, haushalt_id, betrag_cent, eingang_am, art, " +
+      "verwendungszweck, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?,?,?,?)"
+    ).bind(uuid(), f.id, f.haushalt_id, teil, eingang, art,
+           sauber(body.verwendungszweck, 200), jetzt, me.username));
+  }
+
+  anweisungen.push(statusNeuBerechnen(env, verteilt.map((v) => v.forderung_id)));
+  await env.VV_DB.batch(anweisungen);
+  await protokolliere(env, me.username, "zahlung-erfasst", "haushalt",
+                      zeilen[0].haushalt_id, { betrag, art, verteilt: verteilt.length });
+
+  // Ueberzahlung wird gemeldet, nicht verrechnet. Ein Guthaben zu fuehren
+  // ist Buchhaltung, nicht Beitragsverwaltung -- und still einzubehalten
+  // waere das Schlechteste von beidem.
+  return json({ ok: true, verteilt, ueberzahlung_cent: rest }, 200, corsHeaders);
+}
+
+// Ruecklastschrift. Die urspruengliche Zahlung wird storniert, nicht
+// geloescht (GoBD), die Forderung lebt wieder auf. Das Entgelt der Bank
+// wird als EIGENE Forderung angelegt, wenn es weiterberechnet wird --
+// nicht auf den Beitrag aufgeschlagen, sonst laesst sich spaeter nicht
+// mehr erklaeren, woraus die Summe besteht.
+async function handleRuecklastschrift(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin && !rolle.darfBuchen) {
+    return json({ error: "Nur der Schatzmeister kann eine Ruecklastschrift buchen" }, 403, corsHeaders);
+  }
+
+  const z = await env.VV_DB.prepare(
+    "SELECT z.*, f.mitgliedschaft_id, f.jahr FROM zahlung z " +
+    "JOIN forderung f ON f.id = z.forderung_id WHERE z.id = ?"
+  ).bind(String(body.zahlung_id || "")).first();
+  if (!z) return json({ error: "Zahlung nicht gefunden" }, 404, corsHeaders);
+  if (z.storniert_am) return json({ error: "Diese Zahlung ist bereits storniert" }, 409, corsHeaders);
+
+  const grund = sauber(body.grund, 200) || "Ruecklastschrift";
+  const entgelt = parseInt(body.entgelt_cent, 10);
+  const mitEntgelt = Number.isFinite(entgelt) && entgelt > 0;
+  const jetzt = new Date().toISOString();
+  const heute = jetzt.slice(0, 10);
+
+  const anweisungen = [
+    env.VV_DB.prepare(
+      "UPDATE zahlung SET storniert_am = ?, storniert_von = ?, storno_grund = ?, " +
+      "ruecklauf_grund = ?, ruecklauf_entgelt_cent = ? WHERE id = ?"
+    ).bind(jetzt, me.username, grund, grund, mitEntgelt ? entgelt : null, z.id),
+    statusNeuBerechnen(env, [z.forderung_id])
+  ];
+
+  let entgeltId = null;
+  if (mitEntgelt && body.weiterberechnen) {
+    entgeltId = uuid();
+    anweisungen.push(env.VV_DB.prepare(
+      "INSERT INTO forderung (id, mitgliedschaft_id, haushalt_id, art, bezeichnung, jahr, " +
+      "betrag_cent, faellig_am, status, erstellt_am, erstellt_von) " +
+      "VALUES (?,?,?,'ruecklastschrift',?,?,?,?,'offen',?,?)"
+    ).bind(entgeltId, z.mitgliedschaft_id, z.haushalt_id,
+           "Entgelt Ruecklastschrift (" + grund + ")", z.jahr, entgelt, heute, jetzt, me.username));
+  }
+
+  await env.VV_DB.batch(anweisungen);
+  await protokolliere(env, me.username, "ruecklastschrift", "zahlung", z.id,
+                      { grund, betrag: z.betrag_cent, entgelt: mitEntgelt ? entgelt : 0 });
+  return json({ ok: true, forderungWiederOffen: z.forderung_id, entgeltForderung: entgeltId },
+              200, corsHeaders);
+}
+
+// GoBD: eine Forderung wird nie geloescht, nur storniert -- mit Grund und
+// Zeitstempel. Sie bleibt in jeder Auswertung sichtbar.
+async function handleForderungStornieren(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin && !rolle.darfBuchen) {
+    return json({ error: "Nur der Schatzmeister kann eine Forderung stornieren" }, 403, corsHeaders);
+  }
+  const id = String(body.forderung_id || "");
+  const f = await env.VV_DB.prepare("SELECT * FROM forderung WHERE id = ?").bind(id).first();
+  if (!f) return json({ error: "Forderung nicht gefunden" }, 404, corsHeaders);
+  if (f.storniert_am) return json({ ok: true, schon: true }, 200, corsHeaders);
+
+  const grund = sauber(body.grund, 200);
+  if (!grund) return json({ error: "Ein Stornogrund ist erforderlich" }, 400, corsHeaders);
+
+  const jetzt = new Date().toISOString();
+  await env.VV_DB.batch([
+    env.VV_DB.prepare(
+      "UPDATE forderung SET storniert_am = ?, storniert_von = ?, storno_grund = ? WHERE id = ?"
+    ).bind(jetzt, me.username, grund, id),
+    statusNeuBerechnen(env, [id])
+  ]);
+  await protokolliere(env, me.username, "forderung-storniert", "forderung", id,
+                      { grund, betrag: f.betrag_cent });
+  return json({ ok: true }, 200, corsHeaders);
+}
+
+// Offene Posten je Haushalt. Eine Abfrage fuer den gesamten Bestand --
+// bei 540 Mitgliedern und mehreren Jahren waere eine Schleife hier der
+// sichere Tod des Workers.
+async function handleOffenePosten(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin && !rolle.darfBuchen && !rolle.darfSchreiben) {
+    return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+  }
+
+  const heute = new Date().toISOString().slice(0, 10);
+  const bedingungen = ["f.storniert_am IS NULL", "f.status <> 'bezahlt'"];
+  const werte = [];
+  if (body.jahr) { bedingungen.push("f.jahr = ?"); werte.push(parseInt(body.jahr, 10)); }
+  if (body.nur_faellig) { bedingungen.push("f.faellig_am <= ?"); werte.push(heute); }
+
+  const r = await env.VV_DB.prepare(
+    "SELECT f.id, f.bezeichnung, f.art, f.jahr, f.betrag_cent, f.faellig_am, f.status, " +
+    "       f.haushalt_id, m.mitgliedsnummer, p.vorname, p.nachname, " +
+    "       (SELECT COALESCE(SUM(z.betrag_cent),0) FROM zahlung z " +
+    "        WHERE z.forderung_id = f.id AND z.storniert_am IS NULL) AS bezahlt_cent, " +
+    "       (SELECT COUNT(*) FROM mahnung mh WHERE mh.haushalt_id = f.haushalt_id " +
+    "        AND mh.erledigt_am IS NULL) AS mahnungen " +
+    "FROM forderung f " +
+    "JOIN mitgliedschaft m ON m.id = f.mitgliedschaft_id " +
+    "JOIN person p ON p.id = m.person_id " +
+    "WHERE " + bedingungen.join(" AND ") +
+    " ORDER BY f.faellig_am, p.nachname COLLATE NOCASE, p.vorname COLLATE NOCASE LIMIT 500"
+  ).bind(...werte).all();
+
+  const zeilen = (r.results || []).map((f) => ({
+    id: f.id, bezeichnung: f.bezeichnung, art: f.art, jahr: f.jahr,
+    mitgliedsnummer: f.mitgliedsnummer, name: (f.vorname + " " + f.nachname).trim(),
+    haushalt_id: f.haushalt_id, faellig_am: f.faellig_am, status: f.status,
+    betrag_cent: f.betrag_cent, bezahlt_cent: f.bezahlt_cent,
+    rest_cent: f.betrag_cent - f.bezahlt_cent,
+    ueberfaellig: f.faellig_am < heute,
+    mahnungen: f.mahnungen
+  }));
+
+  const gesamt = await env.VV_DB.prepare(
+    "SELECT COUNT(*) AS n, COALESCE(SUM(f.betrag_cent),0) AS soll, " +
+    "  COALESCE(SUM((SELECT COALESCE(SUM(z.betrag_cent),0) FROM zahlung z " +
+    "   WHERE z.forderung_id = f.id AND z.storniert_am IS NULL)),0) AS ist " +
+    "FROM forderung f WHERE " + bedingungen.join(" AND ")
+  ).bind(...werte).first();
+
+  return json({
+    ok: true, heute,
+    zeilen,
+    abgeschnitten: zeilen.length >= 500,
+    anzahl: gesamt ? gesamt.n : 0,
+    summeCent: gesamt ? (gesamt.soll - gesamt.ist) : 0,
+    darfBuchen: rolle.istAdmin || rolle.darfBuchen
+  }, 200, corsHeaders);
+}
+
+// Alle Zahlungen eines Haushalts, auch die stornierten -- gerade die
+// Ruecklastschriften sind das, wonach jemand sucht.
+async function handleZahlungenListe(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin && !rolle.darfBuchen && !rolle.darfSchreiben) {
+    return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+  }
+  const haushalt = String(body.haushalt_id || "");
+  if (!haushalt) return json({ error: "Kein Haushalt angegeben" }, 400, corsHeaders);
+
+  const r = await env.VV_DB.prepare(
+    "SELECT z.id, z.betrag_cent, z.eingang_am, z.art, z.verwendungszweck, " +
+    "       z.storniert_am, z.storno_grund, z.ruecklauf_grund, z.ruecklauf_entgelt_cent, " +
+    "       f.bezeichnung, f.jahr, m.mitgliedsnummer " +
+    "FROM zahlung z LEFT JOIN forderung f ON f.id = z.forderung_id " +
+    "LEFT JOIN mitgliedschaft m ON m.id = f.mitgliedschaft_id " +
+    "WHERE z.haushalt_id = ? ORDER BY z.eingang_am DESC, z.erstellt_am DESC LIMIT 200"
+  ).bind(haushalt).all();
+
+  const forderungen = await env.VV_DB.prepare(
+    "SELECT f.id, f.bezeichnung, f.jahr, f.art, f.betrag_cent, f.faellig_am, f.status, " +
+    "       f.storniert_am, f.storno_grund, m.mitgliedsnummer, p.vorname, p.nachname, " +
+    "       (SELECT COALESCE(SUM(z.betrag_cent),0) FROM zahlung z " +
+    "        WHERE z.forderung_id = f.id AND z.storniert_am IS NULL) AS bezahlt_cent " +
+    "FROM forderung f JOIN mitgliedschaft m ON m.id = f.mitgliedschaft_id " +
+    "JOIN person p ON p.id = m.person_id " +
+    "WHERE f.haushalt_id = ? ORDER BY f.jahr DESC, f.faellig_am DESC LIMIT 100"
+  ).bind(haushalt).all();
+
+  return json({
+    ok: true,
+    zahlungen: r.results || [],
+    forderungen: (forderungen.results || []).map((f) =>
+      Object.assign({}, f, { name: (f.vorname + " " + f.nachname).trim(),
+                             rest_cent: f.betrag_cent - f.bezahlt_cent })),
+    darfBuchen: rolle.istAdmin || rolle.darfBuchen
   }, 200, corsHeaders);
 }
 
@@ -2920,6 +3281,12 @@ export default {
         case "vv-sepa-erzeugen":   return handleSepaErzeugen(body, env, me, corsHeaders);
         case "vv-mandate-uebernommen": return handleMandateUebernommen(body, env, me, corsHeaders);
         case "vv-vorabankuendigung": return handleVorabankuendigung(body, env, me, corsHeaders);
+        case "vv-zahlung-sammel":  return handleZahlungSammel(body, env, me, corsHeaders);
+        case "vv-zahlung-erfassen": return handleZahlungErfassen(body, env, me, corsHeaders);
+        case "vv-ruecklastschrift": return handleRuecklastschrift(body, env, me, corsHeaders);
+        case "vv-forderung-stornieren": return handleForderungStornieren(body, env, me, corsHeaders);
+        case "vv-offene-posten":   return handleOffenePosten(body, env, me, corsHeaders);
+        case "vv-zahlungen":       return handleZahlungenListe(body, env, me, corsHeaders);
         case "vv-sparten-init":    return handleSpartenInit(env, me, corsHeaders);
         case "vv-seed":            return handleSeed(body, env, me, corsHeaders);
         case "vv-messlauf":        return handleMesslauf(body, env, me, corsHeaders);

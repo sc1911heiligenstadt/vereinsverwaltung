@@ -122,12 +122,21 @@ async function start() {
   // IBANs. Ansehen darf ihn auch die Geschaeftsstelle -- ausloesen nur
   // der Schatzmeister, das erzwingt der Worker noch einmal selbst.
   $("nav-lauf").hidden = !(meineRechte.darfBuchen || meineRechte.darfSchreiben);
+  $("nav-zahlungen").hidden = !(meineRechte.darfBuchen || meineRechte.darfSchreiben);
 
   await ladeSpartenAuswahl();
   await ladeUndZeige();
   if (meineRechte.isAdmin) ladeRollen();
   if (meineRechte.darfSchreiben || meineRechte.darfBuchen) ladeBeitraege();
-  if (meineRechte.darfBuchen || meineRechte.darfSchreiben) { ladeLaeufe(); ladeStammdaten(); }
+  if (meineRechte.darfBuchen || meineRechte.darfSchreiben) {
+    // Reihenfolge zwingend: ladeStammdaten stößt die Migration an, und
+    // ohne die gibt es weder die Spalte optionen_json noch die
+    // Einstellungstabelle, die alles Weitere braucht.
+    await ladeStammdaten();
+    ladeLaeufe();
+    ladeZahlungsJahre();
+    ladeOffenePosten();
+  }
 }
 
 async function ladeSpartenAuswahl() {
@@ -737,6 +746,7 @@ function init() {
   rollenVerdrahten();
   beitraegeVerdrahten();
   laufVerdrahten();
+  zahlungenVerdrahten();
 
   // Klick auf die abgedunkelte Flaeche schliesst, Klick im Dialog nicht.
   $("detail-overlay").addEventListener("click", (e) => {
@@ -745,15 +755,16 @@ function init() {
   $("neu-overlay").addEventListener("click", (e) => {
     if (e.target === $("neu-overlay")) $("neu-overlay").hidden = true;
   });
-  $("lauf-overlay").addEventListener("click", (e) => {
-    if (e.target === $("lauf-overlay")) $("lauf-overlay").hidden = true;
+  ["lauf-overlay", "zahlung-overlay", "rueck-overlay"].forEach((id) => {
+    $(id).addEventListener("click", (e) => { if (e.target === $(id)) $(id).hidden = true; });
   });
   // Der obere Dialog zuerst: sonst schliesst Escape im Anlegen-Dialog die
   // dahinterliegende Detailansicht mit.
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
-    if (!$("lauf-overlay").hidden) { $("lauf-overlay").hidden = true; return; }
-    if (!$("neu-overlay").hidden) { $("neu-overlay").hidden = true; return; }
+    for (const id of ["rueck-overlay", "zahlung-overlay", "lauf-overlay", "neu-overlay"]) {
+      if (!$(id).hidden) { $(id).hidden = true; return; }
+    }
     if (!$("detail-overlay").hidden) schliesseDetail();
   });
 
