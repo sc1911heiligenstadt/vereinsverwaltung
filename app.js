@@ -136,6 +136,9 @@ async function start() {
     ladeLaeufe();
     ladeZahlungsJahre();
     ladeOffenePosten();
+    ladeMahnEinstellungen();
+    ladeMahnungen();
+    ladeAusschluss();
   }
 }
 
@@ -747,6 +750,7 @@ function init() {
   beitraegeVerdrahten();
   laufVerdrahten();
   zahlungenVerdrahten();
+  mahnungVerdrahten();
 
   // Klick auf die abgedunkelte Flaeche schliesst, Klick im Dialog nicht.
   $("detail-overlay").addEventListener("click", (e) => {

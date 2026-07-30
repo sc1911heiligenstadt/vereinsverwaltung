@@ -73,8 +73,12 @@ async function ladeStammdaten() {
     return;
   }
 
+  // Nur die SEPA-Stammdaten. Die Mahnfristen kommen aus derselben Aktion,
+  // gehören aber in den Zahlungen-Reiter, wo sie gebraucht werden.
+  const felder = laufStammdaten.felder.filter((f) => f.gruppe !== "mahnung");
+
   ziel.innerHTML = '<div class="formraster">' +
-    laufStammdaten.felder.map((f) =>
+    felder.map((f) =>
       '<div class="feld' + (f.schluessel === "verwendungszweck" ? " breit" : "") + '">' +
         '<label for="ls-' + esc(f.schluessel) + '">' + esc(f.label) +
         (f.pflicht ? " *" : "") + "</label>" +
@@ -102,7 +106,7 @@ async function speichereStammdaten() {
     // Nacheinander, nicht parallel: die Antwort auf eine ungültige IBAN
     // soll genau dieses Feld benennen können.
     for (const f of laufStammdaten.felder) {
-      const feld = $("ls-" + f.schluessel);
+      const feld = document.getElementById("ls-" + f.schluessel);
       if (!feld || feld.value === f.wert) continue;
       await vvRequest("vv-einstellung-setzen", { schluessel: f.schluessel, wert: feld.value });
     }
@@ -350,18 +354,20 @@ async function bucheSepaDatei(dateiId, ausfuehrung, laufId) {
     lMeldung("l-detail-status", "info", "Alle Posten dieser Datei sind bereits verbucht.");
     return;
   }
+  // Kein typografisches Anführungszeichen im Quelltext: das öffnende ist
+  // harmlos, das schließende beendet den String und macht die Datei zum
+  // lautlosen SyntaxError. Hier steht deshalb gar keins.
   if (!confirm(probe.anzahl + " Forderungen über " + lEur(probe.summeCent) +
                " werden als bezahlt gebucht,\nmit Eingangsdatum " + lDatum(probe.eingang) + ".\n\n" +
-               "Rückläufer danach einzeln unter „Zahlungen" + String.fromCharCode(8220) +
-               " erfassen.")) return;
+               "Rückläufer danach einzeln im Reiter Zahlungen erfassen.")) return;
   try {
     const r = await vvRequest("vv-zahlung-sammel",
       { sepa_datei_id: dateiId, eingang_am: ausfuehrung });
     await oeffneLauf(laufId);
     lMeldung("l-detail-status", "erfolg",
       "<strong>" + r.anzahl + " Forderungen</strong> über <strong>" + lEur(r.summeCent) +
-      "</strong> als bezahlt gebucht. Was offen bleibt, steht im Reiter „Zahlungen" +
-      String.fromCharCode(8220) + ".");
+      "</strong> als bezahlt gebucht. Was offen bleibt, steht im Reiter " +
+      "&bdquo;Zahlungen&ldquo;.");
   } catch (e) {
     lMeldung("l-detail-status", "fehler", esc(e.message));
   }

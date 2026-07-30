@@ -559,6 +559,20 @@ tr.storniert td:last-child, tr.storniert .fussnote { text-decoration: none; }
 #z-konto tbody tr, #z-liste tbody tr[data-storno] { cursor: default; }
 #z-liste tbody tr.klickbar { cursor: pointer; }
 
+/* ---------- Mahnwesen ---------- */
+
+/* "weder E-Mail noch Anschrift" ist kein Randfall, sondern der Grund,
+   warum eine Mahnung nicht zugestellt werden kann -- und damit nach
+   § 5 Abs. 3 nicht zaehlt. Muss auffallen. */
+.warnfarbe { color: var(--red); font-weight: 600; }
+
+/* Eine erledigte Mahnung bleibt in der Liste, tritt aber zurueck. Nicht
+   durchgestrichen: sie ist nicht ungueltig, sondern abgeschlossen. */
+tr.erledigt td { color: var(--muted); }
+
+#m-vorschau tbody tr, #m-liste tbody tr, #m-ausschluss tbody tr,
+#m-einstellungen tbody tr { cursor: default; }
+
 @media (max-width: 720px) {
   /* 27 px hoch trifft am Handy niemand zuverlaessig. Betrifft die Knoepfe
      in den Tabellen (stornieren, Ruecklastschrift, buchen). */

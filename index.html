@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vereinsverwaltung &mdash; 1. SC 1911 Heiligenstadt</title>
-<link rel="stylesheet" href="style.css?v=1.6">
+<link rel="stylesheet" href="style.css?v=1.7">
 </head>
 <body>
 
@@ -297,6 +297,51 @@
         </div>
         <div id="z-summe" class="betrag-anzeige"></div>
         <div id="z-liste"></div>
+      </div>
+
+      <!-- Satzung § 5 Abs. 3: Ausschluss erst nach zwei schriftlichen
+           Mahnungen, davor Anhörung mit zehn Tagen Frist. Eine Stufe wird
+           erst erreicht, wenn die Frist der vorigen abgelaufen ist —
+           zwei Mahnungen am selben Tag sind keine zwei Mahnungen. -->
+      <div class="karte">
+        <h2>Mahnlauf</h2>
+        <p class="fussnote" id="m-regeln"></p>
+        <div class="knopfreihe">
+          <button class="btn grau" id="btn-m-probe">Wer wäre dran?</button>
+          <button class="btn" id="btn-m-start" hidden>Mahnungen erzeugen</button>
+        </div>
+        <div id="m-status" class="hinweis info" hidden></div>
+        <div id="m-vorschau"></div>
+      </div>
+
+      <div class="karte" id="m-karte-liste">
+        <h2>Mahnungen</h2>
+        <div class="filterleiste">
+          <div class="feld">
+            <label class="ankreuz"><input type="checkbox" id="m-auch-erledigte"> auch erledigte zeigen</label>
+          </div>
+          <div class="feld">
+            <label>&nbsp;</label>
+            <button class="btn grau" id="btn-m-neu-laden">Neu laden</button>
+          </div>
+        </div>
+        <div id="m-liste"></div>
+      </div>
+
+      <div class="karte" id="m-karte-ausschluss">
+        <h2>Ausschluss nach § 5 Abs. 3</h2>
+        <p class="fussnote">Diese Liste ist eine <strong>Vorlage für den Vorstand</strong>, kein
+        Vollzug. Der Ausschluss ist ein Vorstandsbeschluss — so wie die Aufnahme nach § 4 einer ist.
+        Die App schließt niemanden aus.</p>
+        <div id="m-ausschluss"></div>
+      </div>
+
+      <div class="karte">
+        <h2>Mahnfristen und Gebühren</h2>
+        <p class="fussnote">Eine geänderte Zahlungsfrist darf kein Programm-Update sein. Die Frist
+        der Anhörung lässt sich nicht unter zehn Tage setzen — das steht so in der Satzung.</p>
+        <div id="m-einstellungen"></div>
+        <div id="m-einst-status" class="hinweis info" hidden></div>
       </div>
 
       <div class="karte" id="z-karte-konto" hidden>
@@ -657,13 +702,14 @@
 
 <footer>1. SC 1911 Heiligenstadt &mdash; interne Vereinsverwaltung</footer>
 
-<script src="config.js?v=1.5"></script>
+<script src="config.js?v=1.6"></script>
 <script src="db.js?v=1.1"></script>
 <script src="import.js?v=1.1"></script>
 <script src="rollen.js?v=1.0"></script>
 <script src="beitraege.js?v=1.0"></script>
-<script src="lauf.js?v=1.2"></script>
+<script src="lauf.js?v=1.3"></script>
 <script src="zahlungen.js?v=1.0"></script>
-<script src="app.js?v=1.6"></script>
+<script src="mahnung.js?v=1.0"></script>
+<script src="app.js?v=1.7"></script>
 </body>
 </html>

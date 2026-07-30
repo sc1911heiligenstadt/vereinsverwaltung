@@ -39,6 +39,20 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Mahnwesen nach § 5 Abs. 3",
+    datum: "2026-07-30",
+    punkte: [
+      "Mahnlauf mit drei Stufen: erste Mahnung, zweite Mahnung, Anhörung vor dem Ausschluss.",
+      "Eine Stufe wird erst erreicht, wenn die Frist der vorigen abgelaufen ist. Zwei Mahnungen am selben Tag sind keine zwei Mahnungen — daran scheitert ein Ausschluss.",
+      "Erst der bestätigte Versand macht aus einer erzeugten Mahnung eine schriftliche Mahnung. Die Stufenzählung hängt daran, nicht am Erzeugen.",
+      "Serienbrief zum Herunterladen: Adressliste und fertige Brieftexte mit allen Einzelposten. Die Anhörung nennt die Satzung und die Frist.",
+      "Ausschlussliste für den Vorstand — erst wenn alle drei Voraussetzungen erfüllt sind. Die App schließt niemanden aus, das ist ein Vorstandsbeschluss.",
+      "Wer bezahlt, dessen Mahnungen schließen sich von selbst. Eine Teilzahlung reicht nicht.",
+      "Karenzzeit, Fristen, Mindestbetrag und Mahngebühren sind einstellbar. Die Anhörungsfrist lässt sich nicht unter zehn Tage setzen.",
+      "Mahngebühren werden als eigene Forderung angelegt, nicht auf den Beitrag geschlagen."
+    ]
+  },
+  {
     version: "Zahlungseingänge",
     datum: "2026-07-30",
     punkte: [

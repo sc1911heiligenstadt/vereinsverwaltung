@@ -1372,12 +1372,49 @@ async function handleMigration(env, me, corsHeaders) {
 // ---------------------------------------------------------------------
 
 const EINSTELLUNGEN = {
-  verein_name:      { label: "Name des Vereins (Glaeubiger)", max: 70,  pflicht: true },
-  verein_iban:      { label: "IBAN des Vereinskontos",        max: 34,  pflicht: true, iban: true },
-  verein_bic:       { label: "BIC des Vereinskontos",         max: 11 },
-  glaeubiger_id:    { label: "Glaeubiger-Identifikationsnummer", max: 35, pflicht: true },
-  verwendungszweck: { label: "Verwendungszweck",              max: 140 }
+  verein_name:      { gruppe: "sepa", label: "Name des Vereins (Glaeubiger)", max: 70, pflicht: true },
+  verein_iban:      { gruppe: "sepa", label: "IBAN des Vereinskontos", max: 34, pflicht: true, iban: true },
+  verein_bic:       { gruppe: "sepa", label: "BIC des Vereinskontos", max: 11 },
+  glaeubiger_id:    { gruppe: "sepa", label: "Glaeubiger-Identifikationsnummer", max: 35, pflicht: true },
+  verwendungszweck: { gruppe: "sepa", label: "Verwendungszweck", max: 140 },
+
+  // Mahnwesen. Fristen und Gebuehren gehoeren nicht in den Code: eine
+  // geaenderte Zahlungsfrist darf kein Deploy sein.
+  mahn_karenz_tage: { gruppe: "mahnung", label: "Karenz nach Faelligkeit (Tage)",
+                      zahl: true, vorgabe: 14, min: 0, max_wert: 180 },
+  mahn_frist_tage:  { gruppe: "mahnung", label: "Zahlungsfrist je Mahnung (Tage)",
+                      zahl: true, vorgabe: 14, min: 7, max_wert: 90 },
+  mahn_mindest_cent: { gruppe: "mahnung", label: "Erst ab diesem Betrag mahnen (Cent)",
+                      zahl: true, vorgabe: 500, min: 0, max_wert: 100000 },
+  mahn_gebuehr1_cent: { gruppe: "mahnung", label: "Gebuehr 1. Mahnung (Cent)",
+                      zahl: true, vorgabe: 0, min: 0, max_wert: 10000 },
+  mahn_gebuehr2_cent: { gruppe: "mahnung", label: "Gebuehr 2. Mahnung (Cent)",
+                      zahl: true, vorgabe: 0, min: 0, max_wert: 10000 },
+  // Satzung § 5 Abs. 3: Anhoerung mit einer Frist von 10 Tagen. Weniger
+  // ist deshalb nicht einstellbar -- eine Satzung ist keine Vorgabe, die
+  // man in einem Formular unterbieten darf.
+  anhoerung_tage:   { gruppe: "mahnung", label: "Frist der Anhoerung vor Ausschluss (Tage, § 5 Abs. 3)",
+                      zahl: true, vorgabe: 10, min: 10, max_wert: 90 }
 };
+
+// Wert einer Einstellung als Zahl, mit der hinterlegten Vorgabe.
+function einstellungZahl(cfg, schluessel) {
+  const regel = EINSTELLUNGEN[schluessel];
+  const roh = cfg ? cfg[schluessel] : null;
+  const n = parseInt(roh, 10);
+  return Number.isFinite(n) ? n : regel.vorgabe;
+}
+
+// Tage auf ein ISO-Datum rechnen. Ueber Date.UTC, damit die Sommerzeit
+// eine Frist nicht um einen Tag verschiebt -- bei einer Mahnfrist ist
+// das kein Schoenheitsfehler.
+function tageAddieren(iso, tage) {
+  const t = String(iso).slice(0, 10).split("-").map(Number);
+  const d = new Date(Date.UTC(t[0], t[1] - 1, t[2] + tage));
+  return d.getUTCFullYear() + "-" +
+    String(d.getUTCMonth() + 1).padStart(2, "0") + "-" +
+    String(d.getUTCDate()).padStart(2, "0");
+}
 
 // IBAN-Pruefziffer nach ISO 13616 (Modulo 97). Ohne diese Pruefung faellt
 // ein Zahlendreher erst der Bank auf -- und weist dann die komplette
@@ -1422,12 +1459,20 @@ async function handleEinstellungen(env, me, corsHeaders) {
   }
   const werte = await ladeEinstellungen(env);
   if (!werte) return json({ error: EINRICHTUNG_FEHLT, code: "einrichtung" }, 409, corsHeaders);
-  const felder = Object.keys(EINSTELLUNGEN).map((s) => ({
-    schluessel: s,
-    label: EINSTELLUNGEN[s].label,
-    pflicht: !!EINSTELLUNGEN[s].pflicht,
-    wert: werte[s] || ""
-  }));
+  const felder = Object.keys(EINSTELLUNGEN).map((s) => {
+    const r = EINSTELLUNGEN[s];
+    return {
+      schluessel: s,
+      gruppe: r.gruppe || "sepa",
+      label: r.label,
+      pflicht: !!r.pflicht,
+      zahl: !!r.zahl,
+      // Bei Zahlen immer einen Wert liefern: ein leeres Feld waere die
+      // Behauptung, es gaebe keine Frist -- es gibt aber eine, nur eben
+      // die Vorgabe.
+      wert: r.zahl ? String(einstellungZahl(werte, s)) : (werte[s] || "")
+    };
+  });
   const fehlend = felder.filter((f) => f.pflicht && !f.wert).map((f) => f.label);
   return json({ ok: true, felder, vollstaendig: !fehlend.length, fehlend }, 200, corsHeaders);
 }
@@ -1441,10 +1486,23 @@ async function handleEinstellungSetzen(body, env, me, corsHeaders) {
   const regel = EINSTELLUNGEN[schluessel];
   if (!regel) return json({ error: "Unbekannte Einstellung" }, 400, corsHeaders);
 
-  const wert = String(body.wert === null || body.wert === undefined ? "" : body.wert)
-    .trim().slice(0, regel.max);
+  let wert = String(body.wert === null || body.wert === undefined ? "" : body.wert)
+    .trim().slice(0, regel.max || 40);
+
   if (regel.iban && wert && !ibanGueltig(wert)) {
     return json({ error: "Die IBAN ist nicht gueltig (Pruefziffer stimmt nicht)" }, 400, corsHeaders);
+  }
+  if (regel.zahl) {
+    const n = parseInt(wert, 10);
+    if (!Number.isFinite(n)) {
+      return json({ error: regel.label + ": bitte eine Zahl eintragen" }, 400, corsHeaders);
+    }
+    if (n < regel.min || n > regel.max_wert) {
+      return json({ error: regel.label + ": zulaessig sind " + regel.min + " bis " + regel.max_wert +
+                    (regel.min === 10 && schluessel === "anhoerung_tage"
+                      ? ". Die Satzung verlangt mindestens 10 Tage." : "") }, 400, corsHeaders);
+    }
+    wert = String(n);
   }
 
   const jetzt = new Date().toISOString();
@@ -2565,6 +2623,12 @@ async function handleZahlungSammel(body, env, me, corsHeaders) {
   for (let i = 0; i < alleIds.length; i += 50) {
     anweisungen.push(statusNeuBerechnen(env, alleIds.slice(i, i + 50)));
   }
+  // Offene Mahnungen der bezahlten Haushalte schliessen -- sonst mahnt
+  // der naechste Lauf jemanden, der laengst gezahlt hat.
+  const haushalte = Array.from(new Set(offen.map((z) => z.haushalt_id)));
+  for (let i = 0; i < haushalte.length; i += 50) {
+    anweisungen.push(mahnungenErledigen(env, haushalte.slice(i, i + 50), jetzt));
+  }
   anweisungen.push(env.VV_DB.prepare("UPDATE sepa_datei SET gebucht_am = ? WHERE id = ?")
     .bind(jetzt, datei.id));
 
@@ -2637,6 +2701,7 @@ async function handleZahlungErfassen(body, env, me, corsHeaders) {
   }
 
   anweisungen.push(statusNeuBerechnen(env, verteilt.map((v) => v.forderung_id)));
+  anweisungen.push(mahnungenErledigen(env, [zeilen[0].haushalt_id], jetzt));
   await env.VV_DB.batch(anweisungen);
   await protokolliere(env, me.username, "zahlung-erfasst", "haushalt",
                       zeilen[0].haushalt_id, { betrag, art, verteilt: verteilt.length });
@@ -2817,6 +2882,517 @@ async function handleZahlungenListe(body, env, me, corsHeaders) {
                              rest_cent: f.betrag_cent - f.bezahlt_cent })),
     darfBuchen: rolle.istAdmin || rolle.darfBuchen
   }, 200, corsHeaders);
+}
+
+// ---------------------------------------------------------------------
+// Mahnwesen nach § 5 Abs. 3 der Satzung
+// ---------------------------------------------------------------------
+//
+// "Ein Mitglied kann ausgeschlossen werden, wenn es trotz zweier
+//  schriftlicher Mahnungen mit dem Beitrag im Rueckstand ist. Vor der
+//  Entscheidung ist ihm Gelegenheit zur Aeusserung zu geben, mit einer
+//  Frist von zehn Tagen."
+//
+// Daraus folgen drei Stufen, und zwar in genau dieser Reihenfolge:
+//   1  erste schriftliche Mahnung
+//   2  zweite schriftliche Mahnung
+//   3  Anhoerung vor dem Ausschluss, Frist mindestens 10 Tage
+//
+// Eine Stufe wird erst erreicht, wenn die FRIST der vorigen abgelaufen
+// ist. Zwei Mahnungen am selben Tag sind keine zwei Mahnungen -- das
+// waere der Fehler, an dem ein Ausschluss vor Gericht scheitert.
+//
+// Und: diese App schliesst NIEMANDEN aus. Sie legt dem Vorstand eine
+// Liste vor. Der Beschluss ist ein Vorstandsakt, so wie die Aufnahme
+// nach § 4 einer ist.
+
+const MAHN_STUFE_TEXT = {
+  1: "1. Mahnung",
+  2: "2. Mahnung",
+  3: "Anhoerung vor Ausschluss (§ 5 Abs. 3)"
+};
+
+// Mahnungen eines Haushalts gelten als erledigt, sobald dort nichts mehr
+// offen ist. Mengenbasiert, wird an jede Zahlungsbuchung angehaengt --
+// sonst mahnt der naechste Lauf jemanden, der laengst bezahlt hat.
+function mahnungenErledigen(env, haushaltIds, jetzt) {
+  const p = haushaltIds.map(() => "?").join(",");
+  return env.VV_DB.prepare(
+    "UPDATE mahnung SET erledigt_am = ? WHERE erledigt_am IS NULL " +
+    "AND haushalt_id IN (" + p + ") AND NOT EXISTS (" +
+    "  SELECT 1 FROM forderung f WHERE f.haushalt_id = mahnung.haushalt_id " +
+    "  AND f.storniert_am IS NULL AND f.status <> 'bezahlt')"
+  ).bind(jetzt, ...haushaltIds);
+}
+
+// Wer ist mahnfaellig, und auf welcher Stufe? Zwei Abfragen fuer den
+// gesamten Bestand, danach nur noch Rechnen.
+async function sammleMahnfaelle(env, cfg, heute) {
+  const karenz = einstellungZahl(cfg, "mahn_karenz_tage");
+  const frist = einstellungZahl(cfg, "mahn_frist_tage");
+  const mindest = einstellungZahl(cfg, "mahn_mindest_cent");
+  const anhoerung = einstellungZahl(cfg, "anhoerung_tage");
+  const stichtag = tageAddieren(heute, -karenz);
+
+  const offen = await env.VV_DB.prepare(
+    "SELECT f.haushalt_id, COUNT(*) AS anzahl, MIN(f.faellig_am) AS aeltester, " +
+    "  SUM(f.betrag_cent - (SELECT COALESCE(SUM(z.betrag_cent),0) FROM zahlung z " +
+    "      WHERE z.forderung_id = f.id AND z.storniert_am IS NULL)) AS offen_cent " +
+    "FROM forderung f " +
+    "WHERE f.storniert_am IS NULL AND f.status <> 'bezahlt' AND f.faellig_am <= ? " +
+    "GROUP BY f.haushalt_id"
+  ).bind(stichtag).all();
+
+  const bestehend = await env.VV_DB.prepare(
+    "SELECT haushalt_id, MAX(stufe) AS stufe, MAX(frist_bis) AS frist_bis " +
+    "FROM mahnung WHERE erledigt_am IS NULL GROUP BY haushalt_id"
+  ).all();
+  const stand = new Map();
+  for (const z of bestehend.results || []) stand.set(z.haushalt_id, z);
+
+  const faellig = [];
+  const wartend = [];
+  const zuKlein = [];
+  const ausschluss = [];
+
+  for (const h of offen.results || []) {
+    if (h.offen_cent <= 0) continue;
+    const vorher = stand.get(h.haushalt_id);
+    const stufeVorher = vorher ? vorher.stufe : 0;
+
+    if (stufeVorher >= 3) {
+      // Anhoerung laeuft oder ist abgelaufen. Nicht weiter mahnen --
+      // ab hier entscheidet der Vorstand.
+      ausschluss.push({ haushalt_id: h.haushalt_id, offen_cent: h.offen_cent,
+                        frist_bis: vorher.frist_bis,
+                        frist_abgelaufen: vorher.frist_bis < heute });
+      continue;
+    }
+    if (vorher && vorher.frist_bis >= heute) {
+      wartend.push({ haushalt_id: h.haushalt_id, offen_cent: h.offen_cent,
+                     stufe: stufeVorher, frist_bis: vorher.frist_bis });
+      continue;
+    }
+    if (h.offen_cent < mindest) {
+      zuKlein.push({ haushalt_id: h.haushalt_id, offen_cent: h.offen_cent });
+      continue;
+    }
+
+    const stufe = stufeVorher + 1;
+    faellig.push({
+      haushalt_id: h.haushalt_id,
+      stufe,
+      anzahl: h.anzahl,
+      offen_cent: h.offen_cent,
+      aeltester: h.aeltester,
+      frist_bis: tageAddieren(heute, stufe === 3 ? anhoerung : frist),
+      gebuehr_cent: stufe === 1 ? einstellungZahl(cfg, "mahn_gebuehr1_cent")
+                  : stufe === 2 ? einstellungZahl(cfg, "mahn_gebuehr2_cent") : 0
+    });
+  }
+
+  return { faellig, wartend, zuKlein, ausschluss, karenz, frist, mindest, anhoerung, stichtag };
+}
+
+// Namen und Anschriften zu einer Menge von Haushalten. Eine Abfrage.
+async function ladeHaushaltsInfos(env, ids) {
+  const infos = new Map();
+  for (let i = 0; i < ids.length; i += 50) {
+    const b = ids.slice(i, i + 50);
+    const r = await env.VV_DB.prepare(
+      "SELECT h.id, h.abw_empfaenger, h.abw_strasse, h.abw_plz, h.abw_ort, " +
+      "       zp.vorname AS z_vorname, zp.nachname AS z_nachname, zp.email AS z_email, " +
+      "       zp.strasse AS z_strasse, zp.plz AS z_plz, zp.ort AS z_ort " +
+      "FROM haushalt h LEFT JOIN person zp ON zp.id = h.zahler_person_id " +
+      "WHERE h.id IN (" + b.map(() => "?").join(",") + ")"
+    ).bind(...b).all();
+    for (const z of r.results || []) {
+      infos.set(z.id, {
+        empfaenger: z.abw_empfaenger || ((z.z_vorname || "") + " " + (z.z_nachname || "")).trim(),
+        email: z.z_email || "",
+        strasse: z.abw_strasse || z.z_strasse || "",
+        plz: z.abw_plz || z.z_plz || "",
+        ort: z.abw_ort || z.z_ort || ""
+      });
+    }
+  }
+  return infos;
+}
+
+// Mitglieder eines Haushalts mit offener Forderung -- fuer den Brieftext
+// und, bei Stufe 3, fuer die einzelnen Anhoerungen.
+async function ladeBetroffene(env, ids) {
+  const nach = new Map();
+  for (let i = 0; i < ids.length; i += 50) {
+    const b = ids.slice(i, i + 50);
+    const r = await env.VV_DB.prepare(
+      "SELECT f.id AS forderung_id, f.haushalt_id, f.mitgliedschaft_id, f.bezeichnung, " +
+      "       f.jahr, f.faellig_am, f.betrag_cent, m.mitgliedsnummer, p.vorname, p.nachname, " +
+      "       (SELECT COALESCE(SUM(z.betrag_cent),0) FROM zahlung z " +
+      "        WHERE z.forderung_id = f.id AND z.storniert_am IS NULL) AS bezahlt_cent " +
+      "FROM forderung f JOIN mitgliedschaft m ON m.id = f.mitgliedschaft_id " +
+      "JOIN person p ON p.id = m.person_id " +
+      "WHERE f.storniert_am IS NULL AND f.status <> 'bezahlt' " +
+      "  AND f.haushalt_id IN (" + b.map(() => "?").join(",") + ") " +
+      "ORDER BY f.faellig_am"
+    ).bind(...b).all();
+    for (const z of r.results || []) {
+      if (!nach.has(z.haushalt_id)) nach.set(z.haushalt_id, []);
+      nach.get(z.haushalt_id).push(z);
+    }
+  }
+  return nach;
+}
+
+async function handleMahnlauf(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  const nurPruefen = !!body.pruefen;
+  if (!rolle.istAdmin && !rolle.darfBuchen && !(nurPruefen && rolle.darfSchreiben)) {
+    return json({ error: "Nur der Schatzmeister kann mahnen" }, 403, corsHeaders);
+  }
+
+  const cfg = (await ladeEinstellungen(env)) || {};
+  const heute = istIsoDatum(body.datum) ? body.datum : new Date().toISOString().slice(0, 10);
+  const s = await sammleMahnfaelle(env, cfg, heute);
+
+  const alleIds = s.faellig.map((f) => f.haushalt_id)
+    .concat(s.ausschluss.map((a) => a.haushalt_id));
+  const infos = await ladeHaushaltsInfos(env, alleIds);
+  const betroffene = await ladeBetroffene(env, alleIds);
+
+  function anreichern(x) {
+    const i = infos.get(x.haushalt_id) || {};
+    const p = betroffene.get(x.haushalt_id) || [];
+    return Object.assign({}, x, {
+      empfaenger: i.empfaenger || "(kein Zahler hinterlegt)",
+      email: i.email || "",
+      hatAnschrift: !!(i.strasse && i.ort),
+      mitglieder: p.map((f) => ({ nr: f.mitgliedsnummer,
+                                  name: (f.vorname + " " + f.nachname).trim() }))
+        .filter((m, k, a) => a.findIndex((y) => y.nr === m.nr) === k)
+    });
+  }
+
+  const vorschau = {
+    ok: true, heute, pruefung: nurPruefen,
+    regeln: { karenz: s.karenz, frist: s.frist, mindest_cent: s.mindest,
+              anhoerung: s.anhoerung, stichtag: s.stichtag },
+    faellig: s.faellig.map(anreichern),
+    nachStufe: [1, 2, 3].map((st) => ({
+      stufe: st, text: MAHN_STUFE_TEXT[st],
+      anzahl: s.faellig.filter((f) => f.stufe === st).length,
+      summe_cent: s.faellig.filter((f) => f.stufe === st).reduce((a, f) => a + f.offen_cent, 0)
+    })).filter((x) => x.anzahl),
+    wartend: s.wartend.length,
+    zuKlein: s.zuKlein.length,
+    zuKleinSumme: s.zuKlein.reduce((a, x) => a + x.offen_cent, 0),
+    ausschluss: s.ausschluss.map(anreichern),
+    summeCent: s.faellig.reduce((a, f) => a + f.offen_cent, 0)
+  };
+
+  if (nurPruefen) return json(vorschau, 200, corsHeaders);
+  if (!s.faellig.length) {
+    return json({ error: "Es ist derzeit niemand mahnfaellig" }, 409, corsHeaders);
+  }
+
+  const jetzt = new Date().toISOString();
+  const anweisungen = [];
+  let gebuehren = 0;
+
+  for (const f of s.faellig) {
+    const posten = (betroffene.get(f.haushalt_id) || []);
+    const forderungsIds = posten.map((x) => x.forderung_id);
+
+    if (f.stufe === 3) {
+      // Die Anhoerung geht an das MITGLIED, nicht an den Haushalt: der
+      // Ausschluss trifft eine Person. Bei einer Familie bekommt deshalb
+      // jedes betroffene Mitglied eine eigene -- adressiert wird
+      // trotzdem der Zahler.
+      const mitgliedschaften = Array.from(new Set(posten.map((x) => x.mitgliedschaft_id)));
+      for (const mid of mitgliedschaften) {
+        anweisungen.push(env.VV_DB.prepare(
+          "INSERT INTO mahnung (id, haushalt_id, mitgliedschaft_id, stufe, erstellt_datum, " +
+          "frist_bis, summe_cent, forderungen_json, versand_art, erstellt_am, erstellt_von) " +
+          "VALUES (?,?,?,3,?,?,?,?,'brief',?,?)"
+        ).bind(uuid(), f.haushalt_id, mid, heute, f.frist_bis, f.offen_cent,
+               JSON.stringify(posten.filter((x) => x.mitgliedschaft_id === mid)
+                                    .map((x) => x.forderung_id)),
+               jetzt, me.username));
+      }
+      continue;
+    }
+
+    anweisungen.push(env.VV_DB.prepare(
+      "INSERT INTO mahnung (id, haushalt_id, stufe, erstellt_datum, frist_bis, summe_cent, " +
+      "forderungen_json, versand_art, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?,?,?,?,?)"
+    ).bind(uuid(), f.haushalt_id, f.stufe, heute, f.frist_bis, f.offen_cent,
+           JSON.stringify(forderungsIds), infos.get(f.haushalt_id) &&
+           infos.get(f.haushalt_id).email ? "mail" : "brief", jetzt, me.username));
+
+    // Mahngebuehr als eigene Forderung, nie auf den Beitrag geschlagen.
+    // Sie haengt an der aeltesten offenen Forderung des Haushalts, damit
+    // sie einer Mitgliedschaft zugeordnet ist.
+    if (f.gebuehr_cent > 0 && posten.length) {
+      gebuehren++;
+      anweisungen.push(env.VV_DB.prepare(
+        "INSERT INTO forderung (id, mitgliedschaft_id, haushalt_id, art, bezeichnung, jahr, " +
+        "betrag_cent, faellig_am, status, erstellt_am, erstellt_von) " +
+        "VALUES (?,?,?,'mahngebuehr',?,?,?,?,'offen',?,?)"
+      ).bind(uuid(), posten[0].mitgliedschaft_id, f.haushalt_id,
+             "Mahngebuehr " + f.stufe + ". Mahnung", posten[0].jahr,
+             f.gebuehr_cent, f.frist_bis, jetzt, me.username));
+    }
+  }
+
+  await env.VV_DB.batch(anweisungen);
+  await protokolliere(env, me.username, "mahnlauf", "mahnung", null,
+                      { anzahl: s.faellig.length, summeCent: vorschau.summeCent, heute });
+
+  return json(Object.assign({}, vorschau, {
+    pruefung: false, erzeugt: s.faellig.length, gebuehren
+  }), 200, corsHeaders);
+}
+
+// Alle Mahnungen, jüngste zuerst. Mit dem aktuellen Rueckstand des
+// Haushalts, nicht nur dem Betrag zum Zeitpunkt der Mahnung -- sonst
+// steht in der Liste eine Summe, die laengst bezahlt ist.
+async function handleMahnungenListe(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin && !rolle.darfBuchen && !rolle.darfSchreiben) {
+    return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+  }
+  const heute = new Date().toISOString().slice(0, 10);
+  const bedingungen = [];
+  if (!body.auch_erledigte) bedingungen.push("mh.erledigt_am IS NULL");
+
+  const r = await env.VV_DB.prepare(
+    "SELECT mh.id, mh.haushalt_id, mh.mitgliedschaft_id, mh.stufe, mh.erstellt_datum, " +
+    "       mh.frist_bis, mh.summe_cent, mh.versand_art, mh.versendet_am, mh.erledigt_am, " +
+    "       zp.vorname AS z_vorname, zp.nachname AS z_nachname, zp.email AS z_email, " +
+    "       h.abw_empfaenger, " +
+    "       (SELECT COALESCE(SUM(f.betrag_cent - (SELECT COALESCE(SUM(z.betrag_cent),0) " +
+    "          FROM zahlung z WHERE z.forderung_id = f.id AND z.storniert_am IS NULL)),0) " +
+    "        FROM forderung f WHERE f.haushalt_id = mh.haushalt_id " +
+    "        AND f.storniert_am IS NULL AND f.status <> 'bezahlt') AS aktuell_offen " +
+    "FROM mahnung mh JOIN haushalt h ON h.id = mh.haushalt_id " +
+    "LEFT JOIN person zp ON zp.id = h.zahler_person_id " +
+    (bedingungen.length ? "WHERE " + bedingungen.join(" AND ") + " " : "") +
+    "ORDER BY mh.erstellt_datum DESC, mh.stufe DESC LIMIT 500"
+  ).all();
+
+  return json({
+    ok: true, heute,
+    mahnungen: (r.results || []).map((m) => ({
+      id: m.id, haushalt_id: m.haushalt_id, stufe: m.stufe,
+      stufe_text: MAHN_STUFE_TEXT[m.stufe] || String(m.stufe),
+      empfaenger: m.abw_empfaenger || ((m.z_vorname || "") + " " + (m.z_nachname || "")).trim(),
+      email: m.z_email || "",
+      erstellt_datum: m.erstellt_datum, frist_bis: m.frist_bis,
+      summe_cent: m.summe_cent, aktuell_offen: m.aktuell_offen,
+      versand_art: m.versand_art, versendet_am: m.versendet_am, erledigt_am: m.erledigt_am,
+      frist_abgelaufen: !m.erledigt_am && m.frist_bis < heute
+    })),
+    darfBuchen: rolle.istAdmin || rolle.darfBuchen
+  }, 200, corsHeaders);
+}
+
+// Serienbriefdaten. Wie bei der Vorabankuendigung: die App erzeugt die
+// Liste, nicht den Versand. Eine Mahnung, die im Spam landet, ist keine
+// schriftliche Mahnung im Sinne des § 5 Abs. 3 -- und genau daran haengt
+// spaeter die Wirksamkeit des Ausschlusses.
+async function handleMahnungBrief(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin && !rolle.darfBuchen && !rolle.darfSchreiben) {
+    return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+  }
+
+  const stufe = parseInt(body.stufe, 10);
+  const datum = istIsoDatum(body.erstellt_datum) ? body.erstellt_datum : null;
+  const bedingungen = ["mh.erledigt_am IS NULL", "mh.versendet_am IS NULL"];
+  const werte = [];
+  if (stufe >= 1 && stufe <= 3) { bedingungen.push("mh.stufe = ?"); werte.push(stufe); }
+  if (datum) { bedingungen.push("mh.erstellt_datum = ?"); werte.push(datum); }
+
+  const r = await env.VV_DB.prepare(
+    "SELECT mh.id, mh.haushalt_id, mh.stufe, mh.erstellt_datum, mh.frist_bis, " +
+    "       mh.summe_cent, mh.forderungen_json, " +
+    "       h.abw_empfaenger, h.abw_strasse, h.abw_plz, h.abw_ort, " +
+    "       zp.vorname AS z_vorname, zp.nachname AS z_nachname, zp.email AS z_email, " +
+    "       zp.strasse AS z_strasse, zp.plz AS z_plz, zp.ort AS z_ort " +
+    "FROM mahnung mh JOIN haushalt h ON h.id = mh.haushalt_id " +
+    "LEFT JOIN person zp ON zp.id = h.zahler_person_id " +
+    "WHERE " + bedingungen.join(" AND ") + " ORDER BY mh.stufe, zp.nachname LIMIT 500"
+  ).bind(...werte).all();
+
+  const zeilen = r.results || [];
+  const alleForderungen = [];
+  for (const m of zeilen) {
+    try { alleForderungen.push(...JSON.parse(m.forderungen_json || "[]")); } catch { /* leer */ }
+  }
+
+  // Die Einzelposten dazu -- eine Mahnung ohne Aufstellung, wofuer
+  // gemahnt wird, kann niemand pruefen.
+  const posten = new Map();
+  for (let i = 0; i < alleForderungen.length; i += 50) {
+    const b = alleForderungen.slice(i, i + 50);
+    const p = await env.VV_DB.prepare(
+      "SELECT f.id, f.haushalt_id, f.bezeichnung, f.faellig_am, f.betrag_cent, " +
+      "       m.mitgliedsnummer, pe.vorname, pe.nachname, " +
+      "       (SELECT COALESCE(SUM(z.betrag_cent),0) FROM zahlung z " +
+      "        WHERE z.forderung_id = f.id AND z.storniert_am IS NULL) AS bezahlt_cent " +
+      "FROM forderung f JOIN mitgliedschaft m ON m.id = f.mitgliedschaft_id " +
+      "JOIN person pe ON pe.id = m.person_id " +
+      "WHERE f.id IN (" + b.map(() => "?").join(",") + ")"
+    ).bind(...b).all();
+    for (const z of p.results || []) {
+      if (!posten.has(z.haushalt_id)) posten.set(z.haushalt_id, []);
+      posten.get(z.haushalt_id).push(z);
+    }
+  }
+
+  const cfg = (await ladeEinstellungen(env)) || {};
+  return json({
+    ok: true,
+    verein: cfg.verein_name || "",
+    anzahl: zeilen.length,
+    briefe: zeilen.map((m) => {
+      const p = (posten.get(m.haushalt_id) || []).filter((x) => x.betrag_cent > x.bezahlt_cent);
+      return {
+        id: m.id, stufe: m.stufe, stufe_text: MAHN_STUFE_TEXT[m.stufe],
+        empfaenger: m.abw_empfaenger || ((m.z_vorname || "") + " " + (m.z_nachname || "")).trim(),
+        strasse: m.abw_strasse || m.z_strasse || "",
+        plz: m.abw_plz || m.z_plz || "",
+        ort: m.abw_ort || m.z_ort || "",
+        email: m.z_email || "",
+        erstellt_datum: m.erstellt_datum,
+        frist_bis: m.frist_bis,
+        summe_cent: p.reduce((a, x) => a + (x.betrag_cent - x.bezahlt_cent), 0),
+        posten: p.map((x) => ({
+          nr: x.mitgliedsnummer, name: (x.vorname + " " + x.nachname).trim(),
+          bezeichnung: x.bezeichnung, faellig_am: x.faellig_am,
+          rest_cent: x.betrag_cent - x.bezahlt_cent
+        }))
+      };
+    }).filter((b) => b.summe_cent > 0)
+  }, 200, corsHeaders);
+}
+
+// Als versendet kennzeichnen. Erst DAS macht aus einer erzeugten Mahnung
+// eine schriftliche Mahnung -- die Stufenzaehlung des § 5 Abs. 3 haengt
+// daran, nicht am Erzeugen.
+async function handleMahnungVersendet(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin && !rolle.darfBuchen) {
+    return json({ error: "Nur der Schatzmeister kann den Versand bestaetigen" }, 403, corsHeaders);
+  }
+  const ids = Array.isArray(body.ids) ? body.ids.map(String).slice(0, 500) : [];
+  const stufe = parseInt(body.stufe, 10);
+  const datum = istIsoDatum(body.versendet_am) ? body.versendet_am
+                                               : new Date().toISOString().slice(0, 10);
+  const jetzt = new Date().toISOString();
+
+  if (ids.length) {
+    const anweisungen = [];
+    for (let i = 0; i < ids.length; i += 50) {
+      const b = ids.slice(i, i + 50);
+      anweisungen.push(env.VV_DB.prepare(
+        "UPDATE mahnung SET versendet_am = ?, versendet_von = ? WHERE versendet_am IS NULL " +
+        "AND id IN (" + b.map(() => "?").join(",") + ")"
+      ).bind(datum, me.username, ...b));
+    }
+    await env.VV_DB.batch(anweisungen);
+    await protokolliere(env, me.username, "mahnungen-versendet", "mahnung", null,
+                        { anzahl: ids.length, datum });
+    return json({ ok: true, anzahl: ids.length }, 200, corsHeaders);
+  }
+
+  // Ohne Liste: alle noch nicht versendeten einer Stufe.
+  if (!(stufe >= 1 && stufe <= 3)) {
+    return json({ error: "Weder Mahnungen noch eine Stufe angegeben" }, 400, corsHeaders);
+  }
+  const zahl = await env.VV_DB.prepare(
+    "SELECT COUNT(*) AS n FROM mahnung WHERE versendet_am IS NULL AND erledigt_am IS NULL AND stufe = ?"
+  ).bind(stufe).first();
+  await env.VV_DB.prepare(
+    "UPDATE mahnung SET versendet_am = ?, versendet_von = ? " +
+    "WHERE versendet_am IS NULL AND erledigt_am IS NULL AND stufe = ?"
+  ).bind(datum, me.username, stufe).run();
+  await protokolliere(env, me.username, "mahnungen-versendet", "mahnung", null,
+                      { stufe, anzahl: zahl ? zahl.n : 0, datum });
+  return json({ ok: true, anzahl: zahl ? zahl.n : 0 }, 200, corsHeaders);
+}
+
+async function handleMahnungErledigt(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin && !rolle.darfBuchen) {
+    return json({ error: "Nur der Schatzmeister kann eine Mahnung abschliessen" }, 403, corsHeaders);
+  }
+  const id = String(body.id || "");
+  if (!id) return json({ error: "Keine Mahnung angegeben" }, 400, corsHeaders);
+  await env.VV_DB.prepare(
+    "UPDATE mahnung SET erledigt_am = ? WHERE id = ? AND erledigt_am IS NULL"
+  ).bind(new Date().toISOString(), id).run();
+  await protokolliere(env, me.username, "mahnung-erledigt", "mahnung", id,
+                      { grund: sauber(body.grund, 200) });
+  return json({ ok: true }, 200, corsHeaders);
+}
+
+// Wer erfuellt die Voraussetzungen des § 5 Abs. 3? Ausdruecklich eine
+// VORLAGE fuer den Vorstand: zwei versendete Mahnungen, abgelaufene
+// Anhoerungsfrist, immer noch offen. Diese App schliesst niemanden aus.
+async function handleAusschlussKandidaten(env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin && !rolle.darfBuchen && !rolle.darfSchreiben) {
+    return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+  }
+  const heute = new Date().toISOString().slice(0, 10);
+
+  const r = await env.VV_DB.prepare(
+    "SELECT mh.id, mh.haushalt_id, mh.mitgliedschaft_id, mh.frist_bis, mh.versendet_am, " +
+    "       m.mitgliedsnummer, m.status, p.vorname, p.nachname, " +
+    "       (SELECT COUNT(*) FROM mahnung m2 WHERE m2.haushalt_id = mh.haushalt_id " +
+    "        AND m2.stufe IN (1,2) AND m2.versendet_am IS NOT NULL) AS mahnungen_versendet, " +
+    "       (SELECT COALESCE(SUM(f.betrag_cent - (SELECT COALESCE(SUM(z.betrag_cent),0) " +
+    "          FROM zahlung z WHERE z.forderung_id = f.id AND z.storniert_am IS NULL)),0) " +
+    "        FROM forderung f WHERE f.haushalt_id = mh.haushalt_id " +
+    "        AND f.storniert_am IS NULL AND f.status <> 'bezahlt') AS offen_cent " +
+    "FROM mahnung mh " +
+    "LEFT JOIN mitgliedschaft m ON m.id = mh.mitgliedschaft_id " +
+    "LEFT JOIN person p ON p.id = m.person_id " +
+    "WHERE mh.stufe = 3 AND mh.erledigt_am IS NULL " +
+    "ORDER BY mh.frist_bis"
+  ).all();
+
+  const kandidaten = [];
+  const nochNicht = [];
+  for (const z of r.results || []) {
+    const eintrag = {
+      mahnung_id: z.id, mitgliedschaft_id: z.mitgliedschaft_id,
+      mitgliedsnummer: z.mitgliedsnummer,
+      name: ((z.vorname || "") + " " + (z.nachname || "")).trim(),
+      status: z.status, frist_bis: z.frist_bis, offen_cent: z.offen_cent,
+      mahnungen_versendet: z.mahnungen_versendet,
+      anhoerung_versendet: !!z.versendet_am
+    };
+    // Alle drei Bedingungen der Satzung muessen erfuellt sein.
+    const bereit = z.mahnungen_versendet >= 2 && !!z.versendet_am &&
+                   z.frist_bis < heute && z.offen_cent > 0 && z.status !== "beendet";
+    if (bereit) kandidaten.push(eintrag);
+    else {
+      // Als Code, nicht als Satz: der Text gehoert in die Oberflaeche,
+      // wo er mit Umlauten und deutschem Datum geschrieben werden kann.
+      eintrag.grund =
+        z.offen_cent <= 0 ? "bezahlt"
+        : z.status === "beendet" ? "beendet"
+        : z.mahnungen_versendet < 2 ? "mahnungen_fehlen"
+        : !z.versendet_am ? "anhoerung_nicht_versendet"
+        : "frist_laeuft";
+      nochNicht.push(eintrag);
+    }
+  }
+
+  return json({ ok: true, heute, kandidaten, nochNicht,
+                darfBuchen: rolle.istAdmin || rolle.darfBuchen }, 200, corsHeaders);
 }
 
 // Die uebernommenen Mandate wurden vom Vereinsmeister bereits genutzt --
@@ -3287,6 +3863,12 @@ export default {
         case "vv-forderung-stornieren": return handleForderungStornieren(body, env, me, corsHeaders);
         case "vv-offene-posten":   return handleOffenePosten(body, env, me, corsHeaders);
         case "vv-zahlungen":       return handleZahlungenListe(body, env, me, corsHeaders);
+        case "vv-mahnlauf":        return handleMahnlauf(body, env, me, corsHeaders);
+        case "vv-mahnungen":       return handleMahnungenListe(body, env, me, corsHeaders);
+        case "vv-mahnung-brief":   return handleMahnungBrief(body, env, me, corsHeaders);
+        case "vv-mahnung-versendet": return handleMahnungVersendet(body, env, me, corsHeaders);
+        case "vv-mahnung-erledigt": return handleMahnungErledigt(body, env, me, corsHeaders);
+        case "vv-ausschluss-kandidaten": return handleAusschlussKandidaten(env, me, corsHeaders);
         case "vv-sparten-init":    return handleSpartenInit(env, me, corsHeaders);
         case "vv-seed":            return handleSeed(body, env, me, corsHeaders);
         case "vv-messlauf":        return handleMesslauf(body, env, me, corsHeaders);
