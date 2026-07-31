@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Aufnahmeantrag &mdash; 1. SC 1911 Heiligenstadt</title>
 <meta name="robots" content="noindex">
-<link rel="stylesheet" href="style.css?v=2.3">
+<link rel="stylesheet" href="style.css?v=2.4">
 </head>
 <body class="antragseite">
 
@@ -218,6 +218,71 @@
 
     <div class="karte">
       <div class="schritt-nummer" id="nr-einwilligung">6 — Erklärungen</div>
+
+      <!-- Information nach Art. 13 DSGVO. Steht bewusst VOR den Häkchen: wer
+           einwilligen soll, muss vorher wissen, worin. Bewusst KEINE eigene
+           nummerierte Karte — die Schrittnummern werden in antrag.js je nach
+           Minderjährigkeit umgerechnet, eine zusätzliche Karte würde die
+           Zählung verschieben. -->
+      <details class="ds-block">
+        <summary>Was mit Ihren Daten geschieht (Information nach Art. 13 DSGVO)</summary>
+        <div class="ds-inhalt">
+          <p><strong>Verantwortlich</strong> ist der 1. SC 1911 Heiligenstadt,
+          Leineberg 2, 37308 Heilbad Heiligenstadt, Telefon 03606 612206,
+          <a href="mailto:info@sc1911-heiligenstadt.de">info@sc1911-heiligenstadt.de</a>.
+          Fragen zum Datenschutz beantwortet der Datenschutzbeauftragte des
+          Vereins, erreichbar über dieselbe Anschrift.</p>
+
+          <p><strong>Wozu wir die Angaben verarbeiten und auf welcher Grundlage:</strong></p>
+          <ul>
+            <li>Name, Geburtsdatum, Anschrift und Kontaktdaten, um über die
+            Aufnahme zu entscheiden und die Mitgliedschaft zu führen
+            (Art. 6 Abs. 1 lit. b DSGVO).</li>
+            <li>Bankverbindung und SEPA-Mandat, um die Beiträge einzuziehen
+            (Art. 6 Abs. 1 lit. b DSGVO). Bei Überweisung entfällt das.</li>
+            <li>Die Meldung an den Landessportbund und die Fachverbände erfolgt
+            auf Ihre Einwilligung hin (Art. 6 Abs. 1 lit. a DSGVO) — das ist
+            das zweite Häkchen unten.</li>
+            <li>Die Foto-Einwilligung ist freiwillig, für die Aufnahme ohne
+            Bedeutung und jederzeit widerrufbar (Art. 6 Abs. 1 lit. a DSGVO).</li>
+            <li>Zeitpunkt, Internetadresse und Gerätekennung speichern wir als
+            Nachweis, dass die Unterschrift von Ihnen stammt
+            (Art. 6 Abs. 1 lit. f DSGVO).</li>
+          </ul>
+
+          <p><strong>Wer die Daten erhält:</strong> Der Antrag wird auf Servern
+          in Deutschland gespeichert, die ein Auftragsverarbeiter für uns
+          betreibt. Die Bankverbindung geht an unsere Bank, soweit für den
+          Einzug erforderlich. An den Landessportbund und die Fachverbände nur
+          mit Ihrer Einwilligung. Darüber hinaus geben wir nichts weiter.</p>
+
+          <p><strong>Wie lange wir speichern:</strong> Für die Dauer der
+          Mitgliedschaft. Danach löschen wir, soweit keine gesetzlichen
+          Aufbewahrungspflichten entgegenstehen — Buchungsbelege etwa
+          unterliegen steuer- und handelsrechtlichen Fristen. Wird der Antrag
+          abgelehnt oder zurückgezogen, löschen wir ihn, sobald darüber
+          entschieden ist und keine Ansprüche mehr offenstehen.</p>
+
+          <p><strong>Ihre Rechte:</strong> Sie können Auskunft über Ihre Daten
+          verlangen sowie deren Berichtigung, Löschung oder Einschränkung der
+          Verarbeitung; Sie können der Verarbeitung widersprechen und Ihre
+          Daten in einem übertragbaren Format erhalten. Erteilte
+          Einwilligungen können Sie jederzeit mit Wirkung für die Zukunft
+          widerrufen — die bis dahin erfolgte Verarbeitung bleibt rechtmäßig.
+          Beschweren können Sie sich beim Thüringer Landesbeauftragten für den
+          Datenschutz und die Informationsfreiheit.</p>
+
+          <p><strong>Pflichtangaben:</strong> Die mit * gekennzeichneten Felder
+          brauchen wir, um die Mitgliedschaft begründen und abrechnen zu
+          können. Ohne sie können wir den Antrag nicht bearbeiten. Alle
+          übrigen Angaben sind freiwillig.</p>
+
+          <p>Ausführlich steht das in der
+          <a href="https://www.sc1911-heiligenstadt.de/datenschutz/" target="_blank" rel="noopener">Datenschutzerklärung
+          des Vereins</a>.</p>
+        </div>
+      </details>
+
       <label class="ankreuz">
         <input type="checkbox" id="a-ew-satzung">
         <span>Ich erkenne die <a href="https://www.sc1911-heiligenstadt.de/satzung/" target="_blank" rel="noopener">Satzung</a>
