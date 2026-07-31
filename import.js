@@ -59,6 +59,9 @@ const ZIELFELDER = [
 // Drucken gesetzte Liste, die in eine Tabelle gekippt wurde. Ein Mitglied
 // steht nicht in Spalten, sondern in vier Zellen mit Zeilenumbruechen:
 //
+// (Beispiel erfunden -- dieses Repo ist oeffentlich, echte Mitgliedsdaten
+// gehoeren nicht in den Quelltext.)
+//
 //   Anschrift:  "Herr \n Erika Mustermann \n Musterweg 1 \n
 //                12345 Musterstadt \n \n 1"
 //   Etiketten:  "Festnetz privat \n Mobil privat \n EMail \n ..."
