@@ -39,6 +39,17 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Abteilungen löschen",
+    datum: "2026-07-31",
+    punkte: [
+      "Im Reiter Anträge lässt sich eine Abteilung jetzt ganz löschen und nicht nur aus dem Antragsformular nehmen. Gedacht für die Abteilungen, die einmal angelegt wurden und nie ein Mitglied hatten.",
+      "Gelöscht wird nur, was wirklich leer ist. Steht noch jemand darin, nennt die Rückfrage Namen und Mitgliedsnummer, und erst eine zweite Bestätigung nimmt die Zuordnungen mit. Die Personen bleiben Mitglied, ihr Beitrag ändert sich dadurch nicht.",
+      "Ganz gesperrt bleibt das Löschen, solange eine Abteilungsleitung auf der Abteilung eingetragen ist, eine Buchung auf sie verweist oder ein offener Aufnahmeantrag sie nennt.",
+      "Die Zahl in Klammern zählt nur laufende Zuordnungen. Ob wirklich nichts mehr an einer Abteilung hängt, prüft deshalb der Server und nicht die Anzeige.",
+      "Stilllegen bleibt der schonende Weg: die Abteilung verschwindet aus dem Antragsformular, behält aber ihre Mitglieder und ihre Geschichte."
+    ]
+  },
+  {
     version: "Nächtliche Sicherung",
     datum: "2026-07-30",
     punkte: [

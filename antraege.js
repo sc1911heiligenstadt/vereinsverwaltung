@@ -87,17 +87,107 @@ async function ladeAntragSparten() {
     '<p class="fussnote">Angehakt heißt: steht im Aufnahmeantrag zur Auswahl. Zurzeit ' +
       "sind es <strong>" + aktive + " von " + sparten.length + "</strong>. Eine stillgelegte " +
       "Abteilung behält ihre Mitglieder und ihre Geschichte — sie wird nur nicht mehr " +
-      "angeboten.</p>" +
+      "angeboten. Das × daneben löscht die Abteilung ganz; das geht nur, solange ihr " +
+      "niemand mehr zugeordnet ist.</p>" +
     '<div class="ankreuz-raster">' + sparten.map((s) =>
+      '<div class="sparte-zeile">' +
       '<label class="ankreuz"><input type="checkbox" class="an-sp-aktiv" data-id="' + esc(s.id) +
       '" data-name="' + esc(s.name) + '" data-anzahl="' + (s.mitglieder || 0) + '"' +
       (s.aktiv ? " checked" : "") + "><span>" + esc(s.name) +
-      ' <span class="fussnote">(' + (s.mitglieder || 0) + ")</span></span></label>").join("") +
+      ' <span class="fussnote">(' + (s.mitglieder || 0) + ")</span></span></label>" +
+      '<button type="button" class="sparte-weg an-sp-weg" data-id="' + esc(s.id) +
+      '" data-name="' + esc(s.name) + '" title="Abteilung löschen">×</button>' +
+      "</div>").join("") +
     "</div>";
 
   ziel.querySelectorAll(".an-sp-aktiv").forEach((h) => {
     h.addEventListener("change", () => schalteSparte(h));
   });
+  ziel.querySelectorAll(".an-sp-weg").forEach((b) => {
+    b.addEventListener("click", () => loescheSparte(b));
+  });
+}
+
+// Der Server liefert Codes, die Saetze entstehen hier -- wie beim
+// Mahnwesen. "rolle" und "buchung" sind Sperren, an denen kein Knopf
+// vorbeifuehrt.
+function sperrText(sp) {
+  if (sp.was === "rolle") {
+    return sp.anzahl === 1
+      ? "eine Abteilungsleitung ist auf sie eingetragen"
+      : sp.anzahl + " Abteilungsleitungen sind auf sie eingetragen";
+  }
+  if (sp.was === "buchung") {
+    return sp.anzahl === 1
+      ? "eine Buchungszeile verweist auf sie"
+      : sp.anzahl + " Buchungszeilen verweisen auf sie";
+  }
+  return sp.anzahl === 1
+    ? "ein offener Aufnahmeantrag nennt sie"
+    : sp.anzahl + " offene Aufnahmeanträge nennen sie";
+}
+
+// Loeschen statt stilllegen: die Zeile verschwindet aus der Datenbank.
+//
+// Der Client zaehlt bewusst NICHT selbst nach, ob die Abteilung leer ist.
+// Die angezeigte Mitgliederzahl kennt nur laufende Zuordnungen (kein
+// Austritt, Status aktiv oder ruhend) -- eine "(0)" waere also eine
+// truegerische Grundlage fuer ein DELETE. Der Server zaehlt alles und
+// antwortet 409, wenn noch etwas daran haengt.
+async function loescheSparte(knopf) {
+  const name = knopf.dataset.name;
+  if (!confirm("Abteilung „" + name + "“ endgültig löschen?\n\n" +
+               "Stilllegen — das Häkchen wegnehmen — behält sie samt ihrer Geschichte. " +
+               "Löschen entfernt die Zeile, und das lässt sich nicht rückgängig machen.")) {
+    return;
+  }
+
+  let antwort;
+  try {
+    antwort = await vvRequest("vv-sparte-loeschen", { sparte_id: knopf.dataset.id });
+  } catch (e) {
+    const d = e.daten || {};
+
+    if (d.code === "gesperrt") {
+      alert("„" + name + "“ lässt sich nicht löschen:\n\n" +
+            (d.sperren || []).map((s) => "• " + sperrText(s)).join("\n") +
+            "\n\nStilllegen geht jederzeit — dann verschwindet sie aus dem Antragsformular, " +
+            "bleibt aber der Verwaltung erhalten.");
+      return;
+    }
+
+    if (d.code === "zuordnungen") {
+      const namen = (d.mitglieder || []).map(
+        (m) => "• " + m.vorname + " " + m.nachname + " (Nr. " + m.mitgliedsnummer + ")");
+      const rest = (d.zuordnungen || 0) - namen.length;
+      if (!confirm("„" + name + "“ hat noch " + d.zuordnungen +
+                   (d.zuordnungen === 1 ? " Zuordnung" : " Zuordnungen") + ":\n\n" +
+                   namen.join("\n") + (rest > 0 ? "\n… und " + rest + " weitere" : "") +
+                   "\n\nTrotzdem löschen? Die Personen bleiben Mitglied mit unverändertem " +
+                   "Beitrag — sie sind danach nur dieser Abteilung nicht mehr zugeordnet.")) {
+        return;
+      }
+      try {
+        antwort = await vvRequest("vv-sparte-loeschen",
+                                  { sparte_id: knopf.dataset.id, mit_zuordnungen: true });
+      } catch (e2) {
+        alert("Nicht gelöscht: " + e2.message);
+        return;
+      }
+    } else {
+      alert("Nicht gelöscht: " + e.message);
+      return;
+    }
+  }
+
+  if (antwort && antwort.zuordnungen > 0) {
+    alert("„" + antwort.name + "“ gelöscht, dabei " + antwort.zuordnungen +
+          (antwort.zuordnungen === 1 ? " Zuordnung" : " Zuordnungen") + " entfernt.");
+  }
+  // Die Auswahllisten im Mitglieder-Reiter zeigen sonst weiter eine
+  // Abteilung, die es nicht mehr gibt.
+  if (typeof ladeSpartenAuswahl === "function") ladeSpartenAuswahl();
+  ladeAntragSparten();
 }
 
 async function schalteSparte(haken) {

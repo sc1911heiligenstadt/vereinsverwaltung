@@ -3759,23 +3759,21 @@ function pruefeAntrag(roh, erlaubteSparten, heute) {
   };
 }
 
-// Oeffentlich. Liefert nur, was auf dem Formular stehen muss: die
-// Abteilungen, die Beitragssaetze zur Information und den Vereinsnamen
-// fuer den Mandatstext. Keine Personendaten, keine Zahlen aus dem
-// Bestand.
 // Eine Sparte stilllegen oder wieder aufnehmen. Anlass war das
 // oeffentliche Formular: im Bestand stehen die neun Sammelposten des
-// Vereinsmeisters NEBEN den zwoelf echten Abteilungen, und der
+// Vereinsmeisters NEBEN acht von Hand angelegten Abteilungen, und der
 // Antragsteller sah dadurch "Dart" und "Darts" untereinander.
 //
-// Bewusst nur dieser eine Schalter und keine Sparten-Verwaltung:
-// aktiv = 0 heisst laut Schema "aufgeloest, Historie bleibt". Zeilen
-// werden nie geloescht -- an ihnen haengen Spartenzugehoerigkeiten, und
-// die sind Teil der Beitragsgeschichte.
+// Stilllegen ist der schonende Weg: aktiv = 0 heisst laut Schema
+// "aufgeloest, Historie bleibt" -- die Zeile und jede Zuordnung bleiben
+// stehen, an ihnen haengt die Beitragsgeschichte. Wer die Zeile wirklich
+// loswerden will, nimmt vv-sparte-loeschen; das geht nur, wenn nichts
+// mehr daran haengt.
 async function handleSparteAktiv(body, env, me, corsHeaders) {
   const rolle = await ladeRolle(env, me);
   if (!rolle.darfSchreiben) {
-    return json({ error: "Nur die Geschaeftsstelle kann Abteilungen stilllegen" }, 403, corsHeaders);
+    return json({ error: "Abteilungen pflegen duerfen nur Geschaeftsstelle und Schatzmeister" },
+                403, corsHeaders);
   }
   const id = String(body.sparte_id || "");
   const sparte = await env.VV_DB.prepare("SELECT id, name FROM sparte WHERE id = ?").bind(id).first();
@@ -3791,6 +3789,100 @@ async function handleSparteAktiv(body, env, me, corsHeaders) {
   return json({ ok: true, aktiv }, 200, corsHeaders);
 }
 
+// Eine Sparte wirklich loeschen -- die Zeile verschwindet, nicht nur der
+// Haken. Anlass: acht der siebzehn Abteilungen waren von Hand angelegt
+// worden und haben nie ein Mitglied gesehen. Stillgelegt stuenden sie
+// weiter in jeder Auswahlliste der Verwaltung, nur nicht mehr im
+// oeffentlichen Antragsformular.
+//
+// Der Server zaehlt selbst, statt der Anzeige zu glauben: die
+// Mitgliederzahl aus vv-sparten zaehlt nur LAUFENDE Zuordnungen
+// (austritt IS NULL, Status aktiv oder ruhend). Eine "(0)" in der
+// Oberflaeche kann also beendete Zuordnungen verdecken -- die
+// Fremdschluesselpruefung von D1 laesst sich davon nicht taeuschen, sie
+// wirft, und der Nutzer saehe einen nackten SQL-Fehler.
+//
+// Drei Verweise sind harte Sperren, in keinem Fall ueberschreibbar:
+//   Abteilungsleiter-Rolle -- der Nutzer haette sonst eine Rolle auf
+//     eine Sparte, die es nicht mehr gibt, und faellt in ladeRolle auf
+//     eine leere Spartenliste zurueck: er saehe gar kein Mitglied mehr.
+//   Buchungszeile -- an einer gebuchten Kostenstelle wird nichts mehr
+//     geaendert, dieselbe Regel wie beim Storno (GoBD).
+//   offener Aufnahmeantrag -- die Sparte steht dort als Wunsch im JSON
+//     und fiele bei der Annahme still heraus.
+//
+// Nur die Zuordnungen selbst lassen sich mitnehmen, und erst auf einen
+// ausdruecklichen zweiten Aufruf mit mit_zuordnungen: true. Der erste
+// antwortet 409 und nennt namentlich, wer noch drinsteht -- "1
+// Zuordnung" allein sagt niemandem, wen er umtragen soll.
+async function handleSparteLoeschen(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfSchreiben) {
+    // Dieselbe Grenze wie beim Stilllegen: darfSchreiben, also
+    // Geschaeftsstelle ODER Schatzmeister. Eine eigene, engere Grenze nur
+    // fuers Loeschen waere eine zweite Wahrheit darueber, wer Stammdaten
+    // pflegt. Abteilungsleiter und Vorstand kommen hier nicht durch.
+    return json({ error: "Abteilungen pflegen duerfen nur Geschaeftsstelle und Schatzmeister" },
+                403, corsHeaders);
+  }
+  const id = String(body.sparte_id || "");
+  const sparte = await env.VV_DB.prepare("SELECT id, name FROM sparte WHERE id = ?").bind(id).first();
+  if (!sparte) return json({ error: "Abteilung nicht gefunden" }, 404, corsHeaders);
+
+  // buchungszeile entsteht erst in handleMigration/handleBuchInit. In
+  // einer Datenbank ohne eingerichtete Buchhaltung gibt es die Tabelle
+  // nicht, und ein SELECT darauf wuerde die ganze Zaehlung werfen.
+  const buchTab = await env.VV_DB
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'buchungszeile'")
+    .first();
+
+  const zaehlSql =
+    "SELECT (SELECT COUNT(*) FROM mitgliedschaft_sparte WHERE sparte_id = ?) AS zuordnungen," +
+    " (SELECT COUNT(*) FROM benutzer_rolle WHERE sparte_id = ?) AS rollen," +
+    " (SELECT COUNT(*) FROM aufnahmeantrag WHERE status IN ('neu','geprueft')" +
+    "   AND sparten_json LIKE ?) AS antraege," +
+    (buchTab ? " (SELECT COUNT(*) FROM buchungszeile WHERE sparte_id = ?) AS buchungen"
+             : " 0 AS buchungen");
+  const werte = buchTab ? [id, id, "%" + id + "%", id] : [id, id, "%" + id + "%"];
+  const zaehler = await env.VV_DB.prepare(zaehlSql).bind(...werte).first();
+
+  const sperren = [];
+  if (zaehler.rollen > 0) sperren.push({ was: "rolle", anzahl: zaehler.rollen });
+  if (zaehler.buchungen > 0) sperren.push({ was: "buchung", anzahl: zaehler.buchungen });
+  if (zaehler.antraege > 0) sperren.push({ was: "antrag", anzahl: zaehler.antraege });
+  if (sperren.length) {
+    return json({ error: "Abteilung wird noch verwendet", code: "gesperrt",
+                  name: sparte.name, sperren }, 409, corsHeaders);
+  }
+
+  if (zaehler.zuordnungen > 0 && body.mit_zuordnungen !== true) {
+    const wer = await env.VV_DB.prepare(
+      "SELECT p.vorname, p.nachname, m.mitgliedsnummer FROM mitgliedschaft_sparte ms" +
+      " JOIN mitgliedschaft m ON m.id = ms.mitgliedschaft_id" +
+      " JOIN person p ON p.id = m.person_id" +
+      " WHERE ms.sparte_id = ? ORDER BY p.nachname, p.vorname LIMIT 5"
+    ).bind(id).all();
+    return json({ error: "Abteilung hat noch Zuordnungen", code: "zuordnungen",
+                  name: sparte.name, zuordnungen: zaehler.zuordnungen,
+                  mitglieder: wer.results || [] }, 409, corsHeaders);
+  }
+
+  await env.VV_DB.batch([
+    env.VV_DB.prepare("DELETE FROM mitgliedschaft_sparte WHERE sparte_id = ?").bind(id),
+    env.VV_DB.prepare("DELETE FROM sparte WHERE id = ?").bind(id)
+  ]);
+
+  // Das Protokoll ist die einzige Spur, die von der Abteilung bleibt --
+  // deshalb Name und Anzahl hinein, beide VOR dem Loeschen gelesen.
+  await protokolliere(env, me.username, "sparte-geloescht", "sparte", id,
+                      { name: sparte.name, zuordnungen: zaehler.zuordnungen });
+  return json({ ok: true, name: sparte.name, zuordnungen: zaehler.zuordnungen }, 200, corsHeaders);
+}
+
+// Oeffentlich. Liefert nur, was auf dem Formular stehen muss: die
+// Abteilungen, die Beitragssaetze zur Information und den Vereinsnamen
+// fuer den Mandatstext. Keine Personendaten, keine Zahlen aus dem
+// Bestand.
 async function handleAntragInfo(env, corsHeaders) {
   const cfg = await ladeEinstellungen(env);
   const offen = einstellungZahl(cfg, "antrag_offen") === 1;
@@ -6095,6 +6187,7 @@ export default {
         case "vv-antrag-status":   return handleAntragStatus(body, env, me, corsHeaders);
         case "vv-antrag-annehmen": return handleAntragAnnehmen(body, env, me, corsHeaders);
         case "vv-sparte-aktiv":    return handleSparteAktiv(body, env, me, corsHeaders);
+        case "vv-sparte-loeschen": return handleSparteLoeschen(body, env, me, corsHeaders);
         case "vv-buch-init":       return handleBuchInit(env, me, corsHeaders);
         case "vv-buch-stammdaten": return handleBuchStammdaten(env, me, corsHeaders);
         case "vv-jahr-anlegen":    return handleJahrAnlegen(body, env, me, corsHeaders);

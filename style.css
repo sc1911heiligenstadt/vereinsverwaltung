@@ -441,6 +441,31 @@ input[type="file"] {
 }
 .ankreuz-raster .ankreuz { margin: 4px 0; }
 
+/* Loeschknopf neben dem Ankreuzfeld. Er steht bewusst AUSSERHALB des
+   <label> -- innerhalb wuerde jeder Klick darauf zugleich das Haekchen
+   umschalten, und man legte eine Abteilung still, waehrend man sie
+   loeschen wollte. min-width am Label, damit ein langer Abteilungsname
+   die Rasterzelle nicht sprengt. */
+.sparte-zeile {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+.sparte-zeile .ankreuz { flex: 1; min-width: 0; }
+.sparte-weg {
+  flex: none;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 17px;
+  line-height: 1;
+  padding: 4px 7px;
+  margin-top: 2px;
+  border-radius: 4px;
+}
+.sparte-weg:hover { background: #fdecea; color: var(--red); }
+
 #imp-zuordnung select { width: 100%; min-width: 190px; font-size: 14px; }
 #imp-zuordnung td { vertical-align: middle; }
 

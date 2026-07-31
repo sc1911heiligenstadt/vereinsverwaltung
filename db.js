@@ -58,7 +58,16 @@ async function vvRequest(action, body) {
 
   const daten = await res.json().catch(() => null);
   if (res.status === 403) throw new KeinZugriffError(daten && daten.error);
-  if (!res.ok) throw new Error((daten && daten.error) || ("Fehler " + res.status));
+  if (!res.ok) {
+    // Statuscode und Antwortkoerper mitgeben. Manche Aktionen antworten
+    // mit einem 409, an dem mehr haengt als ein Satz -- vv-sparte-loeschen
+    // nennt darin, wer der Abteilung noch zugeordnet ist, und der Aufrufer
+    // macht daraus die Rueckfrage. Ohne das bliebe nur "Fehler 409".
+    const fehler = new Error((daten && daten.error) || ("Fehler " + res.status));
+    fehler.status = res.status;
+    fehler.daten = daten;
+    throw fehler;
+  }
   return daten;
 }
 
