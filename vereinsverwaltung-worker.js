@@ -345,7 +345,12 @@ async function handleMitgliederListe(body, env, me, corsHeaders) {
   const limit = Math.min(Math.max(parseInt(body.limit, 10) || 50, 1), 200);
   const offset = Math.max(parseInt(body.offset, 10) || 0, 0);
 
-  const sortSchluessel = SORTIERUNGEN[body.sortierung] ? body.sortierung : "name";
+  // hasOwnProperty statt eines nackten Lookups: SORTIERUNGEN["constructor"]
+  // liefert die geerbte Object-Funktion und ist damit truthy — baueSortierung
+  // liefe dann auf s.spalten.forEach() eines Objekts ohne spalten und die
+  // Mitgliederliste antwortete mit 500 statt mit Zeilen.
+  const sortSchluessel = Object.prototype.hasOwnProperty.call(SORTIERUNGEN, body.sortierung)
+    ? body.sortierung : "name";
   const absteigend = body.richtung === "ab";
   const sortSql = baueSortierung(sortSchluessel, absteigend);
 
