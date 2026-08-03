@@ -642,13 +642,6 @@ tr.erledigt td { color: var(--muted); }
 
 /* ---------- Info ---------- */
 
-#version-badge {
-  background: rgba(255, 255, 255, 0.15);
-  padding: 4px 12px;
-  border-radius: 999px;
-  font-size: 12px;
-}
-
 .changelog-block { margin-bottom: 18px; }
 .changelog-block h3 { margin: 0 0 4px; font-size: 15px; }
 .changelog-datum { font-size: 12px; color: var(--muted); }

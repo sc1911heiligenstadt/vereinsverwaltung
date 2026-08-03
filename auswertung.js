@@ -56,7 +56,6 @@ async function start() {
   if (!hatRolle) { $("kein-zugriff").hidden = false; return; }
 
   $("app-bereich").hidden = false;
-  $("version-badge").textContent = "v" + APP_VERSION;
 
   const d = new Date();
   $("f-stichtag").value = d.getFullYear() + "-" +

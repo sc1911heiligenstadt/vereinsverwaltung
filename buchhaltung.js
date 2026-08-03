@@ -95,7 +95,6 @@ async function start() {
 
   $("app-bereich").hidden = false;
   $("haupt-nav").hidden = false;
-  $("version-badge").textContent = "v" + APP_VERSION;
 
   await ladeStamm();
   verdrahten();

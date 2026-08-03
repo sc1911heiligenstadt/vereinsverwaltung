@@ -731,7 +731,6 @@ function zeichneChangelog() {
 // ---------------------------------------------------------------------
 
 function init() {
-  $("version-badge").textContent = "v" + APP_VERSION;
   $("version-badge-2").textContent = APP_VERSION;
   zeichneChangelog();
 
