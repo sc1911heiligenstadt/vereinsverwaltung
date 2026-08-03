@@ -7,7 +7,7 @@
 //
 // Die Anmeldung ist trotzdem dieselbe: Der Token kommt aus demselben
 // localStorage-Schluessel wie in allen anderen Apps, weil alle unter
-// derselben Origin tecko1985.github.io laufen. Eine Anmeldung gilt
+// derselben Origin sc1911heiligenstadt.github.io laufen. Eine Anmeldung gilt
 // flottenweit.
 
 const TOKEN_STORAGE_KEY = "tu_session_token";

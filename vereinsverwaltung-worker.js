@@ -52,7 +52,8 @@
 
 const ALLOWED_ORIGINS = [
   "http://localhost:8810",
-  "https://tecko1985.github.io"
+  "https://sc1911heiligenstadt.github.io",
+  "https://tecko1985.github.io" // alte Adresse bis 2026-08: PWAs mit eigenem SW-Cache laufen dort noch
 ];
 
 // Muss dem Tool-Id im TOOLS-Array von ToolsUebersicht entsprechen --

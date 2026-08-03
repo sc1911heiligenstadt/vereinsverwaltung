@@ -11,7 +11,7 @@ const APP_VERSION = "1.0";
 // durchgesetzt. Siehe Datei-Kopf von vereinsverwaltung-worker.js.
 const WORKER_URL = "https://vereinsverwaltung.michel-brunner.workers.dev";
 
-const DASHBOARD_URL = "https://tecko1985.github.io/ToolsUebersicht/";
+const DASHBOARD_URL = "https://sc1911heiligenstadt.github.io/ToolsUebersicht/";
 
 // Satzung § 3 und § 4 Abs. 5 -- genau diese drei, nichts anderes.
 const MITGLIEDSARTEN = {

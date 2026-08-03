@@ -11,7 +11,7 @@ let anZaehler = {};
 let anAktuell = null;
 let anLaeuft = false;
 
-const AN_ADRESSE = "https://tecko1985.github.io/vereinsverwaltung/antrag.html";
+const AN_ADRESSE = "https://sc1911heiligenstadt.github.io/vereinsverwaltung/antrag.html";
 
 const AN_STATUS_TEXT = {
   neu: "Neu",
