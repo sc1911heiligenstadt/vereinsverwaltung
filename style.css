@@ -24,13 +24,18 @@ body {
 
 /* ---------- Kopfzeile ---------- */
 
+/* Kopfzeile byte-gleich zur uebrigen Flotte (ausbildungsplan, Vereinsaufgaben
+   und 26 weitere). Diese App war bis 2026-08-05 die EINZIGE mit eigener Optik:
+   kleinerer Knopf ohne Rahmen, Knopf vor statt hinter dem Titel und ohne
+   Vereinswappen -- Michel ist es im Vergleich sofort aufgefallen. */
 header {
   background: var(--blue);
   color: #fff;
-  padding: 14px 20px;
+  padding: 16px 28px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: center;
+  gap: 14px;
   /* Ohne wrap laeuft die Kopfzeile am Handy seitlich ueber und reisst
      die ganze Seite mit. Flottenregel seit 2026-07-28. */
   flex-wrap: wrap;
@@ -38,30 +43,46 @@ header {
 
 header h1 {
   margin: 0;
-  font-size: 19px;
+  font-size: 20px;
   font-weight: 600;
-  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 200px;
 }
 
+/* Heisst aus Historie weiter .dashboard-pille (drei Seiten dieser App nutzen
+   sie, zwei davon fuer den Rueckweg IN die App). Die Werte sind die der
+   Flotten-Klasse .back-to-dashboard. */
 .dashboard-pille {
-  display: inline-block;
-  background: rgba(255, 255, 255, 0.15);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
   color: #fff;
   text-decoration: none;
-  padding: 6px 14px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  padding: 8px 16px;
   border-radius: 999px;
-  font-size: 13px;
   white-space: nowrap;
+  flex: 0 0 auto;
+  transition: background 0.15s ease;
 }
-.dashboard-pille:hover { background: rgba(255, 255, 255, 0.28); }
+.dashboard-pille:hover { background: rgba(255, 255, 255, 0.28); text-decoration: none; }
 
 .kopf-rechts {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
   flex-wrap: wrap;
+  flex: 1 1 200px;
+  justify-content: flex-end;
   font-size: 13px;
 }
+
+.kopf-logo { height: 44px; width: auto; display: block; }
 
 .rollen-pille {
   background: rgba(255, 255, 255, 0.15);
