@@ -39,6 +39,16 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Einheitliches Aussehen",
+    datum: "2026-08-05",
+    punkte: [
+      "Die Kopfzeile trägt jetzt dasselbe Blau wie alle anderen Vereins-Werkzeuge. Vorher war ihr Ton etwas dunkler, was beim Wechsel aus der Tools-Übersicht auffiel.",
+      "Der Reiter „Info“ steht jetzt ganz rechts in der Leiste — wie überall sonst. Die Verweise auf Buchhaltung und Auswertungen sind davor gerückt.",
+      "Die Versionsangabe steht als kleine Plakette in der Überschrift „Über die Vereinsverwaltung“ statt als eigene Zeile darunter.",
+      "Am Handy zoomt das iPhone beim Antippen der Dateiauswahl im Import nicht mehr ungefragt in die Seite hinein."
+    ]
+  },
+  {
     version: "Abteilungen löschen",
     datum: "2026-07-31",
     punkte: [
