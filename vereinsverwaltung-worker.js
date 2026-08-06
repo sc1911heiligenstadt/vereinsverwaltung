@@ -1407,6 +1407,13 @@ async function handleMigration(env, me, corsHeaders) {
   if (!personDa.has("geburtsort")) {
     personFehlend.push("ALTER TABLE person ADD COLUMN geburtsort TEXT");
   }
+  // Die Staatsangehoerigkeit verlangt der Spielerlaubnisantrag des
+  // Verbandes. Sie gehoert an die PERSON, nicht in den Antrag: beim
+  // naechsten Antrag desselben Kindes -- Vereinswechsel, Namensaenderung --
+  // muss sie schon dastehen, statt erneut erfragt zu werden.
+  if (!personDa.has("nationalitaet")) {
+    personFehlend.push("ALTER TABLE person ADD COLUMN nationalitaet TEXT");
+  }
 
   // Das Mandat ist das rechtlich massgebliche Papier, nicht der Antrag.
   // Wer der Zahler ist, wo er wohnt und wo er unterschrieben hat, gehoert
@@ -1433,6 +1440,18 @@ async function handleMigration(env, me, corsHeaders) {
   const antragFehlend = [];
   if (!antragDa.has("unterschrift_gesetzl2_datei")) {
     antragFehlend.push("ALTER TABLE aufnahmeantrag ADD COLUMN unterschrift_gesetzl2_datei TEXT");
+  }
+  // Woher der Antrag kam. Eine SPALTE, nicht ein Feld im JSON: die Liste
+  // im Reiter filtert und zaehlt danach, und dafuer muesste sie sonst
+  // jedes einzelne JSON entpacken.
+  if (!antragDa.has("quelle")) {
+    antragFehlend.push("ALTER TABLE aufnahmeantrag ADD COLUMN quelle TEXT NOT NULL DEFAULT 'antrag'");
+  }
+  // Schluessel des abgeschotteten Bereichs, in dem die Nachweise liegen
+  // (Geburtsurkunde, Spielerpass, Abmeldung). Die Dateien selbst liegen
+  // in Nextcloud beim admin-worker -- hier steht nur, wo.
+  if (!antragDa.has("nachweis_owner")) {
+    antragFehlend.push("ALTER TABLE aufnahmeantrag ADD COLUMN nachweis_owner TEXT");
   }
 
   fehlend.push(...personFehlend, ...mandatFehlend, ...antragFehlend);
@@ -1527,6 +1546,14 @@ const EINSTELLUNGEN = {
   // zudrehen kann, ist eine Zusage, die man spaeter bereut -- deshalb
   // ein Schalter, kein Deploy.
   antrag_offen:     { gruppe: "antrag", label: "Online-Aufnahmeantrag ist geoeffnet (1 = ja, 0 = nein)",
+                      zahl: true, vorgabe: 1, min: 0, max_wert: 1 },
+
+  // Eigener Schalter, NICHT antrag_offen mitbenutzen: sonst dreht man mit
+  // der Nachwuchs-Anmeldung den allgemeinen Aufnahmeantrag mit zu. Die
+  // beiden Wege richten sich an verschiedene Leute und werden zu
+  // verschiedenen Zeiten gebraucht -- die Nachwuchsanmeldung vor allem zum
+  // Saisonwechsel.
+  nachwuchs_offen:  { gruppe: "antrag", label: "Nachwuchs-Anmeldung ist geoeffnet (1 = ja, 0 = nein)",
                       zahl: true, vorgabe: 1, min: 0, max_wert: 1 }
 };
 
@@ -3714,9 +3741,89 @@ function pruefeUnterschrift(roh, was) {
   return { wert: s };
 }
 
+// ---------------------------------------------------------------------
+// Spielerlaubnis (Nachwuchs-Anmeldung)
+// ---------------------------------------------------------------------
+//
+// Der Antrag auf Spielerlaubnis geht an den Landesverband, nicht an den
+// Verein -- der Verein fuellt ihn nur aus, stempelt und traegt ihn in
+// DFBnet Pass-Online ein. Hier wird deshalb nur ERFASST, was auf dem Bogen
+// stehen muss; entschieden wird nichts.
+//
+// Der Block ist optional: der allgemeine Aufnahmeantrag schickt ihn nicht.
+// Kommt er, wird er vollstaendig geprueft -- ein halb ausgefuellter Bogen
+// faellt erst beim Verband auf, und dann ist die Familie schon weg.
+
+const SPIELERLAUBNIS_ARTEN = new Set([
+  "erstausstellung", "vereinswechsel", "rueckkehrer", "namensaenderung"
+]);
+
+// (1) bereits abgemeldet, Nachweis liegt bei -- (2) noch nicht abgemeldet,
+// der aufnehmende Verein wird beauftragt. Die Nummern sind die des Bogens.
+const ABMELDEWEGE = new Set(["1", "2"]);
+
+// Schluessel des abgeschotteten Nachweis-Bereichs. Der admin-worker
+// vergibt ihn selbst (crypto.randomUUID ohne Bindestriche); vom Client
+// kommt er nur zurueck. Ohne strenge Pruefung stuende hier irgendwann ein
+// Pfad.
+const NACHWEIS_OWNER_MUSTER = /^[0-9a-f]{32}$/;
+
+// Gibt { wert } oder { fehler }. Der Aufrufer entscheidet, ob der Block
+// ueberhaupt verlangt ist.
+function pruefeSpielerlaubnis(roh) {
+  const art = String(roh.art || "");
+  if (!SPIELERLAUBNIS_ARTEN.has(art)) {
+    return { fehler: "Bitte die Art der Passausstellung auswaehlen" };
+  }
+
+  const letzterVerein = sauber(roh.letzter_verein, 120);
+  const landesverband = sauber(roh.landesverband, 120);
+  const passNr = (sauber(roh.pass_nr, 20) || "").replace(/\s+/g, "");
+  let abmeldeweg = null;
+
+  if (art === "vereinswechsel") {
+    if (!letzterVerein) {
+      return { fehler: "Beim Vereinswechsel wird der abgebende Verein gebraucht" };
+    }
+    abmeldeweg = String(roh.abmeldeweg || "");
+    if (!ABMELDEWEGE.has(abmeldeweg)) {
+      // Der Bogen laesst genau diese beiden Wege zu. Bleibt das Feld leer,
+      // weiss der Verband nicht, ob er auf einen Abmeldenachweis wartet
+      // oder ob der aufnehmende Verein die Abmeldung uebernimmt -- und der
+      // Antrag bleibt liegen.
+      return { fehler: "Bitte angeben, ob die Abmeldung beim bisherigen Verein " +
+                       "bereits erfolgt ist oder der Verein sie uebernehmen soll" };
+    }
+  }
+
+  return {
+    wert: {
+      art,
+      pass_nr: passNr || null,
+      // Nur beim Wechsel erhoben und nur dann gespeichert -- bei einer
+      // Erstausstellung gibt es keinen vorherigen Verein, und ein stehen-
+      // gebliebener Wert aus einem abgebrochenen Formularweg landete sonst
+      // auf dem Bogen.
+      letzter_verein: art === "vereinswechsel" ? letzterVerein : null,
+      landesverband: art === "vereinswechsel" ? landesverband : null,
+      abmeldeweg,
+      // Die Einwilligung fuer Werbung des DFB und seiner Partner ist
+      // FREIWILLIG und eine eigene Erklaerung -- anderer Empfaenger,
+      // anderer Zweck als die drei des Vereins. Sie darf den Antrag nicht
+      // aufhalten; erteilt sie niemand, bleibt das Kaestchen auf dem Bogen
+      // leer.
+      einwilligung_dfb_marketing: roh.einwilligung_dfb_marketing === true
+    }
+  };
+}
+
 // Baut aus dem Rohkoerper einen geprueften Antrag oder gibt genau einen
 // Fehlersatz zurueck. Nie halb geprueftes.
-function pruefeAntrag(roh, erlaubteSparten, heute) {
+function pruefeAntrag(roh, erlaubteSparten, heute, quelle) {
+  // Der vierte Parameter ist neu und bleibt optional: der allgemeine
+  // Aufnahmeantrag ruft unveraendert mit dreien auf.
+  const istNachwuchs = quelle === "nachwuchs";
+
   const vorname = sauber(roh.vorname, 80);
   const nachname = sauber(roh.nachname, 80);
   if (!vorname || !nachname) return { fehler: "Vorname und Nachname sind erforderlich" };
@@ -3810,8 +3917,42 @@ function pruefeAntrag(roh, erlaubteSparten, heute) {
     }
   }
 
+  // Der Spielerlaubnisantrag. Nur bei der Nachwuchs-Anmeldung verlangt --
+  // und dort vollstaendig, sonst faellt der halbe Bogen erst beim Verband
+  // auf.
+  const nationalitaet = sauber(roh.nationalitaet, 60);
+  let spielerlaubnis = null;
+  let nachweisOwner = null;
+  if (istNachwuchs) {
+    if (!nationalitaet) {
+      return { fehler: "Der Verband verlangt die Staatsangehoerigkeit" };
+    }
+    const sp = pruefeSpielerlaubnis(roh.spielerlaubnis || {});
+    if (sp.fehler) return { fehler: sp.fehler };
+    spielerlaubnis = sp.wert;
+
+    // Der Schluessel kommt vom Client zurueck, weil die Nachweise VOR dem
+    // Absenden hochgeladen werden. Vergeben hat ihn der Server des
+    // admin-workers; erratbar ist er nicht. Geprueft wird trotzdem: ohne
+    // das Muster stuende hier irgendwann ein Pfad, und den bekaeme die
+    // Geschaeftsstelle spaeter unbesehen in eine Dateiabfrage gereicht.
+    const owner = String(roh.nachweis_owner || "");
+    if (owner) {
+      if (!NACHWEIS_OWNER_MUSTER.test(owner)) {
+        return { fehler: "Der Verweis auf die hochgeladenen Nachweise ist unbrauchbar" };
+      }
+      nachweisOwner = owner;
+    }
+    // Fehlt er ganz, geht der Antrag TROTZDEM durch. Ein vollstaendig
+    // ausgefuellter, unterschriebener Antrag darf nicht daran scheitern,
+    // dass ein Foto zu gross war -- die Geschaeftsstelle sieht am Eintrag,
+    // dass der Nachweis fehlt, und fordert ihn nach.
+  }
+
   return {
     satz: {
+      quelle: istNachwuchs ? "nachwuchs" : "antrag",
+      nachweis_owner: nachweisOwner,
       inhalt: {
         anrede: sauber(roh.anrede, 20),
         vorname, nachname, geburtsdatum,
@@ -3845,7 +3986,13 @@ function pruefeAntrag(roh, erlaubteSparten, heute) {
         einwilligung_satzung: true,
         einwilligung_datenschutz: true,
         einwilligung_fotos: roh.einwilligung_fotos === true,
-        bemerkung: sauber(roh.bemerkung, 500)
+        bemerkung: sauber(roh.bemerkung, 500),
+        // Staatsangehoerigkeit und Spielerlaubnis stehen nur im
+        // Nachwuchsantrag. Beim allgemeinen Aufnahmeantrag bleiben beide
+        // null -- ein leerer Block im JSON saehe aus wie ein vergessenes
+        // Formular.
+        nationalitaet: istNachwuchs ? nationalitaet : null,
+        spielerlaubnis
       },
       sparten,
       unterschrift: unterschrift.wert,
@@ -3982,6 +4129,11 @@ async function handleSparteLoeschen(body, env, me, corsHeaders) {
 async function handleAntragInfo(env, corsHeaders) {
   const cfg = await ladeEinstellungen(env);
   const offen = einstellungZahl(cfg, "antrag_offen") === 1;
+  // Beide Schalter in EINER Antwort: die Nachwuchsseite braucht dieselben
+  // Abteilungen, Beitragssaetze und denselben Vereinsnamen. Ein zweiter
+  // Info-Endpunkt waere derselbe Inhalt unter anderem Namen -- und liefe
+  // beim naechsten Feld auseinander.
+  const nachwuchsOffen = einstellungZahl(cfg, "nachwuchs_offen") === 1;
 
   const sparten = await env.VV_DB
     .prepare("SELECT id, name FROM sparte WHERE aktiv = 1 ORDER BY sortierung, name").all();
@@ -3999,6 +4151,7 @@ async function handleAntragInfo(env, corsHeaders) {
 
   return json({
     offen,
+    nachwuchs_offen: nachwuchsOffen,
     verein: (cfg && cfg.verein_name) || VEREIN_FALLBACK,
     glaeubiger_id: (cfg && cfg.glaeubiger_id) || null,
     sparten: sparten.results || [],
@@ -4030,11 +4183,50 @@ async function hatGesetzl2Spalte(env) {
   return gesetzl2SpalteDa;
 }
 
-async function handleAntragSenden(body, env, request, corsHeaders) {
+// Die Staatsangehoerigkeit haengt an person, nicht an aufnahmeantrag --
+// eigene Probe. Auch hier nur das Ja gemerkt.
+let nationalitaetSpalteDa = false;
+async function hatNationalitaetSpalte(env) {
+  if (nationalitaetSpalteDa) return true;
+  try {
+    const r = await env.VV_DB.prepare("PRAGMA table_info(person)").all();
+    nationalitaetSpalteDa = (r.results || []).some((s) => s.name === "nationalitaet");
+  } catch {
+    return false;
+  }
+  return nationalitaetSpalteDa;
+}
+
+// Dieselbe Ueberlegung fuer die Spalten der Nachwuchs-Anmeldung, und aus
+// demselben Grund NUR das Ja gemerkt.
+let nachwuchsSpaltenDa = false;
+async function hatNachwuchsSpalten(env) {
+  if (nachwuchsSpaltenDa) return true;
+  try {
+    const r = await env.VV_DB.prepare("PRAGMA table_info(aufnahmeantrag)").all();
+    const da = new Set((r.results || []).map((s) => s.name));
+    nachwuchsSpaltenDa = da.has("quelle") && da.has("nachweis_owner");
+  } catch {
+    return false;
+  }
+  return nachwuchsSpaltenDa;
+}
+
+// Beide oeffentlichen Wege laufen hier zusammen. Die QUELLE kommt vom
+// Aufrufer, nie aus dem Koerper: sie haengt am Endpunkt, den jemand
+// aufgerufen hat, und ist damit nichts, was der Client behaupten kann.
+// Ein Feld "quelle" im Body wird ignoriert -- wie status, person_id,
+// eingang_am und id auch.
+async function handleAntragSenden(body, env, request, corsHeaders, quelle) {
+  const istNachwuchs = quelle === "nachwuchs";
   const cfg = await ladeEinstellungen(env);
-  if (einstellungZahl(cfg, "antrag_offen") !== 1) {
-    return json({ error: "Der Online-Aufnahmeantrag ist zurzeit geschlossen. " +
-                         "Bitte wenden Sie sich an die Geschaeftsstelle." }, 403, corsHeaders);
+  const schalter = istNachwuchs ? "nachwuchs_offen" : "antrag_offen";
+  if (einstellungZahl(cfg, schalter) !== 1) {
+    return json({ error: istNachwuchs
+      ? "Die Nachwuchs-Anmeldung ist zurzeit geschlossen. " +
+        "Bitte wenden Sie sich an die Geschaeftsstelle."
+      : "Der Online-Aufnahmeantrag ist zurzeit geschlossen. " +
+        "Bitte wenden Sie sich an die Geschaeftsstelle." }, 403, corsHeaders);
   }
 
   const ip = request.headers.get("CF-Connecting-IP") || "unbekannt";
@@ -4060,9 +4252,20 @@ async function handleAntragSenden(body, env, request, corsHeaders) {
   const erlaubt = new Set((spartenR.results || []).map((z) => z.id));
 
   const jetzt = new Date().toISOString();
-  const geprueft = pruefeAntrag(body, erlaubt, jetzt.slice(0, 10));
+  const geprueft = pruefeAntrag(body, erlaubt, jetzt.slice(0, 10), quelle);
   if (geprueft.fehler) return json({ error: geprueft.fehler }, 400, corsHeaders);
   const satz = geprueft.satz;
+
+  // Ohne die beiden Spalten liesse sich ein Nachwuchsantrag zwar
+  // speichern, aber nicht mehr als solcher erkennen -- er fiele in der
+  // Liste unter die allgemeinen Antraege, und der Verweis auf die
+  // Nachweise ginge verloren. Sichtbar abweisen statt still verstuemmeln;
+  // das Fenster dauert Minuten.
+  if (istNachwuchs && !(await hatNachwuchsSpalten(env))) {
+    return json({ error: "Das Formular wird gerade umgestellt. Bitte in wenigen Minuten " +
+                         "noch einmal absenden oder die Geschaeftsstelle anrufen." },
+                503, corsHeaders);
+  }
 
   const zweiteSpalte = await hatGesetzl2Spalte(env);
   if (satz.unterschrift_gesetzl2 && !zweiteSpalte) {
@@ -4080,15 +4283,22 @@ async function handleAntragSenden(body, env, request, corsHeaders) {
     "INSERT INTO aufnahmeantrag (id, eingang_am, antrag_json, sparten_json, " +
     "unterschrift_datei, unterschrift_gesetzl_datei, " +
     (zweiteSpalte ? "unterschrift_gesetzl2_datei, " : "") +
+    (istNachwuchs ? "quelle, nachweis_owner, " : "") +
     "signatur_ip, signatur_agent, signatur_zeit, status) " +
-    "VALUES (?,?,?,?,?,?," + (zweiteSpalte ? "?," : "") + "?,?,?,'neu')"
+    "VALUES (?,?,?,?,?,?," + (zweiteSpalte ? "?," : "") +
+    (istNachwuchs ? "?,?," : "") + "?,?,?,'neu')"
   ).bind(...[id, jetzt, JSON.stringify(satz.inhalt), JSON.stringify(satz.sparten),
              satz.unterschrift, satz.unterschrift_gesetzl]
            .concat(zweiteSpalte ? [satz.unterschrift_gesetzl2] : [])
+           // Beim allgemeinen Antrag gar nicht erst benennen: die Spalte
+           // hat die Vorgabe 'antrag', und ein Deploy vor der Migration
+           // laesst ihn so unveraendert durchlaufen.
+           .concat(istNachwuchs ? [satz.quelle, satz.nachweis_owner] : [])
            .concat([ip, agent, jetzt])).run();
 
-  await protokolliere(env, null, "antrag-eingegangen", "aufnahmeantrag", id,
-                      { nachname: satz.inhalt.nachname });
+  await protokolliere(env, null,
+                      istNachwuchs ? "nachwuchsantrag-eingegangen" : "antrag-eingegangen",
+                      "aufnahmeantrag", id, { nachname: satz.inhalt.nachname });
 
   return json({ ok: true, id, eingang_am: jetzt }, 200, corsHeaders);
 }
@@ -4116,6 +4326,12 @@ function antragKurz(zeile) {
     art: a.art || "ordentlich",
     zahlungsart: a.zahlungsart || null,
     minderjaehrig: !!a.minderjaehrig,
+    // Aus der SPALTE, nicht aus dem JSON: aeltere Antraege haben sie noch
+    // gar nicht, und die Vorgabe der Spalte faengt genau das ab.
+    quelle: zeile.quelle || "antrag",
+    // Ob ein Nachweis da ist, entscheidet in der Liste ueber eine
+    // Nachfrage bei der Familie -- die Datei selbst holt erst das Detail.
+    nachweis_da: !!zeile.nachweis_owner,
     anzahl_sparten: sparten.length,
     beschluss_am: zeile.beschluss_am || null,
     geprueft_von: zeile.geprueft_von || null,
@@ -4135,9 +4351,16 @@ async function handleAntraegeListe(body, env, me, corsHeaders) {
   const nach = {};
   for (const z of zahlen.results || []) nach[z.status] = z.n;
 
+  // ⚠️ Die beiden neuen Spalten nur benennen, wenn es sie gibt. Kein
+  // SELECT * als Ausweg: das zoege die Unterschriften mit -- drei
+  // Data-URLs zu je rund 19 KB, mal 200 Zeilen, fuer eine Liste, die
+  // keine davon anzeigt.
+  const neueSpalten = await hatNachwuchsSpalten(env);
   const r = await env.VV_DB.prepare(
     "SELECT id, eingang_am, status, antrag_json, sparten_json, beschluss_am, " +
-    "geprueft_von, mitgliedschaft_id FROM aufnahmeantrag WHERE status = ? " +
+    "geprueft_von, mitgliedschaft_id" +
+    (neueSpalten ? ", quelle, nachweis_owner" : "") +
+    " FROM aufnahmeantrag WHERE status = ? " +
     "ORDER BY eingang_am DESC LIMIT 200"
   ).bind(status).all();
 
@@ -4231,7 +4454,12 @@ async function handleAntragDetail(body, env, me, corsHeaders) {
       geprueft_von: zeile.geprueft_von || null,
       beschluss_am: zeile.beschluss_am || null,
       ablehnung_grund: zeile.ablehnung_grund || null,
-      mitgliedschaft_id: zeile.mitgliedschaft_id || null
+      mitgliedschaft_id: zeile.mitgliedschaft_id || null,
+      quelle: zeile.quelle || "antrag",
+      // Nur der Schluessel. Die Dateien liegen beim admin-worker im
+      // abgeschotteten Bereich und werden von dort einzeln geholt -- durch
+      // diesen Worker laeuft keine einzige Ausweiskopie.
+      nachweis_owner: zeile.nachweis_owner || null
     },
     dubletten: aehnlich.dubletten,
     haushalte: aehnlich.haushalte,
@@ -4308,15 +4536,24 @@ function anweisungenFuerAnnahme(env, plan, jetzt, username) {
            jetzt, username));
   }
 
+  // Die Staatsangehoerigkeit steht nur im Nachwuchsantrag, und ihre Spalte
+  // entsteht erst in der Migration. Sie wird deshalb nur benannt, wenn
+  // beides zutrifft -- ein INSERT auf eine fehlende Spalte wuerfe den
+  // ganzen Batch, und die Annahme bliebe mitten im Fremdschluessel-Zirkel
+  // stehen.
+  const mitNat = plan.hat_nationalitaet_spalte && plan.inhalt.nationalitaet;
   an.push(env.VV_DB.prepare(
     "INSERT INTO person (id, haushalt_id, vorname, nachname, geburtsdatum, geburtsort, " +
+    (mitNat ? "nationalitaet, " : "") +
     "geschlecht, strasse, plz, ort, email, telefon, mobil, bemerkung, " +
-    "erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
-  ).bind(personId, haushaltId, plan.inhalt.vorname, plan.inhalt.nachname,
-         plan.inhalt.geburtsdatum, plan.inhalt.geburtsort || null,
-         plan.inhalt.geschlecht, plan.inhalt.strasse,
-         plan.inhalt.plz, plan.inhalt.ort, plan.inhalt.email, plan.inhalt.telefon,
-         plan.inhalt.mobil, plan.bemerkung, jetzt, username));
+    "erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?," + (mitNat ? "?," : "") +
+    "?,?,?,?,?,?,?,?,?,?)"
+  ).bind(...[personId, haushaltId, plan.inhalt.vorname, plan.inhalt.nachname,
+             plan.inhalt.geburtsdatum, plan.inhalt.geburtsort || null]
+           .concat(mitNat ? [plan.inhalt.nationalitaet] : [])
+           .concat([plan.inhalt.geschlecht, plan.inhalt.strasse,
+                    plan.inhalt.plz, plan.inhalt.ort, plan.inhalt.email, plan.inhalt.telefon,
+                    plan.inhalt.mobil, plan.bemerkung, jetzt, username])));
 
   // Fremdschluessel-Zirkel: erst Haushalt ohne Zahler, dann Person, dann
   // den Zahler nachtragen. Bei einem bestehenden Haushalt bleibt der
@@ -4500,6 +4737,7 @@ async function handleAntragAnnehmen(body, env, me, corsHeaders) {
     familienbeitrag,
     sparten,
     mandat,
+    hat_nationalitaet_spalte: await hatNationalitaetSpalte(env),
     bemerkung: bemerkungTeile.join(" | ").slice(0, 500)
   }, jetzt, me.username);
 
@@ -6260,13 +6498,20 @@ export default {
     // Mitgliederverwaltung lahmlegen -- aber nicht das oeffentliche
     // Formular, das mit Anmeldung ohnehin nichts zu tun hat.
     //
-    // Beide Aktionen pruefen selbst, ob das Formular offen ist. Kein
+    // Jede Aktion prueft selbst, ob ihr Formular offen ist. Kein
     // gemeinsamer Vorab-Aufruf, der sich umgehen liesse.
-    if (body.action === "vv-antrag-info" || body.action === "vv-antrag-senden") {
+    //
+    // vv-nachwuchs-senden ist ein EIGENER Endpunkt und nicht ein Feld
+    // "quelle" im Koerper von vv-antrag-senden: so haengt die Herkunft am
+    // aufgerufenen Weg statt an einer Behauptung des Clients, und sie
+    // laesst sich nicht umschreiben. Derselbe Grund, aus dem die
+    // Weissliste status und person_id ignoriert.
+    if (body.action === "vv-antrag-info" || body.action === "vv-antrag-senden" ||
+        body.action === "vv-nachwuchs-senden") {
       try {
-        return body.action === "vv-antrag-info"
-          ? await handleAntragInfo(env, corsHeaders)
-          : await handleAntragSenden(body, env, request, corsHeaders);
+        if (body.action === "vv-antrag-info") return await handleAntragInfo(env, corsHeaders);
+        return await handleAntragSenden(body, env, request, corsHeaders,
+          body.action === "vv-nachwuchs-senden" ? "nachwuchs" : "antrag");
       } catch (e) {
         return json({ error: "Serverfehler: " + (e && e.message ? e.message : String(e)) },
                     500, corsHeaders);

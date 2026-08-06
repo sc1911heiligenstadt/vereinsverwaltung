@@ -52,6 +52,11 @@ CREATE TABLE person (
   -- unterscheidende Merkmal, das der Verein hat.
   geburtsort        TEXT,
 
+  -- Verlangt der Spielerlaubnisantrag des Landesverbandes. Gehört an die
+  -- Person, nicht in den Antrag: beim nächsten Antrag desselben Kindes
+  -- (Vereinswechsel, Namensänderung) muss sie schon dastehen.
+  nationalitaet     TEXT,
+
   geschlecht        TEXT,                      -- 'w' | 'm' | 'd' | NULL
 
   -- Anschrift. Straße und Hausnummer bewusst in EINEM Feld — dieselbe
@@ -462,6 +467,17 @@ CREATE TABLE aufnahmeantrag (
   signatur_ip       TEXT,
   signatur_agent    TEXT,
   signatur_zeit     TEXT,
+
+  -- Woher der Antrag kam: 'antrag' = allgemeiner Aufnahmeantrag,
+  -- 'nachwuchs' = Anmeldung eines Jugendspielers mit Spielerlaubnis.
+  -- Eine SPALTE, kein Feld im JSON: die Liste filtert und zählt danach.
+  quelle            TEXT NOT NULL DEFAULT 'antrag',
+
+  -- Schlüssel des abgeschotteten Bereichs beim admin-worker, in dem die
+  -- Nachweise liegen (Geburtsurkunde, Spielerpass, Abmeldung). 32 Hex,
+  -- vom Server dort vergeben. Die Dateien selbst liegen in Nextcloud —
+  -- Ausweiskopien haben in dieser Datenbank nichts zu suchen.
+  nachweis_owner    TEXT,
 
   status            TEXT NOT NULL DEFAULT 'neu',
                     -- 'neu' | 'geprueft' | 'angenommen' | 'abgelehnt' | 'zurueckgezogen'
