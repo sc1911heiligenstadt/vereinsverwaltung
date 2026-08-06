@@ -986,3 +986,29 @@ table.schmal { width: auto; max-width: 100%; }
 @media (max-width: 820px) {
   input, select, textarea { font-size: 16px !important; }
 }
+
+/* Nachweise der Nachwuchs-Anmeldung (nachwuchs.html).
+   Jede Anlage ist ein eigener Block mit Titel, Erklaerung, Dateiauswahl
+   und Zustand — eine Reihe nebeneinander waere am Handy unlesbar, und die
+   Erklaerung gehoert zwingend VOR die Auswahl: wer erst nach dem Antippen
+   erfaehrt, was gemeint war, hat schon das falsche Foto gewaehlt. */
+.nachweis-zeile {
+  border: 1px solid var(--line, #dfe3e8);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 0 0 12px;
+  background: #fbfcfd;
+}
+.nachweis-zeile h3 { margin: 0 0 4px; font-size: 14px; }
+.nachweis-zeile .fussnote { margin: 0 0 10px; }
+/* input[type=file] erbt sonst die 100%-Breite der Formularfelder und
+   sprengt am Handy den Block — dieselbe Falle wie bei den Kaestchen. */
+.nachweis-zeile input[type="file"] {
+  width: 100%;
+  max-width: 100%;
+  font-size: 14px;
+}
+.nachweis-stand { margin-top: 8px; }
+/* Der Zustand steht in einem .hinweis, der sonst 14px Aussenabstand
+   mitbringt und den Block auseinanderzieht. */
+.nachweis-stand .hinweis { margin: 0; padding: 6px 10px; font-size: 13px; }

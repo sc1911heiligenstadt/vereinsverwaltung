@@ -11,6 +11,14 @@
 
 const ANTRAG_WORKER_URL = "https://vereinsverwaltung.michel-brunner.workers.dev";
 
+// Die Nachweise zur Nachwuchs-Anmeldung gehen NICHT an den Worker oben,
+// sondern an das Gateway der ToolsUebersicht. Grund: dieser Worker hat
+// kein Nextcloud-Binding (seine Daten liegen in D1) und soll auch keines
+// bekommen -- Ausweiskopien gehoeren nicht in dieselbe Datenbank wie
+// Beitraege und Buchhaltung, die naechtliche Sicherung zoege sie sonst
+// jedesmal mit.
+const GATEWAY_URL = "https://landingpage.michel-brunner.workers.dev";
+
 // Steht hier statt in config.js -- aus demselben Grund wie die
 // Worker-Adresse. Sie bleibt wie flottenweit dauerhaft auf "1.0"; was
 // sich geaendert hat, steht in ANTRAG_CHANGELOG.
@@ -34,6 +42,22 @@ const ANTRAG_CHANGELOG = [
       "Das SEPA-Lastschriftmandat wird im selben Zug erteilt. Wer lieber überweist, kann das wählen.",
       "Nach dem Absenden erscheint eine Bestätigungsseite mit allen Angaben und der Unterschrift. Sie ist die eigene Kopie der Erklärung und lässt sich drucken oder als PDF sichern.",
       "Der Antrag ist noch keine Mitgliedschaft: über die Aufnahme entscheidet nach § 4 der Satzung der Gesamtvorstand."
+    ]
+  }
+];
+
+// Eigener Block fuer nachwuchs.html. Nicht ANTRAG_CHANGELOG mitbenutzen:
+// der beschreibt den allgemeinen Aufnahmeantrag, und was den Nachwuchs
+// betrifft, geht dort zwischen Beitragsart und Familienverbund unter.
+const NACHWUCHS_CHANGELOG = [
+  {
+    version: "Anmeldung und Spielerlaubnis in einem Durchgang",
+    datum: "2026-08-06",
+    punkte: [
+      "Neue Jugendspieler werden über einen Link angemeldet — Aufnahmeantrag und Antrag auf Spielerlaubnis entstehen daraus zusammen. Zweimal dieselben Angaben einzutragen entfällt.",
+      "Erstausstellung, Vereinswechsel, Rückkehrer und Namensänderung stehen zur Wahl. Beim Wechsel fragt das Formular nach dem bisherigen Verein und danach, ob die Abmeldung schon erfolgt ist oder der Verein sie übernehmen soll.",
+      "Die Nachweise, die der Verband als Anlage verlangt — Geburtsurkunde, Ausweis, Spielerpass, Abmeldung — lassen sich als Foto mit dem Handy hochladen. Sie liegen getrennt von den übrigen Daten und sind nur für die Geschäftsstelle einsehbar.",
+      "Unterschrieben wird am Bildschirm. Die Unterschriften stehen anschließend auf dem Verbandsformular, das die Geschäftsstelle ausdruckt, stempelt und einreicht."
     ]
   }
 ];
@@ -106,6 +130,58 @@ function ladeAntragInfo() {
 
 function sendeAntrag(daten) {
   return antragRequest("vv-antrag-senden", daten);
+}
+
+// ⚠️ Eigene Aktion, nicht ein Feld "quelle" im Koerper von
+// vv-antrag-senden: so haengt die Herkunft am aufgerufenen Weg statt an
+// einer Behauptung des Clients und laesst sich nicht umschreiben.
+function sendeNachwuchsAntrag(daten) {
+  return antragRequest("vv-nachwuchs-senden", daten);
+}
+
+// --- Nachweise (Gateway, ohne Login) ----------------------------------
+
+// Der Owner-Schluessel wird beim ERSTEN Upload vom Server vergeben und
+// zurueckgegeben. Jeder weitere Nachweis desselben Antrags schickt ihn
+// mit, damit alle Anlagen zusammen liegen. Nie selbst einen erfinden.
+async function ladeNachweisHoch(slot, datei, owner) {
+  const dataBase64 = await dateiAlsBase64(datei);
+
+  let res;
+  try {
+    res = await fetch(GATEWAY_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "vv-nachweis-put",
+        slot,
+        owner: owner || "",
+        contentType: datei.type || "application/octet-stream",
+        dataBase64
+      })
+    });
+  } catch {
+    throw new Error("Der Nachweis konnte nicht hochgeladen werden. Bitte die Verbindung pruefen.");
+  }
+
+  const daten = await res.json().catch(() => null);
+  if (!res.ok) throw new Error((daten && daten.error) || ("Fehler " + res.status));
+  return daten;   // { ok, owner, slot }
+}
+
+// ⚠️ Blob.arrayBuffer() gibt es erst ab iOS 14, und in der Flotte sind
+// aeltere Geraete. Deshalb der FileReader als Weg, nicht als Rueckfall.
+function dateiAlsBase64(datei) {
+  return new Promise((resolve, reject) => {
+    const leser = new FileReader();
+    leser.onload = () => {
+      const s = String(leser.result || "");
+      const komma = s.indexOf(",");
+      resolve(komma >= 0 ? s.slice(komma + 1) : s);
+    };
+    leser.onerror = () => reject(new Error("Die Datei konnte nicht gelesen werden"));
+    leser.readAsDataURL(datei);
+  });
 }
 
 // --- Sicht-Reiter (nur angemeldet) ------------------------------------

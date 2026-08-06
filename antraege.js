@@ -376,6 +376,8 @@ function zeichneAntrag() {
     anZeile("Ort der Unterschrift", i.unterschrift_ort) +
     "</tbody></table></div>" +
 
+    anSpielerlaubnisBlock(a, i) +
+
     "<h3>Unterschrift</h3>" +
     '<div class="unterschrift-beleg">' +
       (a.unterschrift
@@ -395,13 +397,173 @@ function zeichneAntrag() {
       esc((a.signatur_agent || "—").slice(0, 90)) + "</p>" +
     '<div class="knopfreihe nicht-drucken">' +
       '<button class="btn grau" id="btn-an-papier" type="button">Als Papierantrag drucken</button>' +
+      // Nur bei einer Nachwuchs-Anmeldung: ohne die Angaben aus dem
+      // Spielerlaubnis-Block bliebe der halbe Bogen leer, und ein
+      // unbrauchbares Blatt anzubieten ist schlimmer als kein Knopf.
+      (i.spielerlaubnis
+        ? '<button class="btn" id="btn-an-tfv" type="button">TFV-Antrag erzeugen</button>'
+        : "") +
     "</div>" +
+    '<div id="an-tfv-hinweise"></div>' +
 
     (entschieden ? anAngenommenBlock(a) : anEntscheidungsBlock(a, i));
 
   $("btn-an-papier").addEventListener("click", druckePapierantrag);
+  if ($("btn-an-tfv")) $("btn-an-tfv").addEventListener("click", erzeugeTfvAntrag);
+  anZeigeNachweise(a);
 
   if (!entschieden) anVerdrahteEntscheidung();
+}
+
+// ---------------------------------------------------------------------
+// Spielerlaubnis: Angaben, Nachweise, Verbandsformular
+// ---------------------------------------------------------------------
+
+const AN_SP_ART = {
+  erstausstellung: "Erstausstellung",
+  vereinswechsel: "Vereinswechsel",
+  rueckkehrer: "Rückkehrer",
+  namensaenderung: "Namensänderung / Korrektur"
+};
+
+const AN_NACHWEIS_TITEL = {
+  geburtsurkunde: "Geburtsurkunde oder Ausweis",
+  spielerpass: "Bisheriger Spielerpass",
+  abmeldung: "Nachweis der Abmeldung",
+  namensaenderung: "Dokument der Namensänderung"
+};
+
+function anSpielerlaubnisBlock(a, i) {
+  const s = i.spielerlaubnis;
+  if (!s) return "";
+
+  return "<h3>Antrag auf Spielerlaubnis</h3>" +
+    '<div class="tabelle-scroll"><table class="zusammenfassung"><tbody>' +
+    anZeile("Art der Passausstellung", AN_SP_ART[s.art] || s.art) +
+    anZeile("Staatsangehörigkeit", i.nationalitaet) +
+    anZeile("Bisheriger Verein", s.letzter_verein) +
+    anZeile("Landesverband", s.landesverband) +
+    anZeile("Pass-Nummer", s.pass_nr) +
+    anZeile("Abmeldung", s.abmeldeweg === "1"
+      ? "bereits erfolgt, Nachweis liegt vor"
+      : (s.abmeldeweg === "2" ? "wird vom Verein übernommen" : "")) +
+    anZeile("DFB-Werbeeinwilligung", s.einwilligung_dfb_marketing
+      ? "erteilt" : "nicht erteilt") +
+    "</tbody></table></div>" +
+    // Der Bogen verlangt bei Auslaendern ab 10 zusaetzlich einen Antrag
+    // auf internationale Freigabe. Die Familie hat den Hinweis beim
+    // Ausfuellen gesehen -- hier steht er, weil ihn die Geschaeftsstelle
+    // beim Einreichen braucht.
+    (anBrauchtFreigabe(i)
+      ? '<div class="hinweis warn"><strong>Internationale Freigabe nötig.</strong> ' +
+        "Bei einer anderen als der deutschen Staatsangehörigkeit verlangt der Verband " +
+        "ab dem 10. Lebensjahr zusätzlich einen Antrag auf internationale Freigabe. " +
+        "Er ist dem Spielerlaubnisantrag beizufügen.</div>"
+      : "") +
+    '<div id="an-nachweise"></div>';
+}
+
+function anBrauchtFreigabe(i) {
+  const nat = String(i.nationalitaet || "").trim().toLowerCase();
+  if (!nat || /^(deutsch|de|deutschland|german)$/.test(nat)) return false;
+  // alterJahre() aus app.js -- dieselbe Rechnung wie ueberall in dieser
+  // App, nicht eine zweite daneben.
+  const alter = alterJahre(i.geburtsdatum);
+  return alter !== null && alter >= 10;
+}
+
+// Die Nachweise liegen beim Gateway, nicht in dieser Datenbank -- sie
+// werden deshalb erst NACH dem Zeichnen der Karte nachgeladen. Ein
+// Fehlschlag darf die Antragsansicht nicht aufhalten.
+async function anZeigeNachweise(a) {
+  const ziel = $("an-nachweise");
+  if (!ziel) return;
+
+  if (!a.nachweis_owner) {
+    ziel.innerHTML = '<div class="hinweis warn"><strong>Keine Nachweise hochgeladen.</strong> ' +
+      "Der Verband verlangt sie als Anlage zum Antrag — bitte bei der Familie nachfragen.</div>";
+    return;
+  }
+
+  ziel.innerHTML = '<p class="fussnote">Nachweise werden geladen …</p>';
+  let antwort;
+  try {
+    antwort = await ladeNachweisListe(a.nachweis_owner);
+  } catch (e) {
+    ziel.innerHTML = '<div class="hinweis fehler">Die Nachweise sind gerade nicht ' +
+      "erreichbar: " + esc(e.message) + "</div>";
+    return;
+  }
+
+  const liste = (antwort && antwort.nachweise) || [];
+  if (!liste.length) {
+    ziel.innerHTML = '<div class="hinweis warn">Zu diesem Antrag liegt keine Datei vor.</div>';
+    return;
+  }
+
+  ziel.innerHTML = "<h4>Nachweise</h4>" +
+    '<div class="knopfreihe nicht-drucken">' +
+    liste.map((n) =>
+      '<button class="btn grau klein" type="button" data-nachweis="' + esc(n.slot) + '">' +
+      esc(AN_NACHWEIS_TITEL[n.slot] || n.slot) +
+      ' <span class="fussnote">(' + Math.round((n.groesse || 0) / 1024) + " KB)</span></button>"
+    ).join(" ") + "</div>";
+
+  ziel.querySelectorAll("[data-nachweis]").forEach((b) => {
+    b.addEventListener("click", () => oeffneNachweis(a.nachweis_owner, b.dataset.nachweis));
+  });
+}
+
+// ⚠️ window.open steht VOR jedem await -- iOS-Safari blockt danach
+// lautlos. Das Fenster wird erst geoeffnet und dann befuellt.
+async function oeffneNachweis(owner, slot) {
+  const fenster = window.open("", "_blank");
+  try {
+    const blob = await ladeNachweisDatei(owner, slot);
+    const url = URL.createObjectURL(blob);
+    if (fenster) fenster.location = url;
+    else window.location = url;
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (e) {
+    if (fenster) fenster.close();
+    alert("Der Nachweis konnte nicht geladen werden: " + e.message);
+  }
+}
+
+async function erzeugeTfvAntrag() {
+  const knopf = $("btn-an-tfv");
+  const hinweisZiel = $("an-tfv-hinweise");
+  knopf.disabled = true;
+  knopf.textContent = "Wird erzeugt …";
+  hinweisZiel.innerHTML = "";
+
+  try {
+    const hinweise = await tfvAntragHerunterladen({
+      antrag: anAktuell.antrag,
+      vereinsname: (anEinstellungen && anEinstellungen.verein_name) || "",
+      vereinsNr: (anEinstellungen && anEinstellungen.tfv_vereinsnummer) || "",
+      unterschriftOrt: anAktuell.antrag.inhalt.unterschrift_ort,
+      datum: anAktuell.antrag.signatur_zeit || anAktuell.antrag.eingang_am
+    });
+
+    // Ueberlaengen werden GEMELDET, nicht still abgeschnitten: das Raster
+    // fasst 29 Zeichen, und was darueber hinausgeht, faellt sonst erst
+    // beim Verband auf.
+    hinweisZiel.innerHTML = hinweise.length
+      ? '<div class="hinweis warn"><strong>Bitte vor dem Einreichen prüfen:</strong><ul>' +
+        hinweise.map((h) => "<li>" + esc(h) + "</li>").join("") +
+        "</ul>Die betroffenen Felder sind im PDF gekürzt. Korrigieren lässt sich das " +
+        "nur, indem die Angabe in der Mitgliederverwaltung geändert und der Antrag " +
+        "neu erzeugt wird.</div>"
+      : '<div class="hinweis erfolg">Der Verbandsantrag ist erzeugt. ' +
+        "Bitte ausdrucken, mit Vereinsstempel und Unterschrift versehen und über " +
+        "DFBnet Pass-Online einreichen.</div>";
+  } catch (e) {
+    hinweisZiel.innerHTML = '<div class="hinweis fehler">' + esc(e.message) + "</div>";
+  }
+
+  knopf.disabled = false;
+  knopf.textContent = "TFV-Antrag erzeugen";
 }
 
 function anAngenommenBlock(a) {

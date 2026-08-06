@@ -20,3 +20,6 @@ d1-export*.sql
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# Lokale Dev-Server-Konfiguration, kein Teil der App
+.claude/

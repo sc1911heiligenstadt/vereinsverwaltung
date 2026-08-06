@@ -123,3 +123,53 @@ function ladeBibliothek(url) {
 function ladeTabellenBibliothek() {
   return ladeBibliothek("https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js");
 }
+
+// --- Nachweise der Nachwuchs-Anmeldung --------------------------------
+//
+// ⚠️ Diese beiden Wege gehen an das Gateway der ToolsUebersicht, NICHT an
+// den eigenen Worker: dort liegen die Dateien, weil dieser Worker kein
+// Nextcloud-Binding hat und keines bekommen soll -- Ausweiskopien
+// gehoeren nicht in dieselbe Datenbank wie Beitraege und Buchhaltung.
+//
+// Das Recht prueft das Gateway an der Kachel "vereinsverwaltung"
+// (Bearbeiten schliesst Administrieren ein). Es kennt die Rollen dieser
+// App nicht -- die liegen in D1.
+const VV_GATEWAY_URL = "https://landingpage.michel-brunner.workers.dev";
+
+async function gatewayRequest(action, body) {
+  const token = getSessionToken();
+  if (!token) throw new NotLoggedInError();
+
+  let res;
+  try {
+    res = await fetch(VV_GATEWAY_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + token
+      },
+      body: JSON.stringify({ action, ...(body || {}) })
+    });
+  } catch {
+    throw new Error("Das Gateway ist nicht erreichbar.");
+  }
+  return res;
+}
+
+async function ladeNachweisListe(owner) {
+  const res = await gatewayRequest("vv-nachweis-liste", { owner });
+  const daten = await res.json().catch(() => null);
+  if (!res.ok) throw new Error((daten && daten.error) || ("Fehler " + res.status));
+  return daten;
+}
+
+// Gibt einen Blob zurueck, keinen JSON-Satz: die Aktion liefert rohe
+// Bytes mit dem Content-Type aus Nextcloud.
+async function ladeNachweisDatei(owner, slot) {
+  const res = await gatewayRequest("vv-nachweis-get", { owner, slot });
+  if (!res.ok) {
+    const daten = await res.json().catch(() => null);
+    throw new Error((daten && daten.error) || ("Fehler " + res.status));
+  }
+  return await res.blob();
+}

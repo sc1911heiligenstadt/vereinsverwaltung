@@ -1523,6 +1523,13 @@ const EINSTELLUNGEN = {
   glaeubiger_id:    { gruppe: "sepa", label: "Glaeubiger-Identifikationsnummer", max: 35, pflicht: true },
   verwendungszweck: { gruppe: "sepa", label: "Verwendungszweck", max: 140 },
 
+  // Vereinsnummer beim Landesverband, fuer den Spielerlaubnisantrag.
+  // ⚠️ LEER LASSEN, solange der Bogen sie vorgedruckt traegt -- ein
+  // gesetzter Wert schreibt sich sonst ueber den Aufdruck. Sie steht hier
+  // fuer den Fall, dass der Verband ein neutrales Formular ausgibt.
+  tfv_vereinsnummer: { gruppe: "antrag", label: "Vereinsnummer beim Landesverband " +
+                       "(nur setzen, wenn der Bogen sie NICHT vorgedruckt traegt)", max: 8 },
+
   // Mahnwesen. Fristen und Gebuehren gehoeren nicht in den Code: eine
   // geaenderte Zahlungsfrist darf kein Deploy sein.
   mahn_karenz_tage: { gruppe: "mahnung", label: "Karenz nach Faelligkeit (Tage)",

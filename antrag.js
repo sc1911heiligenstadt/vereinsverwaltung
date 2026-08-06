@@ -7,60 +7,15 @@
 //
 // Eigene Helfer statt app.js: die Seite laedt bewusst kein einziges
 // Skript der Verwaltung mit.
-
-function $(id) { return document.getElementById(id); }
-
-function esc(wert) {
-  return String(wert === null || wert === undefined ? "" : wert)
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function eur(cent) {
-  return (cent / 100).toLocaleString("de-DE", { minimumFractionDigits: 2 }) + " Euro";
-}
-
-function datumDe(iso) {
-  if (!iso) return "";
-  const t = String(iso).slice(0, 10).split("-");
-  return t.length === 3 ? t[2] + "." + t[1] + "." + t[0] : String(iso);
-}
-
-function heuteIso() {
-  // Lokal bilden, nicht ueber toISOString: das liefert in deutscher
-  // Sommerzeit vor 02:00 Uhr den Vortag. Flottenregel.
-  const d = new Date();
-  return d.getFullYear() + "-" +
-    String(d.getMonth() + 1).padStart(2, "0") + "-" +
-    String(d.getDate()).padStart(2, "0");
-}
-
-// Gleiche Rechnung wie ibanGueltig() im Worker (ISO 13616, Modulo 97).
-// Hier nur fuer die sofortige Rueckmeldung im Feld — massgeblich bleibt
-// die Pruefung des Servers.
-function ibanPruefziffer(roh) {
-  const s = String(roh || "").replace(/\s+/g, "").toUpperCase();
-  if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]{10,30}$/.test(s)) return false;
-  const um = s.slice(4) + s.slice(0, 4);
-  let rest = 0;
-  for (const zeichen of um) {
-    const wert = zeichen >= "0" && zeichen <= "9"
-      ? zeichen
-      : String(zeichen.charCodeAt(0) - 55);
-    for (const ziffer of wert) rest = (rest * 10 + Number(ziffer)) % 97;
-  }
-  return rest === 1;
-}
-
-// Alter zum Stichtag — dieselbe Rechnung wie alterAm() im Worker.
-function alterHeute(geburtsdatum) {
-  const g = String(geburtsdatum || "").slice(0, 10).split("-").map(Number);
-  if (g.length !== 3 || !g[0]) return null;
-  const s = heuteIso().split("-").map(Number);
-  let a = s[0] - g[0];
-  if (s[1] < g[1] || (s[1] === g[1] && s[2] < g[2])) a--;
-  return a;
-}
+//
+// ⚠️ Die Helfer und der Formularkern stehen seit 06.08.2026 in
+// antrag-felder.js und werden mit nachwuchs.html GETEILT -- $, esc, eur,
+// datumDe, heuteIso, ibanPruefziffer, alterHeute, istLastschrift,
+// sammleGemeinsameFelder, pruefeGemeinsameFelder, sammleSparten,
+// baueMandatstext, baueBeitragsliste, baueSpartenAuswahl, sigFeldPflegen.
+// Hier steht nur noch, was diese Seite allein betrifft. Wer eine der
+// Funktionen zurueckkopiert, hat nach der ersten Aenderung zwei
+// verschiedene Antraege.
 
 let info = null;
 let sigPad = null;
@@ -348,52 +303,20 @@ function druckeEingang() {
 }
 
 function zeigeBeitraege() {
-  if (!info.beitraege || !info.beitraege.length) { $("beitrags-info").innerHTML = ""; return; }
-  $("beitrags-info").innerHTML =
-    '<h3>Jahresbeitrag</h3><ul class="beitragsliste">' +
-    info.beitraege.map((b) =>
-      "<li>" + esc(b.name) + ": <strong>" + eur(b.betrag_cent) + "</strong></li>").join("") +
-    "</ul><p class=\"fussnote\">Im Familienverbund jeweils die H&auml;lfte. " +
-    "Der Beitrag wird einmal j&auml;hrlich eingezogen.</p>";
+  $("beitrags-info").innerHTML = baueBeitragsliste(info);
 }
 
 function zeigeSparten() {
-  const ziel = $("a-sparten");
-  if (!info.sparten || !info.sparten.length) {
-    ziel.innerHTML = '<p class="fussnote">Es sind noch keine Abteilungen hinterlegt. ' +
-      "Bitte tragen Sie Ihren Wunsch unten in die Anmerkung ein.</p>";
-    return;
-  }
-  ziel.innerHTML = info.sparten.map((s) =>
-    '<label class="ankreuz"><input type="checkbox" class="sparte-haken" value="' +
-    esc(s.id) + '"><span>' + esc(s.name) + "</span></label>").join("");
+  $("a-sparten").innerHTML = baueSpartenAuswahl(info);
 }
 
 function zeigeMandatstext() {
-  $("a-mandatstext").innerHTML =
-    "<strong>SEPA-Lastschriftmandat</strong>" +
-    "<p>Ich erm&auml;chtige den " + esc(info.verein) + ", wiederkehrende Zahlungen von " +
-    "meinem Konto mittels Lastschrift einzuziehen. Zugleich weise ich mein Kreditinstitut " +
-    "an, die vom " + esc(info.verein) + " auf mein Konto gezogenen Lastschriften " +
-    "einzul&ouml;sen.</p>" +
-    "<p>Hinweis: Ich kann innerhalb von acht Wochen, beginnend mit dem Belastungsdatum, " +
-    "die Erstattung des belasteten Betrages verlangen. Es gelten dabei die mit meinem " +
-    "Kreditinstitut vereinbarten Bedingungen.</p>" +
-    (info.glaeubiger_id
-      ? '<p class="fussnote">Gl&auml;ubiger-Identifikationsnummer: ' +
-        esc(info.glaeubiger_id) + "</p>"
-      : "") +
-    '<p class="fussnote">Die Mandatsreferenz erhalten Sie mit der Aufnahmebest&auml;tigung. ' +
-    "Der Einzug wird mindestens f&uuml;nf Tage vorher angek&uuml;ndigt.</p>";
+  $("a-mandatstext").innerHTML = baueMandatstext(info);
 }
 
 // ---------------------------------------------------------------------
 // Zustand des Formulars
 // ---------------------------------------------------------------------
-
-function istLastschrift() {
-  return $("a-zart-last").checked;
-}
 
 function zeigeZahlungsart() {
   const last = istLastschrift();
@@ -417,10 +340,7 @@ function zeigeMinderjaehrig() {
   $("nr-einwilligung").textContent = (minder ? "6" : "5") + " — Erklärungen";
   $("nr-unterschrift").textContent = (minder ? "7" : "6") + " — Unterschrift";
 
-  if (minder && !sigPadGesetzl) {
-    sigPadGesetzl = createSignaturePad($("a-sig-gesetzl"));
-  }
-  if (minder && sigPadGesetzl) sigPadGesetzl.resize();
+  sigPadGesetzl = sigFeldPflegen(sigPadGesetzl, "a-sig-gesetzl", minder);
   zeigeZweitenVertreter();
   aktualisiereSigTitel();
 }
@@ -436,12 +356,7 @@ function zeigeZweitenVertreter() {
   $("a-gesetzl2-block").hidden = !zweiter;
   $("a-sig-gesetzl2-block").hidden = !zweiter;
 
-  // Erst erzeugen, wenn das Feld sichtbar ist: ein Canvas hinter hidden
-  // misst 0x0, und dann bleibt leer, was jemand hineinmalt.
-  if (zweiter && !sigPadGesetzl2) {
-    sigPadGesetzl2 = createSignaturePad($("a-sig-gesetzl2"));
-  }
-  if (zweiter && sigPadGesetzl2) sigPadGesetzl2.resize();
+  sigPadGesetzl2 = sigFeldPflegen(sigPadGesetzl2, "a-sig-gesetzl2", zweiter);
 }
 
 function aktualisiereSigTitel() {
@@ -487,53 +402,25 @@ function meldung(text) {
 // ---------------------------------------------------------------------
 
 function sammle() {
-  const sparten = Array.from(document.querySelectorAll(".sparte-haken"))
-    .filter((h) => h.checked).map((h) => h.value);
-
   const minder = !$("a-karte-gesetzl").hidden;
   const zweiter = minder && !$("a-allein-sorge").checked;
 
-  return {
-    anrede: $("a-anrede").value,
-    geschlecht: $("a-geschlecht").value,
-    vorname: $("a-vorname").value,
-    nachname: $("a-nachname").value,
-    geburtsdatum: $("a-geburtsdatum").value,
-    geburtsort: $("a-geburtsort").value,
-    strasse: $("a-strasse").value,
-    plz: $("a-plz").value,
-    ort: $("a-ort").value,
-    email: $("a-email").value,
-    mobil: $("a-mobil").value,
-    telefon: $("a-telefon").value,
+  return Object.assign(sammleGemeinsameFelder(), {
+    // Nur auf dieser Seite: die Art der Mitgliedschaft, der Eintrittswunsch
+    // und die Beitragseinschaetzung. Die Nachwuchsseite leitet beides aus
+    // dem Alter ab.
     art: $("a-art").value,
     eintritt_wunsch: $("a-eintritt").value,
     beitragsart_wunsch: $("a-beitragsart").value,
     familie_hinweis: $("a-familie").value,
-    sparten,
-    zahlungsart: istLastschrift() ? "lastschrift" : "ueberweisung",
-    kontoinhaber: $("a-kontoinhaber").value,
-    kontoinhaber_anschrift: $("a-kontoinhaber-anschrift").value,
-    iban: $("a-iban").value,
-    bic: $("a-bic").value,
-    bank_name: $("a-bank-name").value,
-    unterschrift_ort: $("a-sig-ort").value,
-    gesetzl_name: $("a-gesetzl-name").value,
-    gesetzl_verhaeltnis: $("a-gesetzl-verhaeltnis").value,
-    allein_sorgeberechtigt: minder && $("a-allein-sorge").checked,
-    gesetzl2_name: zweiter ? $("a-gesetzl2-name").value : "",
-    gesetzl2_verhaeltnis: zweiter ? $("a-gesetzl2-verhaeltnis").value : "",
-    einwilligung_satzung: $("a-ew-satzung").checked,
-    einwilligung_datenschutz: $("a-ew-datenschutz").checked,
-    einwilligung_fotos: $("a-ew-fotos").checked,
-    bemerkung: $("a-bemerkung").value,
+    sparten: sammleSparten(),
     unterschrift: sigPad ? sigPad.toDataURL() : "",
     unterschrift_gesetzl: sigPadGesetzl ? sigPadGesetzl.toDataURL() : "",
     // Nur mitschicken, wenn ein zweiter Vertreter ueberhaupt verlangt ist:
     // sonst kaeme die Unterschrift eines Feldes mit, das der Antragsteller
     // vor dem Ankreuzen von "allein sorgeberechtigt" ausgefuellt hatte.
     unterschrift_gesetzl2: zweiter && sigPadGesetzl2 ? sigPadGesetzl2.toDataURL() : ""
-  };
+  });
 }
 
 async function absenden() {
@@ -542,30 +429,8 @@ async function absenden() {
 
   const daten = sammle();
 
-  // Nur die Faelle, die sich hier ohne Rundlauf sagen lassen. Massgeblich
-  // ist die Pruefung des Servers — der Client ist keine Zusage.
-  if (!daten.unterschrift) {
-    meldung("Bitte unterschreiben Sie im Feld unten.");
-    return;
-  }
-  if (!$("a-karte-gesetzl").hidden && !daten.unterschrift_gesetzl) {
-    meldung("Bei Minderjährigen wird auch die Unterschrift des gesetzlichen " +
-            "Vertreters gebraucht.");
-    return;
-  }
-  if (!$("a-gesetzl2-block").hidden && !daten.gesetzl2_name.trim()) {
-    meldung("Bitte den zweiten Erziehungsberechtigten eintragen — oder ankreuzen, " +
-            "dass Sie allein sorgeberechtigt sind.");
-    return;
-  }
-  if (!$("a-sig-gesetzl2-block").hidden && !daten.unterschrift_gesetzl2) {
-    meldung("Es fehlt die Unterschrift des zweiten Erziehungsberechtigten.");
-    return;
-  }
-  if (daten.zahlungsart === "lastschrift" && !ibanPruefziffer(daten.iban)) {
-    meldung("Die IBAN stimmt nicht. Bitte prüfen Sie sie noch einmal.");
-    return;
-  }
+  const fehler = pruefeGemeinsameFelder(daten);
+  if (fehler) { meldung(fehler); return; }
 
   laeuft = true;
   const knopf = $("btn-antrag-senden");

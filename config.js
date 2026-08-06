@@ -39,6 +39,18 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Anmeldung Nachwuchs mit Spielerlaubnis",
+    datum: "2026-08-06",
+    punkte: [
+      "Neue Jugendspieler melden sich über eine eigene Seite an. Aus einem Durchgang entstehen beide Anträge: die Aufnahme nach § 4 und der Antrag auf Spielerlaubnis beim Thüringer Fußball-Verband.",
+      "Im Reiter „Anträge“ steht bei einer Nachwuchs-Anmeldung der Knopf „TFV-Antrag erzeugen“. Er füllt das Original-Formular des Verbandes aus — mit den Unterschriften der Familie darauf. Zu tun bleibt der Vereinsstempel und die Eingabe in DFBnet Pass-Online.",
+      "Passt eine Angabe nicht in die Kästchen des Verbandsformulars, sagt der Knopf das vorher und nennt das Feld. Abgeschnitten wird nichts stillschweigend.",
+      "Die Nachweise, die der Verband als Anlage verlangt, lassen sich beim Antrag ansehen. Sie liegen bewusst nicht in dieser Datenbank, sondern getrennt und zugriffsbeschränkt in der Vereins-Nextcloud — Ausweiskopien gehören nicht neben Beiträge und Buchhaltung.",
+      "Die Staatsangehörigkeit gehört jetzt zu den Stammdaten einer Person. Der Verband verlangt sie, und beim nächsten Antrag desselben Kindes steht sie schon da.",
+      "Die Nachwuchs-Anmeldung hat einen eigenen Schalter in den Einstellungen. Sie lässt sich zudrehen, ohne den allgemeinen Aufnahmeantrag mitzuschließen."
+    ]
+  },
+  {
     version: "Die Antragsseite wird ein eigenes Werkzeug",
     datum: "2026-08-06",
     punkte: [
