@@ -463,7 +463,11 @@ const AN_NACHWEIS_TITEL = {
   geburtsurkunde: "Geburtsurkunde oder Ausweis",
   spielerpass: "Bisheriger Spielerpass",
   abmeldung: "Nachweis der Abmeldung",
-  namensaenderung: "Dokument der Namensänderung"
+  namensaenderung: "Dokument der Namensänderung",
+  // ⚠️ Fehlte bis 06.08.2026 — der Knopf hieß dadurch roh „passbild". Das
+  // Bild ist kein Nachweis im Sinne des Bogens, wird aber im selben Zug
+  // hochgeladen und liegt deshalb im selben Ordner.
+  passbild: "Passbild"
 };
 
 function anSpielerlaubnisBlock(a, i) {
@@ -547,18 +551,89 @@ async function anZeigeNachweise(a) {
   });
 }
 
-// ⚠️ window.open steht VOR jedem await -- iOS-Safari blockt danach
-// lautlos. Das Fenster wird erst geoeffnet und dann befuellt.
+// ---------------------------------------------------------------------
+// Dateien ansehen statt herunterladen
+// ---------------------------------------------------------------------
+//
+// Michel-Vorgabe vom 06.08.2026: eine Anlage soll sich ANSEHEN lassen, und
+// im Anzeigefeld steht dann ein Knopf zum Herunterladen.
+//
+// ⚠️ Der frühere Weg (window.open auf eine Blob-URL) war kein Ansehen: was
+// der Browser damit macht, hängt vom Dateityp ab — bei allem außer Bild und
+// PDF ist es ein Download, und am Handy verliert man dabei den Antrag, aus
+// dem man kam. Nebenbei fällt damit die iOS-Falle weg, dass window.open
+// nach einem await lautlos blockiert wird: es wird kein Fenster mehr
+// geöffnet.
+
+let dateiUrl = null;
+
+function dateiEndung(mime) {
+  const t = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp",
+              "image/heic": "heic", "application/pdf": "pdf" };
+  return t[mime] || "dat";
+}
+
+function zeigeDatei(titel, blob, dateiname) {
+  // Eine noch offene Datei zuerst wegräumen — sonst bleibt ihre Blob-URL
+  // liegen, solange die Seite offen ist.
+  schliesseDatei();
+
+  const typ = blob.type || "";
+  dateiUrl = URL.createObjectURL(blob);
+
+  $("datei-titel").textContent = titel;
+  const buehne = $("datei-buehne");
+  buehne.innerHTML = "";
+
+  if (typ.indexOf("image/") === 0) {
+    const bild = document.createElement("img");
+    bild.src = dateiUrl;
+    bild.alt = titel;
+    buehne.appendChild(bild);
+  } else if (typ === "application/pdf") {
+    const rahmen = document.createElement("iframe");
+    rahmen.src = dateiUrl;
+    rahmen.title = titel;
+    buehne.appendChild(rahmen);
+  } else {
+    // Weder Bild noch PDF: ehrlich sagen, dass hier nichts zu sehen ist,
+    // statt ein leeres Feld zu zeigen. Der Knopf im Fuß führt weiter.
+    const hinweis = document.createElement("div");
+    hinweis.className = "datei-leer";
+    hinweis.textContent = "Diese Datei lässt sich hier nicht anzeigen (" +
+      (typ || "unbekannter Dateityp") + "). Bitte herunterladen.";
+    buehne.appendChild(hinweis);
+  }
+
+  const knopf = $("btn-datei-laden");
+  knopf.href = dateiUrl;
+  knopf.setAttribute("download", dateiname);
+
+  // ⚠️ Auf iOS zeigt ein iframe ein PDF nur als erste Seite oder gar nicht.
+  // Der Satz nennt deshalb den Ausweg, statt den Nutzer raten zu lassen.
+  $("datei-hinweis").textContent = typ === "application/pdf"
+    ? "Zeigt das Blatt nicht vollständig? Dann herunterladen."
+    : Math.max(1, Math.round(blob.size / 1024)) + " KB";
+
+  $("datei-overlay").hidden = false;
+}
+
+function schliesseDatei() {
+  $("datei-overlay").hidden = true;
+  $("datei-buehne").innerHTML = "";
+  if (dateiUrl) { URL.revokeObjectURL(dateiUrl); dateiUrl = null; }
+}
+
 async function oeffneNachweis(owner, slot) {
-  const fenster = window.open("", "_blank");
+  const titel = AN_NACHWEIS_TITEL[slot] || slot;
   try {
     const blob = await ladeNachweisDatei(owner, slot);
-    const url = URL.createObjectURL(blob);
-    if (fenster) fenster.location = url;
-    else window.location = url;
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    const name = ["nachweis", slot, (anAktuell && anAktuell.antrag &&
+      (anAktuell.antrag.inhalt || {}).nachname) || ""]
+      .filter(Boolean).join("_").replace(/[^A-Za-z0-9_-]/g, "") +
+      "." + dateiEndung(blob.type);
+    zeigeDatei(titel, blob, name);
   } catch (e) {
-    if (fenster) fenster.close();
     alert("Der Nachweis konnte nicht geladen werden: " + e.message);
   }
 }
@@ -652,17 +727,16 @@ async function anZeigeTfvStand(a) {
   $("btn-an-tfv-holen").addEventListener("click", () => oeffneAbgelegtenTfvAntrag(a.id));
 }
 
-// ⚠️ window.open steht VOR jedem await -- iOS-Safari blockt danach lautlos.
+// Dasselbe Anzeigefeld wie bei den Nachweisen — auch hier war der
+// Blob-Tab je nach Browser ein Download statt einer Ansicht.
 async function oeffneAbgelegtenTfvAntrag(id) {
-  const fenster = window.open("", "_blank");
   try {
     const blob = await ladeTfvAntragDatei(id);
-    const url = URL.createObjectURL(blob);
-    if (fenster) fenster.location = url;
-    else window.location = url;
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    const i = (anAktuell && anAktuell.antrag && anAktuell.antrag.inhalt) || {};
+    const name = ["Spielerlaubnis", i.nachname, i.vorname].filter(Boolean)
+      .join("_").replace(/[^A-Za-z0-9_-]/g, "") + ".pdf";
+    zeigeDatei("Abgelegtes Verbandsformular", blob, name);
   } catch (e) {
-    if (fenster) fenster.close();
     alert("Das abgelegte Formular konnte nicht geladen werden: " + e.message);
   }
 }
@@ -862,4 +936,17 @@ function druckePapierantrag() {
 function antraegeVerdrahten() {
   $("btn-an-zu").addEventListener("click", () => { $("antrag-overlay").hidden = true; });
   $("btn-an-schliessen").addEventListener("click", () => { $("antrag-overlay").hidden = true; });
+
+  $("btn-datei-zu").addEventListener("click", schliesseDatei);
+  $("btn-datei-schliessen").addEventListener("click", schliesseDatei);
+  // Klick auf den dunklen Rand schließt — aber nur dort. Ein Klick INS
+  // Bild soll es nicht wegnehmen.
+  $("datei-overlay").addEventListener("click", (e) => {
+    if (e.target === $("datei-overlay")) schliesseDatei();
+  });
+  // ⚠️ KEIN eigener Escape-Handler hier. `app.js` führt bereits eine Kette
+  // über alle Overlays und schließt das oberste; ein zweiter Handler
+  // daneben nähme der Datei den Vorrang und klappte im selben Tastendruck
+  // den Antrag darunter mit zu (im Browser gemessen, nicht vermutet).
+  // `datei-overlay` steht deshalb dort ganz vorn in der Kette.
 }

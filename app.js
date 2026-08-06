@@ -816,6 +816,12 @@ function init() {
   // dahinterliegende Detailansicht mit.
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
+    // ⚠️ Das Dateifenster liegt über allem (z-index 1010) und weicht
+    // deshalb zuerst. Es wird über schliesseDatei() zugemacht und nicht
+    // über hidden — sonst bleibt seine Blob-URL liegen, solange die Seite
+    // offen ist. Die Funktion steht in antraege.js, das VOR app.js geladen
+    // wird.
+    if (!$("datei-overlay").hidden) { schliesseDatei(); return; }
     for (const id of ["rueck-overlay", "zahlung-overlay", "lauf-overlay",
                       "antrag-overlay", "neu-overlay"]) {
       if (!$(id).hidden) { $(id).hidden = true; return; }

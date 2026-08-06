@@ -39,6 +39,16 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Nachweise ansehen statt herunterladen",
+    datum: "2026-08-06",
+    punkte: [
+      "Ein Klick auf eine Anlage öffnet sie jetzt in einem Fenster in der App — Bilder und PDF werden dort angezeigt. Der Knopf „Herunterladen“ steht daneben, wird aber nur noch gebraucht, wenn man die Datei wirklich speichern will.",
+      "Vorher landete jede Anlage in einem neuen Tab, und was der Browser damit machte, hing vom Dateityp ab: bei manchen war es sofort ein Download. Am Handy verlor man dabei den Antrag, aus dem man kam.",
+      "Das gilt genauso für das abgelegte Verbandsformular.",
+      "Der Knopf für das Passbild heißt jetzt „Passbild“ statt „passbild“."
+    ]
+  },
+  {
     version: "Passstelle: eigene Rolle für die Spielerlaubnis",
     datum: "2026-08-06",
     punkte: [
