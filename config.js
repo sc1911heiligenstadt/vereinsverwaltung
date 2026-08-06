@@ -39,6 +39,16 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Passstelle: eigene Rolle für die Spielerlaubnis",
+    datum: "2026-08-06",
+    punkte: [
+      "Wer die Spielerpässe macht, braucht dafür keinen Zugang zur Mitgliederverwaltung mehr. Die neue Rolle „Passstelle“ sieht ausschließlich die Nachwuchs-Anmeldungen samt ihren Nachweisen und erzeugt daraus den Antrag auf Spielerlaubnis.",
+      "Bankdaten bleiben dabei außen vor: IBAN, Kontoinhaber und Kreditinstitut verlassen den Server für diese Rolle gar nicht erst. Auch der Mitgliederbestand und die Dublettensuche bleiben verschlossen.",
+      "Über die Aufnahme in den Verein entscheidet weiterhin allein die Geschäftsstelle (§ 4 der Satzung). Die Passstelle kann einen Antrag weder annehmen noch ablehnen noch vormerken, und das öffentliche Formular kann sie nicht zudrehen.",
+      "Vergeben wird die Rolle wie die übrigen im Reiter „Rollen“. Zusätzlich braucht das Konto in der Tools-Übersicht das Bearbeiten-Häkchen auf der Kachel „Vereinsverwaltung“ — sonst lassen sich die Nachweise nicht öffnen und das erzeugte Formular nicht ablegen."
+    ]
+  },
+  {
     version: "Anmeldung Nachwuchs mit Spielerlaubnis",
     datum: "2026-08-06",
     punkte: [

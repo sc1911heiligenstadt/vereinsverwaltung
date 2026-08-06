@@ -10,6 +10,11 @@ let anListe = [];
 let anZaehler = {};
 let anAktuell = null;
 let anLaeuft = false;
+// Sicht der Passstelle: nur Nachwuchs-Anmeldungen, keine Bankdaten, kein
+// Beschluss. ⚠️ Der Wert kommt aus der SERVER-Antwort und wird nie aus
+// meineRechte abgeleitet — die Oberfläche soll genau das zeigen, was der
+// Worker geliefert hat, und nicht das, was sie zu dürfen glaubt.
+let anNurNachwuchs = false;
 // Vereinsstammdaten fuer den Papierausdruck. Sie stehen in der Datenbank
 // und nicht im Code -- eine Vereins-IBAN gehoert nicht in ein
 // oeffentliches Repository.
@@ -248,6 +253,7 @@ async function ladeAntraege(status) {
   }
   anListe = antwort.antraege || [];
   anZaehler = antwort.nach || {};
+  anNurNachwuchs = !!antwort.nur_nachwuchs;
   zeichneAntragsReiter();
   zeichneAntragsListe();
 }
@@ -265,15 +271,23 @@ function zeichneAntragsReiter() {
 function zeichneAntragsListe() {
   const ziel = $("an-liste");
   if (!anListe.length) {
-    ziel.innerHTML = '<div class="leer">Keine Anträge mit dem Status &bdquo;' +
+    ziel.innerHTML = '<div class="leer">Keine ' +
+      (anNurNachwuchs ? "Nachwuchs-Anmeldungen" : "Anträge") + " mit dem Status &bdquo;" +
       esc(AN_STATUS_TEXT[anStatus]) + "&ldquo;.</div>";
     return;
   }
 
+  // Die Zahlungsart gehört zur Beitragsseite. Der Server liefert sie der
+  // Passstelle gar nicht erst — die Spalte fällt hier mit weg, statt
+  // „Überweisung" für „nicht mitgeteilt" zu behaupten.
   ziel.innerHTML =
+    (anNurNachwuchs
+      ? '<p class="fussnote">Diese Liste zeigt ausschließlich die Nachwuchs-Anmeldungen. ' +
+        "Über die Aufnahme in den Verein entscheidet die Geschäftsstelle.</p>"
+      : "") +
     '<div class="tabelle-scroll"><table><thead><tr>' +
     "<th>Eingang</th><th>Name</th><th>Geboren</th><th>Ort</th>" +
-    "<th>Art</th><th>Abt.</th><th>Zahlung</th><th></th>" +
+    "<th>Art</th><th>Abt.</th>" + (anNurNachwuchs ? "" : "<th>Zahlung</th>") + "<th></th>" +
     "</tr></thead><tbody>" +
     anListe.map((a) =>
       '<tr class="an-zeile" data-id="' + esc(a.id) + '">' +
@@ -284,7 +298,8 @@ function zeichneAntragsListe() {
         "<td>" + esc(a.ort) + "</td>" +
         "<td>" + esc(a.art === "ausserordentlich" ? "außerordentl." : "ordentlich") + "</td>" +
         "<td>" + a.anzahl_sparten + "</td>" +
-        "<td>" + esc(a.zahlungsart === "lastschrift" ? "Lastschrift" : "Überweisung") + "</td>" +
+        (anNurNachwuchs ? ""
+          : "<td>" + esc(a.zahlungsart === "lastschrift" ? "Lastschrift" : "Überweisung") + "</td>") +
         '<td><button class="btn klein" type="button">Öffnen</button></td>' +
       "</tr>").join("") +
     "</tbody></table></div>";
@@ -320,6 +335,7 @@ function zeichneAntrag() {
   const a = anAktuell.antrag;
   const i = a.inhalt || {};
   const entschieden = a.status === "angenommen";
+  const nurNachwuchs = !!anAktuell.nur_nachwuchs;
 
   $("an-titel").textContent = (i.vorname || "") + " " + (i.nachname || "");
 
@@ -358,14 +374,19 @@ function zeichneAntrag() {
     anZeile("Mitgliedschaft", MITGLIEDSARTEN[i.art] || i.art) +
     anZeile("Eintritt gewünscht", datumDe(i.eintritt_wunsch)) +
     anZeile("Abteilungen", spartenNamen.join(", ")) +
-    anZeile("Beitragswunsch", i.beitragsart_wunsch) +
-    anZeile("Familie im Verein", i.familie_hinweis) +
-    anZeile("Zahlungsart", i.zahlungsart === "lastschrift" ? "SEPA-Lastschrift" : "Überweisung") +
-    anZeile("Kontoinhaber", i.kontoinhaber) +
-    anZeile("Anschrift Kontoinhaber", i.kontoinhaber_anschrift) +
-    anZeile("IBAN", i.iban) +
-    anZeile("BIC", i.bic) +
-    anZeile("Kreditinstitut", i.bank_name) +
+    // Beitrag und Bankverbindung stehen der Passstelle nicht zu. Der
+    // Server schickt die Felder gar nicht mit; die Zeilen entfallen hier
+    // ausdrücklich, statt sich auf leere Werte zu verlassen — bei
+    // „Zahlungsart" stünde sonst „Überweisung" für „nicht mitgeteilt".
+    (nurNachwuchs ? "" :
+      anZeile("Beitragswunsch", i.beitragsart_wunsch) +
+      anZeile("Familie im Verein", i.familie_hinweis) +
+      anZeile("Zahlungsart", i.zahlungsart === "lastschrift" ? "SEPA-Lastschrift" : "Überweisung") +
+      anZeile("Kontoinhaber", i.kontoinhaber) +
+      anZeile("Anschrift Kontoinhaber", i.kontoinhaber_anschrift) +
+      anZeile("IBAN", i.iban) +
+      anZeile("BIC", i.bic) +
+      anZeile("Kreditinstitut", i.bank_name)) +
     anZeile("Gesetzlicher Vertreter", i.gesetzl_name
       ? i.gesetzl_name + (i.gesetzl_verhaeltnis ? " (" + i.gesetzl_verhaeltnis + ")" : "") : "") +
     anZeile("Zweiter Erziehungsberechtigter", i.gesetzl2_name
@@ -396,7 +417,11 @@ function zeichneAntrag() {
       ", Internetadresse " + esc(a.signatur_ip || "—") + ". Gerät: " +
       esc((a.signatur_agent || "—").slice(0, 90)) + "</p>" +
     '<div class="knopfreihe nicht-drucken">' +
-      '<button class="btn grau" id="btn-an-papier" type="button">Als Papierantrag drucken</button>' +
+      // Der Papierantrag trägt das SEPA-Mandat mit Kontodaten — er ist das
+      // Vereinsdokument und bleibt bei der Geschäftsstelle. Die Passstelle
+      // bekäme ohnehin nur ein Blatt mit leerem Mandat.
+      (nurNachwuchs ? ""
+        : '<button class="btn grau" id="btn-an-papier" type="button">Als Papierantrag drucken</button>') +
       // Nur bei einer Nachwuchs-Anmeldung: ohne die Angaben aus dem
       // Spielerlaubnis-Block bliebe der halbe Bogen leer, und ein
       // unbrauchbares Blatt anzubieten ist schlimmer als kein Knopf.
@@ -406,14 +431,21 @@ function zeichneAntrag() {
     "</div>" +
     '<div id="an-tfv-hinweise"></div>' +
 
-    (entschieden ? anAngenommenBlock(a) : anEntscheidungsBlock(a, i));
+    // Über die Aufnahme entscheidet nach § 4 der Gesamtvorstand, eingetragen
+    // von der Geschäftsstelle. Die Passstelle sieht deshalb weder den
+    // Beschlussblock noch die Angaben der angenommenen Mitgliedschaft.
+    (nurNachwuchs
+      ? '<div class="hinweis info">Über die Aufnahme in den Verein entscheidet die ' +
+        "Geschäftsstelle (§ 4 der Satzung). Ihre Aufgabe hier ist der Antrag auf " +
+        "Spielerlaubnis: Angaben prüfen, Nachweise ansehen, Verbandsformular erzeugen.</div>"
+      : (entschieden ? anAngenommenBlock(a) : anEntscheidungsBlock(a, i)));
 
-  $("btn-an-papier").addEventListener("click", druckePapierantrag);
+  if ($("btn-an-papier")) $("btn-an-papier").addEventListener("click", druckePapierantrag);
   if ($("btn-an-tfv")) $("btn-an-tfv").addEventListener("click", erzeugeTfvAntrag);
   anZeigeNachweise(a);
   anZeigeTfvStand(a);
 
-  if (!entschieden) anVerdrahteEntscheidung();
+  if (!nurNachwuchs && !entschieden) anVerdrahteEntscheidung();
 }
 
 // ---------------------------------------------------------------------
@@ -539,10 +571,15 @@ async function erzeugeTfvAntrag() {
   hinweisZiel.innerHTML = "";
 
   try {
+    // Vereinsname und Verbandsnummer kommen seit der Passstellen-Rolle mit
+    // dem Antrag mit. ⚠️ `anEinstellungen` bleibt als Rückfall stehen: es
+    // stammt aus `vv-einstellungen`, das neben diesen beiden Werten die
+    // Vereins-IBAN führt und deshalb nur der Geschäftsstelle antwortet.
+    const verein = anAktuell.verein || {};
     const { bytes, hinweise } = await tfvAntragErzeugen({
       antrag: anAktuell.antrag,
-      vereinsname: (anEinstellungen && anEinstellungen.verein_name) || "",
-      vereinsNr: (anEinstellungen && anEinstellungen.tfv_vereinsnummer) || "",
+      vereinsname: verein.name || (anEinstellungen && anEinstellungen.verein_name) || "",
+      vereinsNr: verein.tfv_nr || (anEinstellungen && anEinstellungen.tfv_vereinsnummer) || "",
       unterschriftOrt: anAktuell.antrag.inhalt.unterschrift_ort,
       datum: anAktuell.antrag.signatur_zeit || anAktuell.antrag.eingang_am
     });

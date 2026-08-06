@@ -70,7 +70,8 @@ function rollenText(r) {
     geschaeftsstelle: "Geschäftsstelle",
     schatzmeister: "Schatzmeister",
     abteilungsleiter: "Abteilungsleitung",
-    vorstand: "Vorstand"
+    vorstand: "Vorstand",
+    passstelle: "Passstelle"
   };
   const liste = (r.rollen || []).map((x) => namen[x] || x);
   return liste.length ? liste.join(", ") : "Ohne Rolle";
@@ -98,11 +99,29 @@ async function start() {
   pille.hidden = false;
   pille.textContent = rollenText(meineRechte);
 
+  // Zwei Rollen kommen ohne Bestandssicht hierher, und sie brauchen
+  // verschiedene Sätze: der Vorstand sieht wirklich nichts weiter, die
+  // Passstelle hat einen eigenen Reiter. Ohne den Hinweis darauf sähe ihre
+  // Anmeldung nach einem Fehler aus.
   if (!meineRechte.darfPersonenSehen) {
-    $("liste-bereich").innerHTML =
-      '<div class="hinweis warn">Ihre Rolle ist für Kennzahlen vorgesehen und hat keinen Zugriff auf Personendaten. ' +
-      "Die Auswertungen entstehen in einer späteren Ausbaustufe.</div>";
+    $("liste-bereich").innerHTML = '<div class="hinweis warn">' +
+      (meineRechte.darfNachwuchs
+        ? "Ihre Rolle ist für die Spielerlaubnis vorgesehen: Der Mitgliederbestand " +
+          "bleibt verschlossen, die Nachwuchs-Anmeldungen stehen im Reiter " +
+          "<strong>Anträge</strong>."
+        : "Ihre Rolle ist für Kennzahlen vorgesehen und hat keinen Zugriff auf Personendaten. " +
+          "Die Auswertungen entstehen in einer späteren Ausbaustufe.") +
+      "</div>";
     document.querySelector(".filterleiste").hidden = true;
+
+    if (meineRechte.darfNachwuchs) {
+      $("nav-antraege").hidden = false;
+      // Formular-Schalter und Abteilungsauswahl sind Eingriffe in den
+      // Aufnahmeweg des ganzen Vereins; ihre beiden Aktionen antworten der
+      // Passstelle ohnehin mit 403, die Karte zeigte also nur Fehler.
+      $("an-formular-karte").hidden = true;
+      ladeAntraege();
+    }
     return;
   }
 

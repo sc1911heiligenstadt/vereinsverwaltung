@@ -382,7 +382,11 @@
         <div id="an-liste"></div>
       </div>
 
-      <div class="karte">
+      <!-- Nur für Geschäftsstelle und Schatzmeister: der Schalter dreht das
+           öffentliche Formular zu, die Häkchen bestimmen, welche Abteilungen
+           darin stehen. Beides sind Eingriffe in den Aufnahmeweg des ganzen
+           Vereins — die Passstelle bekommt die Karte nicht zu sehen. -->
+      <div class="karte" id="an-formular-karte">
         <h2>Das öffentliche Formular</h2>
         <div id="an-schalter"></div>
         <div id="an-sparten"></div>
@@ -413,6 +417,7 @@
               <option value="schatzmeister">Schatzmeister</option>
               <option value="abteilungsleiter">Abteilungsleitung</option>
               <option value="vorstand">Vorstand</option>
+              <option value="passstelle">Passstelle</option>
             </select>
           </div>
           <div class="feld" id="r-sparte-feld" hidden>
@@ -785,10 +790,10 @@
 
 <footer>1. SC 1911 Heiligenstadt &mdash; interne Vereinsverwaltung</footer>
 
-<script src="config.js?v=2.7"></script>
+<script src="config.js?v=2.8"></script>
 <script src="db.js?v=1.5"></script>
 <script src="import.js?v=1.2"></script>
-<script src="rollen.js?v=1.2"></script>
+<script src="rollen.js?v=1.3"></script>
 <script src="beitraege.js?v=1.1"></script>
 <script src="lauf.js?v=1.5"></script>
 <script src="zahlungen.js?v=1.1"></script>
@@ -798,7 +803,7 @@
      Knopf im Antrags-Reiter ruft tfvAntragHerunterladen(). pdf-lib laedt
      die Datei selbst nach, erst beim ersten Klick. -->
 <script src="tfv-antrag.js?v=1.1"></script>
-<script src="antraege.js?v=1.6"></script>
-<script src="app.js?v=2.2"></script>
+<script src="antraege.js?v=1.7"></script>
+<script src="app.js?v=2.3"></script>
 </body>
 </html>

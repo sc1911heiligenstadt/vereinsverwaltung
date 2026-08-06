@@ -64,7 +64,13 @@ const ROLLEN = new Set([
   "geschaeftsstelle",
   "schatzmeister",
   "abteilungsleiter",
-  "vorstand"
+  "vorstand",
+  // Spielerlaubnis beim Verband. Bewusst eine EIGENE Rolle statt eines
+  // zweiten Kontos in der Geschaeftsstelle: wer die Spielerpaesse macht,
+  // braucht die Nachwuchs-Anmeldungen und ihre Nachweise -- aber weder den
+  // Mitgliederbestand noch eine einzige IBAN, und beschliessen darf er
+  // nach § 4 ohnehin nichts.
+  "passstelle"
 ]);
 
 function json(obj, status, corsHeaders) {
@@ -134,6 +140,16 @@ async function ladeRolle(env, me) {
     darfBuchen: istAdmin || rollen.some((z) => z.rolle === "schatzmeister"),
     darfSchreiben: istAdmin
       || rollen.some((z) => z.rolle === "geschaeftsstelle" || z.rolle === "schatzmeister"),
+    // Wer die Nachwuchs-Anmeldungen sehen und daraus den Verbandsantrag
+    // erzeugen darf. ⚠️ Das ist KEIN Schreibrecht: die Passstelle kommt
+    // ueber dieses Feld an die Liste und an den einzelnen Antrag, aber
+    // jeder Statuswechsel und die Annahme nach § 4 haengen unveraendert an
+    // darfSchreiben. Wer nur diese Rolle hat, bekommt vom Server
+    // ausschliesslich Antraege mit quelle='nachwuchs' und darin keine
+    // Bankdaten -- gefiltert wird im Handler, nicht im Browser.
+    darfNachwuchs: istAdmin
+      || rollen.some((z) => z.rolle === "geschaeftsstelle" || z.rolle === "schatzmeister"
+                         || z.rolle === "passstelle"),
     // Kennzahlen sind Summen ohne Personenbezug. Sie stehen JEDER
     // hinterlegten Rolle offen -- der Vorstand hat genau dafuer eine:
     // er soll den Verein steuern koennen, ohne Mitgliederdaten zu sehen.
@@ -160,7 +176,8 @@ async function handleMe(env, me, corsHeaders) {
     darfPersonenSehen: rolle.darfPersonenSehen,
     darfBankSehen: rolle.darfBankSehen,
     darfBuchen: rolle.darfBuchen,
-    darfSchreiben: rolle.darfSchreiben
+    darfSchreiben: rolle.darfSchreiben,
+    darfNachwuchs: rolle.darfNachwuchs
   }, 200, corsHeaders);
 }
 
@@ -4348,33 +4365,53 @@ function antragKurz(zeile) {
 
 async function handleAntraegeListe(body, env, me, corsHeaders) {
   const rolle = await ladeRolle(env, me);
-  if (!rolle.darfSchreiben) {
+  if (!rolle.darfSchreiben && !rolle.darfNachwuchs) {
     return json({ error: "Nur die Geschaeftsstelle kann Aufnahmeantraege bearbeiten" }, 403, corsHeaders);
   }
+  // Wer hierher kommt, ohne schreiben zu duerfen, ist die Passstelle. Ihr
+  // Ausschnitt wird HIER bestimmt und nicht im Browser.
+  const nurNachwuchs = !rolle.darfSchreiben;
 
   const status = ANTRAG_STATUS.has(body.status) ? body.status : "neu";
-  const zahlen = await env.VV_DB
-    .prepare("SELECT status, COUNT(*) AS n FROM aufnahmeantrag GROUP BY status").all();
-  const nach = {};
-  for (const z of zahlen.results || []) nach[z.status] = z.n;
 
   // ⚠️ Die beiden neuen Spalten nur benennen, wenn es sie gibt. Kein
   // SELECT * als Ausweg: das zoege die Unterschriften mit -- drei
   // Data-URLs zu je rund 19 KB, mal 200 Zeilen, fuer eine Liste, die
   // keine davon anzeigt.
   const neueSpalten = await hatNachwuchsSpalten(env);
+
+  // ⚠️ Fail-closed: ohne die Spalte quelle laesst sich der Ausschnitt der
+  // Passstelle nicht bilden. Dann lieber gar nichts liefern als versehent-
+  // lich alle Aufnahmeantraege -- der Fall tritt nur zwischen Deploy und
+  // Migration auf und dauert Minuten.
+  if (nurNachwuchs && !neueSpalten) {
+    return json({ error: "Die Antragsliste wird gerade umgestellt. Bitte in wenigen " +
+                         "Minuten noch einmal aufrufen." }, 503, corsHeaders);
+  }
+
+  const zahlen = await env.VV_DB.prepare(
+    "SELECT status, COUNT(*) AS n FROM aufnahmeantrag" +
+    (nurNachwuchs ? " WHERE quelle = 'nachwuchs'" : "") +
+    " GROUP BY status"
+  ).all();
+  const nach = {};
+  for (const z of zahlen.results || []) nach[z.status] = z.n;
+
   const r = await env.VV_DB.prepare(
     "SELECT id, eingang_am, status, antrag_json, sparten_json, beschluss_am, " +
     "geprueft_von, mitgliedschaft_id" +
     (neueSpalten ? ", quelle, nachweis_owner" : "") +
-    " FROM aufnahmeantrag WHERE status = ? " +
-    "ORDER BY eingang_am DESC LIMIT 200"
+    " FROM aufnahmeantrag WHERE status = ?" +
+    (nurNachwuchs ? " AND quelle = 'nachwuchs'" : "") +
+    " ORDER BY eingang_am DESC LIMIT 200"
   ).bind(status).all();
 
-  return json({
-    ok: true, status, nach,
-    antraege: (r.results || []).map(antragKurz)
-  }, 200, corsHeaders);
+  const antraege = (r.results || []).map(antragKurz).map((a) =>
+    // Die Zahlungsart gehoert zur Beitragsseite und hat in der Passstelle
+    // nichts zu suchen -- sie faellt hier weg, nicht in der Tabelle.
+    nurNachwuchs ? { ...a, zahlungsart: null } : a);
+
+  return json({ ok: true, status, nach, nur_nachwuchs: nurNachwuchs, antraege }, 200, corsHeaders);
 }
 
 // Sucht Personen, die derselbe Mensch sein koennten oder zur selben
@@ -4409,22 +4446,51 @@ async function sucheAehnliche(env, a) {
 
 async function handleAntragDetail(body, env, me, corsHeaders) {
   const rolle = await ladeRolle(env, me);
-  if (!rolle.darfSchreiben) {
+  if (!rolle.darfSchreiben && !rolle.darfNachwuchs) {
     return json({ error: "Nur die Geschaeftsstelle kann Aufnahmeantraege bearbeiten" }, 403, corsHeaders);
   }
+  const nurNachwuchs = !rolle.darfSchreiben;
 
   const zeile = await env.VV_DB
     .prepare("SELECT * FROM aufnahmeantrag WHERE id = ?").bind(String(body.id || "")).first();
   if (!zeile) return json({ error: "Antrag nicht gefunden" }, 404, corsHeaders);
+
+  // Die Passstelle kommt an genau die Antraege, fuer die sie zustaendig
+  // ist. Eine geratene Id fuehrt sonst am Listenfilter vorbei -- das ist
+  // der uebliche Weg, an dem eine gefilterte Sicht auffliegt.
+  if (nurNachwuchs && (zeile.quelle || "antrag") !== "nachwuchs") {
+    return json({ error: "Dieser Antrag gehoert nicht zur Nachwuchs-Anmeldung" }, 403, corsHeaders);
+  }
 
   let inhalt = {};
   try { inhalt = JSON.parse(zeile.antrag_json || "{}"); } catch { inhalt = {}; }
   let sparten = [];
   try { sparten = JSON.parse(zeile.sparten_json || "[]"); } catch { sparten = []; }
 
-  const aehnlich = await sucheAehnliche(env, inhalt);
+  // ⚠️ Die Bankdaten verlassen den Worker fuer die Passstelle nicht. Sie
+  // stehen im selben JSON wie Name und Anschrift; ein Ausblenden in der
+  // Oberflaeche waere kein Zurueckhalten (die Antwort steht im Netzwerk-
+  // Reiter). Der Verbandsantrag braucht keines dieser Felder.
+  if (nurNachwuchs) {
+    inhalt = { ...inhalt };
+    for (const feld of ["zahlungsart", "kontoinhaber", "iban", "bic",
+                        "bank_name", "kontoinhaber_anschrift", "beitragsart_wunsch",
+                        "familie_hinweis"]) {
+      delete inhalt[feld];
+    }
+  }
+
+  // Ohne Schreibrecht wird weder ein Haushalt gewaehlt noch eine Klasse
+  // vorgeschlagen -- und die Dublettensuche ist eine Abfrage AUF DEN
+  // BESTAND, den die Passstelle nicht sehen soll. Sie laeuft deshalb gar
+  // nicht erst.
+  const aehnlich = nurNachwuchs
+    ? { dubletten: [], haushalte: [] }
+    : await sucheAehnliche(env, inhalt);
   const heute = new Date().toISOString().slice(0, 10);
-  const klassen = (await ladeKlassenMitSatz(env, heute)).filter((k) => k.aktiv);
+  const klassen = nurNachwuchs
+    ? []
+    : (await ladeKlassenMitSatz(env, heute)).filter((k) => k.aktiv);
 
   // Vorschlag fuer die Beitragsklasse: der WUNSCH des Antragstellers geht
   // vor, das Alter ist nur die Rueckfallebene. Der Bestand zeigt, warum:
@@ -4442,6 +4508,13 @@ async function handleAntragDetail(body, env, me, corsHeaders) {
     ? (klassen.find((k) => k.name === regel.name + (familie ? " (Familie)" : ""))
        || klassen.find((k) => k.name === regel.name))
     : null;
+
+  // Vereinsname und Verbandsnummer fuer den Bogen AO21 -- die beiden
+  // einzigen Stammdaten, die der Verbandsantrag braucht. Sie kommen hier
+  // mit, statt den Client auf vv-einstellungen zu schicken: dort stehen
+  // Vereins-IBAN und Glaeubiger-Id daneben, und die haben in der
+  // Passstelle nichts zu suchen. Spart zugleich einen zweiten Aufruf.
+  const cfg = (await ladeEinstellungen(env)) || {};
 
   return json({
     ok: true,
@@ -4468,9 +4541,16 @@ async function handleAntragDetail(body, env, me, corsHeaders) {
       // diesen Worker laeuft keine einzige Ausweiskopie.
       nachweis_owner: zeile.nachweis_owner || null
     },
+    // Sagt dem Client, welchen Ausschnitt er in der Hand hat. Er richtet
+    // seine Oberflaeche danach aus -- die Schranke ist aber diese Antwort,
+    // nicht das Feld.
+    nur_nachwuchs: nurNachwuchs,
+    verein: { name: cfg.verein_name || "", tfv_nr: cfg.tfv_vereinsnummer || "" },
     dubletten: aehnlich.dubletten,
     haushalte: aehnlich.haushalte,
-    vorschlag: {
+    // Die naechste freie Mitgliedsnummer ist eine Angabe ueber den
+    // Bestand. Ohne Beschlussrecht wird sie nicht gebraucht.
+    vorschlag: nurNachwuchs ? null : {
       mitgliedsnummer: await naechsteMitgliedsnummer(env),
       beitragsklasse_id: vorschlagKlasse ? vorschlagKlasse.id : null,
       beitragsklasse_grund: ANTRAG_BEITRAGSWUNSCH.has(inhalt.beitragsart_wunsch)
