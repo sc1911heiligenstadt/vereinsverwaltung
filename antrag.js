@@ -68,11 +68,32 @@ let sigPadGesetzl = null;
 let sigPadGesetzl2 = null;
 let laeuft = false;
 
+// Sicht-Reiter. Nur belegt, wenn jemand angemeldet ist UND schreiben darf.
+let eingangStatus = "neu";
+let eingangZaehler = {};
+let eingangAktuell = null;
+let eingangStammdaten = null;
+
+const EINGANG_STATUS_TEXT = {
+  neu: "Neu",
+  geprueft: "Vorgemerkt",
+  angenommen: "Angenommen",
+  abgelehnt: "Abgelehnt",
+  zurueckgezogen: "Zurückgezogen"
+};
+
 // ---------------------------------------------------------------------
 // Aufbau
 // ---------------------------------------------------------------------
 
 async function start() {
+  // Reiter und Info stehen unabhaengig vom Formular. Sie muessen auch
+  // dann bedienbar bleiben, wenn der Server das Formular nicht liefert --
+  // sonst faehrt ein Serverfehler die ganze Seite an die Wand.
+  verdrahteReiter();
+  zeigeInfo();
+  pruefeAnmeldung();
+
   try {
     info = await ladeAntragInfo();
   } catch (e) {
@@ -103,6 +124,227 @@ async function start() {
   sigPad.resize();
 
   verdrahten();
+}
+
+// ---------------------------------------------------------------------
+// Reiter, Anmeldung, Info
+// ---------------------------------------------------------------------
+
+function verdrahteReiter() {
+  document.querySelectorAll("nav button").forEach((b) => {
+    b.addEventListener("click", () => zeigeReiter(b.dataset.tab));
+  });
+  // ⚠️ Nicht in verdrahten(): das läuft erst, wenn das Formular geladen
+  // ist. Ist der Antrag gerade zugedreht, gäbe es den Sicht-Reiter zwar,
+  // aber sein Knopf täte nichts.
+  $("btn-eingang-neu").addEventListener("click", () => ladeEingang());
+}
+
+function zeigeReiter(id) {
+  document.querySelectorAll("nav button").forEach((b) => {
+    b.classList.toggle("aktiv", b.dataset.tab === id);
+  });
+  document.querySelectorAll("main section.tab").forEach((s) => {
+    s.classList.toggle("aktiv", s.id === id);
+  });
+  window.scrollTo(0, 0);
+}
+
+// Die Dashboard-Pille und der Sicht-Reiter haengen an der SITZUNG, nicht
+// an der Seite. Wer ohne Konto herkommt, sieht beides nicht -- fuer ihn
+// waere ein Knopf ins Anmeldefenster einer internen Verwaltung eine
+// Sackgasse, und die Antragsliste geht ihn nichts an.
+async function pruefeAnmeldung() {
+  if (!antragToken()) return;
+  $("dashboard-pille").hidden = false;
+
+  let rechte;
+  try {
+    rechte = await ladeEigeneRechteAntrag();
+  } catch {
+    // Abgelaufene Sitzung, fehlende Rolle, Server weg: die Seite bleibt
+    // das, was sie in erster Linie ist -- ein Antragsformular.
+    return;
+  }
+  if (!rechte || !rechte.darfSchreiben) return;
+
+  $("nav-eingang").hidden = false;
+  ladeEingang();
+  // Die Stammdaten braucht nur die Fusszeile des Ausdrucks. Ein
+  // Fehlschlag (etwa fehlendes Bankdaten-Recht) darf den Reiter nicht
+  // aufhalten.
+  ladeStammdatenAntrag()
+    .then((a) => {
+      eingangStammdaten = {};
+      (a.felder || []).forEach((f) => { eingangStammdaten[f.schluessel] = f.wert; });
+    })
+    .catch(() => { eingangStammdaten = null; });
+}
+
+// Gleiche Struktur wie der Changelog der Verwaltung (app.js), damit die
+// vorhandenen Klassen greifen -- .changelog-block erwartet h3 und
+// .changelog-datum. Nachgebaut sähe es hier anders aus als dort.
+function zeigeInfo() {
+  $("info-version").textContent = ANTRAG_VERSION;
+  $("info-changelog").innerHTML = ANTRAG_CHANGELOG.map((b) =>
+    '<div class="changelog-block">' +
+      "<h3>" + esc(b.version) + "</h3>" +
+      '<div class="changelog-datum">' + esc(datumDe(b.datum)) + "</div>" +
+      "<ul>" + b.punkte.map((p) => "<li>" + esc(p) + "</li>").join("") + "</ul>" +
+    "</div>").join("");
+}
+
+// ---------------------------------------------------------------------
+// Eingegangene Anträge — sichten und ausdrucken
+// ---------------------------------------------------------------------
+
+async function ladeEingang(status) {
+  if (status) eingangStatus = status;
+  const ziel = $("eingang-liste");
+  ziel.innerHTML = '<p class="fussnote">Wird geladen …</p>';
+  $("eingang-detail").hidden = true;
+
+  let antwort;
+  try {
+    antwort = await ladeEingegangeneAntraege(eingangStatus);
+  } catch (e) {
+    ziel.innerHTML = '<div class="hinweis fehler">' + esc(e.message) + "</div>";
+    return;
+  }
+  eingangZaehler = antwort.nach || {};
+  zeichneEingangReiter();
+  zeichneEingangListe(antwort.antraege || []);
+}
+
+function zeichneEingangReiter() {
+  $("eingang-reiter").innerHTML = Object.keys(EINGANG_STATUS_TEXT).map((s) =>
+    '<button class="btn klein ' + (s === eingangStatus ? "" : "grau") +
+    '" type="button" data-eingang="' + s + '">' + EINGANG_STATUS_TEXT[s] +
+    " (" + (eingangZaehler[s] || 0) + ")</button>").join(" ");
+
+  $("eingang-reiter").querySelectorAll("button").forEach((b) => {
+    b.addEventListener("click", () => ladeEingang(b.dataset.eingang));
+  });
+}
+
+function zeichneEingangListe(liste) {
+  const ziel = $("eingang-liste");
+  if (!liste.length) {
+    ziel.innerHTML = '<p class="fussnote">Keine Anträge mit dem Status &bdquo;' +
+      esc(EINGANG_STATUS_TEXT[eingangStatus]) + "&ldquo;.</p>";
+    return;
+  }
+
+  ziel.innerHTML =
+    '<div class="tabelle-scroll"><table class="schmal"><thead><tr>' +
+    "<th>Eingang</th><th>Name</th><th>Geboren</th><th>Ort</th><th>Zahlung</th><th></th>" +
+    "</tr></thead><tbody>" +
+    liste.map((a) =>
+      "<tr>" +
+        "<td>" + esc(datumDe(a.eingang_am)) + "</td>" +
+        "<td>" + esc(a.vorname + " " + a.nachname) +
+          (a.minderjaehrig ? ' <span class="fussnote">(minderjährig)</span>' : "") + "</td>" +
+        "<td>" + esc(datumDe(a.geburtsdatum)) + "</td>" +
+        "<td>" + esc(a.ort) + "</td>" +
+        "<td>" + esc(a.zahlungsart === "lastschrift" ? "Lastschrift" : "Überweisung") + "</td>" +
+        '<td><button class="btn klein" type="button" data-antrag="' + esc(a.id) +
+          '">Ansehen</button></td>' +
+      "</tr>").join("") +
+    "</tbody></table></div>";
+
+  ziel.querySelectorAll("[data-antrag]").forEach((b) => {
+    b.addEventListener("click", () => oeffneEingang(b.dataset.antrag));
+  });
+}
+
+async function oeffneEingang(id) {
+  const ziel = $("eingang-detail");
+  ziel.hidden = false;
+  ziel.innerHTML = '<p class="fussnote">Wird geladen …</p>';
+
+  try {
+    eingangAktuell = await ladeAntragDetail(id);
+  } catch (e) {
+    ziel.innerHTML = '<div class="hinweis fehler">' + esc(e.message) + "</div>";
+    return;
+  }
+
+  const a = eingangAktuell.antrag;
+  const i = a.inhalt || {};
+  const spartenNamen = (eingangAktuell.alle_sparten || [])
+    .filter((s) => (a.sparten || []).includes(s.id)).map((s) => s.name);
+
+  const zeile = (was, wert) => wert
+    ? "<tr><th>" + esc(was) + "</th><td>" + esc(wert) + "</td></tr>" : "";
+
+  const dubletten = eingangAktuell.dubletten || [];
+
+  ziel.innerHTML =
+    "<h3>" + esc((i.vorname || "") + " " + (i.nachname || "")) + "</h3>" +
+    (dubletten.length
+      ? '<div class="hinweis fehler"><strong>Diese Person könnte bereits im Bestand stehen.</strong> ' +
+        "Bitte vor dem Beschluss in der Vereinsverwaltung klären — ein zweiter Datensatz " +
+        "bedeutet einen zweiten Beitrag.</div>"
+      : "") +
+    '<div class="hinweis info">Eingegangen am <strong>' + esc(datumDe(a.eingang_am)) +
+      "</strong>, Status <strong>" + esc(EINGANG_STATUS_TEXT[a.status] || a.status) +
+      "</strong>.</div>" +
+    '<div class="tabelle-scroll"><table class="zusammenfassung"><tbody>' +
+    zeile("Name", [i.anrede, i.vorname, i.nachname].filter(Boolean).join(" ")) +
+    zeile("Geburtsdatum", datumDe(i.geburtsdatum)) +
+    zeile("Geburtsort", i.geburtsort) +
+    zeile("Anschrift", [i.strasse, [i.plz, i.ort].filter(Boolean).join(" ")]
+      .filter(Boolean).join(", ")) +
+    zeile("E-Mail", i.email) +
+    zeile("Telefon", [i.mobil, i.telefon].filter(Boolean).join(" / ")) +
+    zeile("Eintritt gewünscht", datumDe(i.eintritt_wunsch)) +
+    zeile("Abteilungen", spartenNamen.join(", ")) +
+    zeile("Beitragswunsch", i.beitragsart_wunsch) +
+    zeile("Familie im Verein", i.familie_hinweis) +
+    zeile("Zahlungsart", i.zahlungsart === "lastschrift" ? "SEPA-Lastschrift" : "Überweisung") +
+    zeile("Kontoinhaber", i.kontoinhaber) +
+    zeile("Anschrift Kontoinhaber", i.kontoinhaber_anschrift) +
+    zeile("IBAN", i.iban) +
+    zeile("Kreditinstitut", i.bank_name) +
+    zeile("Gesetzlicher Vertreter", i.gesetzl_name) +
+    zeile("Zweiter Erziehungsberechtigter", i.gesetzl2_name
+      || (i.minderjaehrig && i.allein_sorgeberechtigt ? "alleiniges Sorgerecht erklärt" : "")) +
+    zeile("Fotoeinwilligung", i.einwilligung_fotos ? "erteilt" : "nicht erteilt") +
+    zeile("Anmerkung", i.bemerkung) +
+    "</tbody></table></div>" +
+    '<div class="unterschrift-beleg">' +
+      (a.unterschrift
+        ? '<div><div class="unterschrift-titel">Antragsteller</div>' +
+          '<img alt="Unterschrift" src="' + esc(a.unterschrift) + '"></div>' : "") +
+      (a.unterschrift_gesetzl
+        ? '<div><div class="unterschrift-titel">Gesetzlicher Vertreter</div>' +
+          '<img alt="Unterschrift des gesetzlichen Vertreters" src="' +
+          esc(a.unterschrift_gesetzl) + '"></div>' : "") +
+      (a.unterschrift_gesetzl2
+        ? '<div><div class="unterschrift-titel">Zweiter Erziehungsberechtigter</div>' +
+          '<img alt="Unterschrift des zweiten Erziehungsberechtigten" src="' +
+          esc(a.unterschrift_gesetzl2) + '"></div>' : "") +
+    "</div>" +
+    '<div class="knopfreihe">' +
+      '<button class="btn" id="btn-eingang-drucken" type="button">Als Papierantrag drucken</button>' +
+      '<button class="btn grau" id="btn-eingang-zu" type="button">Schließen</button>' +
+    "</div>";
+
+  $("btn-eingang-drucken").addEventListener("click", druckeEingang);
+  $("btn-eingang-zu").addEventListener("click", () => { ziel.hidden = true; });
+  ziel.scrollIntoView({ block: "start" });
+}
+
+// Derselbe Aufbau wie in der Verwaltung — die vier Blätter stehen in
+// antrag-druck.js. Die Mitgliedsnummer bleibt hier leer: sie wird erst
+// beim Beschluss vergeben, und dieser Reiter beschließt nicht.
+function druckeEingang() {
+  papierAntragOeffnen({
+    antrag: eingangAktuell.antrag,
+    sparten: eingangAktuell.alle_sparten,
+    einstellungen: eingangStammdaten,
+    mitgliedsnummer: ""
+  });
 }
 
 function zeigeBeitraege() {

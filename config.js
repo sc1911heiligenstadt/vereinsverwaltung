@@ -39,6 +39,16 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Die Antragsseite wird ein eigenes Werkzeug",
+    datum: "2026-08-06",
+    punkte: [
+      "Die Antragsseite hat jetzt dieselbe Kopfzeile wie die übrigen Vereins-Werkzeuge — mit Wappen und mit dem Rückweg zum Dashboard. Der Rückweg erscheint nur für Angemeldete: wer noch kein Vereinskonto hat, käme sonst in einem Anmeldefenster heraus.",
+      "Ein Info-Reiter nennt die Version, die Geschäftsstelle und was sich am Formular geändert hat.",
+      "Neuer Reiter „Eingegangene Anträge“: Geschäftsstelle und Schatzmeister sehen dort die eingegangenen Anträge, können sie ansehen und als Papierantrag ausdrucken — ohne den Umweg über die Mitgliederverwaltung.",
+      "Beschlossen wird weiterhin nur in der Vereinsverwaltung. Dort hängen Dublettenprüfung, Haushalt und Beitragsklasse daran; zwei Orte für dieselbe Entscheidung wären einer zu viel."
+    ]
+  },
+  {
     version: "Antrag wie auf dem Papier",
     datum: "2026-08-06",
     punkte: [

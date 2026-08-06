@@ -380,6 +380,100 @@ pruefe("F8 Und die zweite Unterschrift ist dann gespeichert",
           .get(f3b.id).unterschrift_gesetzl2_datei === SIG);
 
 // ======================================================================
+console.log("G  Papierausdruck (antrag-druck.js, von beiden Seiten benutzt)");
+// ======================================================================
+//
+// papierAntragHtml ist reine Zeichenkette -- kein DOM, kein Fenster.
+// Deshalb hier pruefbar und nicht nur im Browser. Die Datei wird von der
+// Verwaltung UND vom Sicht-Reiter des oeffentlichen Formulars geladen;
+// beide muessen dasselbe Blatt ergeben.
+
+const druckQuelle = readFileSync(REPO + "/antrag-druck.js", "utf8");
+const D = new Function(druckQuelle + "\nreturn { papierAntragHtml };")();
+
+const gAntrag = {
+  eingang_am: "2026-08-06T09:00:00.000Z", signatur_zeit: "2026-08-06T09:00:00.000Z",
+  sparten: ["s1"], unterschrift: SIG, unterschrift_gesetzl: SIG, unterschrift_gesetzl2: SIG,
+  inhalt: {
+    vorname: "Lena", nachname: "Mustermann", geburtsdatum: "2015-06-01",
+    geburtsort: "Göttingen", strasse: "Musterweg 1", plz: "37308",
+    ort: "Heilbad Heiligenstadt", email: "lena@example.invalid",
+    zahlungsart: "lastschrift", kontoinhaber: "Max Mustermann",
+    kontoinhaber_anschrift: "Anderer Weg 9", bank_name: "VR-Bank Mitte",
+    iban: "DE02100500000054540402", unterschrift_ort: "Heilbad Heiligenstadt",
+    minderjaehrig: true, gesetzl_name: "Erika Mustermann", gesetzl2_name: "Max Mustermann",
+    einwilligung_satzung: true, einwilligung_datenschutz: true, einwilligung_fotos: false
+  }
+};
+const gSparten = [{ id: "s1", name: "Fussball" }, { id: "s2", name: "Wandern" }];
+const gCfg = { verein_name: "1. SC 1911 Heiligenstadt e.V.", verein_iban: "DE62 5226",
+               verein_bic: "GENODEF1ESW", glaeubiger_id: "DE71ZZZ00000406867" };
+
+const gVerwaltung = D.papierAntragHtml({ antrag: gAntrag, sparten: gSparten,
+                                         einstellungen: gCfg, mitgliedsnummer: "9001" });
+const gAntragsseite = D.papierAntragHtml({ antrag: gAntrag, sparten: gSparten,
+                                           einstellungen: gCfg, mitgliedsnummer: "" });
+
+pruefe("G1 Vier Blaetter", (gVerwaltung.match(/class="blatt"/g) || []).length === 4);
+pruefe("G2 Fuenf Unterschriftsbilder",
+       (gVerwaltung.match(/<img src="data:image\/png/g) || []).length === 5);
+pruefe("G3 Geburtsort steht drin", /Göttingen/.test(gVerwaltung));
+pruefe("G4 Kreditinstitut steht drin", /VR-Bank Mitte/.test(gVerwaltung));
+pruefe("G5 Abweichende Anschrift steht drin", /Anderer Weg 9/.test(gVerwaltung));
+pruefe("G6 Nur die gewaehlte Abteilung, nicht alle",
+       /Fussball/.test(gVerwaltung) && !/Wandern/.test(gVerwaltung));
+pruefe("G7 Foto-Einwilligung als 'nein' wiedergegeben",
+       /freiwillig\)<\/th><td>nein<\/td>/.test(gVerwaltung));
+pruefe("G8 Satzung als 'ja' wiedergegeben", /anerkannt<\/th><td>ja<\/td>/.test(gVerwaltung));
+pruefe("G9 Glaeubiger-ID in der Fusszeile", /DE71ZZZ00000406867/.test(gVerwaltung));
+
+// Der einzige zulaessige Unterschied zwischen beiden Aufrufern.
+pruefe("G10 Verwaltung druckt die Mitgliedsnummer",
+       /Mitgliedsnummer: <span class="wert">9001<\/span>/.test(gVerwaltung));
+pruefe("G11 Der Sicht-Reiter laesst sie leer",
+       /Mitgliedsnummer: <span class="wert"><\/span>/.test(gAntragsseite));
+pruefe("G12 Sonst sind beide Blaetter identisch",
+       gVerwaltung.replace(">9001<", "><") === gAntragsseite,
+       "Laengen " + gVerwaltung.length + " / " + gAntragsseite.length);
+
+// Ohne Stammdaten bleibt die Fusszeile kuerzer statt falsch dazustehen.
+const gOhneCfg = D.papierAntragHtml({ antrag: gAntrag, sparten: gSparten });
+pruefe("G13 Ohne Stammdaten keine erfundene IBAN", !/IBAN: DE/.test(gOhneCfg));
+pruefe("G14 Der Vereinsname steht trotzdem da",
+       /1\. SC 1911 Heiligenstadt e\.V\./.test(gOhneCfg));
+
+// Ueberweisung: kein Mandat, aber auch keine leere Mandatstabelle.
+const gUeber = D.papierAntragHtml({
+  antrag: { ...gAntrag, inhalt: { ...gAntrag.inhalt, zahlungsart: "ueberweisung" } },
+  sparten: gSparten, einstellungen: gCfg });
+pruefe("G15 Bei Ueberweisung steht der Hinweis statt des Mandats",
+       /keine Lastschrift<\/strong>/.test(gUeber) && !/Kontoinhaber<\/th>/.test(gUeber));
+
+// Alleiniges Sorgerecht: der Grund fuer die fehlende zweite Unterschrift
+// muss auf dem Blatt stehen, nicht bloss fehlen.
+const gAllein = D.papierAntragHtml({
+  antrag: { ...gAntrag, unterschrift_gesetzl2: null,
+            inhalt: { ...gAntrag.inhalt, gesetzl2_name: null, allein_sorgeberechtigt: true } },
+  sparten: gSparten, einstellungen: gCfg });
+pruefe("G16 Alleiniges Sorgerecht wird benannt", /alleiniges Sorgerecht<\/strong>/.test(gAllein));
+pruefe("G17 Dann vier Unterschriftsbilder statt fuenf",
+       (gAllein.match(/<img src="data:image\/png/g) || []).length === 4);
+
+// Freitext aus dem Antrag darf das Dokument nicht zerlegen.
+const gBoese = D.papierAntragHtml({
+  antrag: { ...gAntrag, inhalt: { ...gAntrag.inhalt,
+    vorname: '<img src=x onerror="alert(1)">', familie_hinweis: "</table><script>böse<\/script>" } },
+  sparten: gSparten, einstellungen: gCfg });
+// ⚠️ Nicht auf "onerror=" pruefen -- das steht als TEXT weiterhin da und
+// ist genau dann harmlos, wenn das oeffnende "<" entschaerft ist. Der
+// Nachweis ist deshalb: kein Tag aus den Nutzdaten, und die spitze
+// Klammer kommt als &lt; an.
+pruefe("G18 Freitext wird escaped",
+       !/<img src=x/.test(gBoese) && /&lt;img src=x/.test(gBoese));
+pruefe("G19 Kein eingeschleustes Skript", !/<script>böse/.test(gBoese));
+pruefe("G20 Das eigene Druck-Skript ist noch da", /window\.print\(\)/.test(gBoese));
+
+// ======================================================================
 const summe = ok + fehler;
 console.log("");
 console.log("─".repeat(60));

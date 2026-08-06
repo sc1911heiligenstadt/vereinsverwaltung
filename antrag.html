@@ -9,15 +9,36 @@
 </head>
 <body class="antragseite">
 
-<!-- Bewusst OHNE Link zum Dashboard: diese Seite erreicht, wer noch kein
-     Vereinskonto hat. Ein Knopf, der ins Anmeldefenster einer internen
-     Verwaltung führt, ist für ihn eine Sackgasse. -->
+<!-- Die Dashboard-Pille erscheint NUR mit vorhandener Sitzung (antrag.js).
+     Diese Seite erreicht auch, wer noch kein Vereinskonto hat — für ihn
+     wäre ein Knopf ins Anmeldefenster einer internen Verwaltung eine
+     Sackgasse. Wer aus dem Dashboard kommt, braucht den Rückweg dagegen
+     genauso wie in den übrigen 28 Werkzeugen.
+     Das Wappen steht hier bewusst: ein Formular, das nach Bankdaten
+     fragt, muss auf den ersten Blick zum Verein gehören. -->
 <header>
   <h1>Aufnahmeantrag</h1>
-  <div class="kopf-rechts"><span id="verein-name">1. SC 1911 Heiligenstadt e.&nbsp;V.</span></div>
+  <a class="dashboard-pille" id="dashboard-pille" hidden
+     href="https://sc1911heiligenstadt.github.io/ToolsUebersicht/">&larr; Zurück zum Dashboard</a>
+  <div class="kopf-rechts">
+    <span id="verein-name">1. SC 1911 Heiligenstadt e.&nbsp;V.</span>
+    <img class="kopf-logo" src="https://sc1911heiligenstadt.github.io/logo.svg"
+         alt="1. SC 1911 e.V. Heilbad Heiligenstadt">
+  </div>
 </header>
 
+<!-- „Info“ steht als letzter Eintrag — Flottenregel. Der Reiter mit den
+     eingegangenen Anträgen erscheint nur für Angemeldete mit Schreibrecht
+     und wird in antrag.js eingeblendet. -->
+<nav>
+  <button data-tab="tab-formular" class="aktiv">Antrag stellen</button>
+  <button data-tab="tab-eingang" id="nav-eingang" hidden>Eingegangene Anträge</button>
+  <button data-tab="tab-info">Info</button>
+</nav>
+
 <main>
+
+<section id="tab-formular" class="tab aktiv">
 
   <div id="lade-schirm" class="karte">
     <p class="fussnote">Das Formular wird geladen …</p>
@@ -436,10 +457,68 @@
     <div class="karte" id="danke-zusammenfassung"></div>
   </div>
 
+</section>
+
+<!-- Eingegangene Anträge: sichten und ausdrucken.
+     ⚠️ BESCHLOSSEN wird hier nicht. Die Aufnahme nach § 4 hängt an
+     Dublettenprüfung, Haushalt und Beitragsklasse und bleibt im Reiter
+     „Anträge“ der Vereinsverwaltung — zwei Orte, an denen dieselbe
+     Entscheidung fällt, wären genau eine zu viel. -->
+<section id="tab-eingang" class="tab">
+
+  <div class="karte">
+    <h2>Eingegangene Anträge</h2>
+    <p class="fussnote">Hier stehen die Anträge, die über dieses Formular eingegangen
+    sind — zum Sichten und zum Ausdrucken fürs Abheften. Über die Aufnahme entscheidet
+    nach § 4 der Satzung der Gesamtvorstand; eingetragen wird der Beschluss in der
+    Vereinsverwaltung.</p>
+    <div class="knopfreihe">
+      <a class="btn grau" id="btn-zur-verwaltung"
+         href="https://sc1911heiligenstadt.github.io/vereinsverwaltung/">Zur Vereinsverwaltung</a>
+      <button class="btn grau" id="btn-eingang-neu" type="button">Neu laden</button>
+    </div>
+  </div>
+
+  <div class="karte">
+    <div id="eingang-reiter" class="knopfreihe"></div>
+    <div id="eingang-liste"></div>
+  </div>
+
+  <div class="karte" id="eingang-detail" hidden></div>
+
+</section>
+
+<section id="tab-info" class="tab">
+  <div class="karte">
+    <h2>Über den Aufnahmeantrag <span class="version-badge" id="info-version">1.0</span></h2>
+    <p>Dieses Formular gehört zur Vereinsverwaltung des
+    <span class="verein-name-text">1. SC 1911 Heiligenstadt e.&nbsp;V.</span> Es nimmt
+    Aufnahmeanträge nach § 4 der Satzung entgegen — ausgefüllt und unterschrieben am
+    Handy, ohne Ausdruck und ohne Vereinskonto.</p>
+    <p class="fussnote">Fragen zum Antrag beantwortet die Geschäftsstelle:
+    Leineberg 2, 37308 Heilbad Heiligenstadt, Telefon 03606 612206,
+    <a href="mailto:info@sc1911-heiligenstadt.de">info@sc1911-heiligenstadt.de</a>.</p>
+    <p class="fussnote">
+      <a href="https://www.sc1911-heiligenstadt.de/satzung/" target="_blank" rel="noopener">Satzung</a> ·
+      <a href="https://www.sc1911-heiligenstadt.de/datenschutz/" target="_blank" rel="noopener">Datenschutzerklärung</a>
+    </p>
+  </div>
+
+  <!-- Bewusst ein EIGENER Änderungsblock, nicht der CHANGELOG aus
+       config.js: der beschreibt Beitragslauf, Mahnwesen und Buchhaltung
+       und hat auf einer öffentlichen Seite nichts zu suchen. Hier steht
+       nur, was den Antragsteller betrifft. -->
+  <div class="karte">
+    <h3>Was sich geändert hat</h3>
+    <div class="changelog-liste" id="info-changelog"></div>
+  </div>
+</section>
+
 </main>
 
 <script src="signature-pad.js?v=1.0"></script>
-<script src="db-antrag.js?v=1.1"></script>
-<script src="antrag.js?v=1.1"></script>
+<script src="antrag-druck.js?v=1.0"></script>
+<script src="db-antrag.js?v=1.2"></script>
+<script src="antrag.js?v=1.2"></script>
 </body>
 </html>
