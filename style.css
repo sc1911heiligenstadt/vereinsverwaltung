@@ -143,6 +143,22 @@ nav button.aktiv {
   .antragseite nav #nav-eingang[hidden] + button { margin-left: auto; }
 }
 
+/* Dieselbe Regel für die Nachwuchsseite (Michel-Vorgabe 2026-08-06):
+   „Info“ steht rechts wie in allen Apps. Sie braucht einen EIGENEN
+   Selektor, weil der Schub oben an #nav-eingang hängt — den gibt es hier
+   nicht, es sind nur zwei Reiter.
+
+   Die Grenze liegt weit unter den 460px oben: die beiden Reiter belegen
+   nachgemessen zusammen 160px und enden bei 320px Fensterbreite auf x=180
+   — es bricht also nichts um, und „Info“ steht auf jedem Gerät rechts.
+   Die Media-Query bleibt trotzdem stehen: sie ist das Sicherheitsnetz für
+   den Fall, dass hier je ein dritter Reiter dazukommt (dann greift die
+   Treppen-Falle aus dem Block darüber, und die Grenze muss neu gemessen
+   werden). */
+@media (min-width: 300px) {
+  .nachwuchsseite nav button[data-tab="tab-info"] { margin-left: auto; }
+}
+
 /* ---------- Inhalt ---------- */
 
 main { padding: 20px; max-width: 1400px; margin: 0 auto; }
