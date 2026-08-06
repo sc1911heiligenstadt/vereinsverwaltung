@@ -65,6 +65,7 @@ function alterHeute(geburtsdatum) {
 let info = null;
 let sigPad = null;
 let sigPadGesetzl = null;
+let sigPadGesetzl2 = null;
 let laeuft = false;
 
 // ---------------------------------------------------------------------
@@ -93,6 +94,7 @@ async function start() {
   zeigeMandatstext();
 
   $("a-eintritt").value = heuteIso();
+  $("a-sig-datum").value = datumDe(heuteIso());
   $("formular").hidden = false;
 
   // Erst jetzt: ein Canvas hinter hidden misst 0x0, und dann bleibt das
@@ -177,7 +179,27 @@ function zeigeMinderjaehrig() {
     sigPadGesetzl = createSignaturePad($("a-sig-gesetzl"));
   }
   if (minder && sigPadGesetzl) sigPadGesetzl.resize();
+  zeigeZweitenVertreter();
   aktualisiereSigTitel();
+}
+
+// Der zweite Erziehungsberechtigte haengt an zwei Bedingungen: es muss ein
+// Minderjaehriger sein, und es darf kein alleiniges Sorgerecht erklaert
+// sein. Beides wird hier an EINER Stelle entschieden, damit Feldblock und
+// Zeichenfeld nie auseinanderlaufen.
+function zeigeZweitenVertreter() {
+  const minder = !$("a-karte-gesetzl").hidden;
+  const zweiter = minder && !$("a-allein-sorge").checked;
+
+  $("a-gesetzl2-block").hidden = !zweiter;
+  $("a-sig-gesetzl2-block").hidden = !zweiter;
+
+  // Erst erzeugen, wenn das Feld sichtbar ist: ein Canvas hinter hidden
+  // misst 0x0, und dann bleibt leer, was jemand hineinmalt.
+  if (zweiter && !sigPadGesetzl2) {
+    sigPadGesetzl2 = createSignaturePad($("a-sig-gesetzl2"));
+  }
+  if (zweiter && sigPadGesetzl2) sigPadGesetzl2.resize();
 }
 
 function aktualisiereSigTitel() {
@@ -187,6 +209,14 @@ function aktualisiereSigTitel() {
     : (istLastschrift()
         ? "Unterschrift — Beitrittserklärung und SEPA-Mandat"
         : "Unterschrift — Beitrittserklärung");
+
+  // Bei Minderjaehrigen traegt das Mandat die Unterschrift des
+  // gesetzlichen Vertreters, nicht die des Kindes -- ein Minderjaehriger
+  // kann keines erteilen. Das muss ueber dem Feld stehen, nicht nur im
+  // Servercode.
+  $("a-sig-gesetzl-titel").textContent = istLastschrift()
+    ? "Unterschrift des gesetzlichen Vertreters — Beitritt und SEPA-Mandat"
+    : "Unterschrift des gesetzlichen Vertreters";
 }
 
 function pruefeIbanFeld() {
@@ -218,12 +248,16 @@ function sammle() {
   const sparten = Array.from(document.querySelectorAll(".sparte-haken"))
     .filter((h) => h.checked).map((h) => h.value);
 
+  const minder = !$("a-karte-gesetzl").hidden;
+  const zweiter = minder && !$("a-allein-sorge").checked;
+
   return {
     anrede: $("a-anrede").value,
     geschlecht: $("a-geschlecht").value,
     vorname: $("a-vorname").value,
     nachname: $("a-nachname").value,
     geburtsdatum: $("a-geburtsdatum").value,
+    geburtsort: $("a-geburtsort").value,
     strasse: $("a-strasse").value,
     plz: $("a-plz").value,
     ort: $("a-ort").value,
@@ -237,16 +271,26 @@ function sammle() {
     sparten,
     zahlungsart: istLastschrift() ? "lastschrift" : "ueberweisung",
     kontoinhaber: $("a-kontoinhaber").value,
+    kontoinhaber_anschrift: $("a-kontoinhaber-anschrift").value,
     iban: $("a-iban").value,
     bic: $("a-bic").value,
+    bank_name: $("a-bank-name").value,
+    unterschrift_ort: $("a-sig-ort").value,
     gesetzl_name: $("a-gesetzl-name").value,
     gesetzl_verhaeltnis: $("a-gesetzl-verhaeltnis").value,
+    allein_sorgeberechtigt: minder && $("a-allein-sorge").checked,
+    gesetzl2_name: zweiter ? $("a-gesetzl2-name").value : "",
+    gesetzl2_verhaeltnis: zweiter ? $("a-gesetzl2-verhaeltnis").value : "",
     einwilligung_satzung: $("a-ew-satzung").checked,
     einwilligung_datenschutz: $("a-ew-datenschutz").checked,
     einwilligung_fotos: $("a-ew-fotos").checked,
     bemerkung: $("a-bemerkung").value,
     unterschrift: sigPad ? sigPad.toDataURL() : "",
-    unterschrift_gesetzl: sigPadGesetzl ? sigPadGesetzl.toDataURL() : ""
+    unterschrift_gesetzl: sigPadGesetzl ? sigPadGesetzl.toDataURL() : "",
+    // Nur mitschicken, wenn ein zweiter Vertreter ueberhaupt verlangt ist:
+    // sonst kaeme die Unterschrift eines Feldes mit, das der Antragsteller
+    // vor dem Ankreuzen von "allein sorgeberechtigt" ausgefuellt hatte.
+    unterschrift_gesetzl2: zweiter && sigPadGesetzl2 ? sigPadGesetzl2.toDataURL() : ""
   };
 }
 
@@ -265,6 +309,15 @@ async function absenden() {
   if (!$("a-karte-gesetzl").hidden && !daten.unterschrift_gesetzl) {
     meldung("Bei Minderjährigen wird auch die Unterschrift des gesetzlichen " +
             "Vertreters gebraucht.");
+    return;
+  }
+  if (!$("a-gesetzl2-block").hidden && !daten.gesetzl2_name.trim()) {
+    meldung("Bitte den zweiten Erziehungsberechtigten eintragen — oder ankreuzen, " +
+            "dass Sie allein sorgeberechtigt sind.");
+    return;
+  }
+  if (!$("a-sig-gesetzl2-block").hidden && !daten.unterschrift_gesetzl2) {
+    meldung("Es fehlt die Unterschrift des zweiten Erziehungsberechtigten.");
     return;
   }
   if (daten.zahlungsart === "lastschrift" && !ibanPruefziffer(daten.iban)) {
@@ -310,6 +363,7 @@ function zeigeDanke(daten, antwort) {
     '<div class="tabelle-scroll"><table class="zusammenfassung"><tbody>' +
     zeile("Name", [daten.anrede, daten.vorname, daten.nachname].filter(Boolean).join(" ")) +
     zeile("Geburtsdatum", datumDe(daten.geburtsdatum)) +
+    zeile("Geburtsort", daten.geburtsort) +
     zeile("Anschrift", daten.strasse + ", " + daten.plz + " " + daten.ort) +
     zeile("E-Mail", daten.email) +
     zeile("Telefon", [daten.mobil, daten.telefon].filter(Boolean).join(" / ")) +
@@ -321,11 +375,18 @@ function zeigeDanke(daten, antwort) {
     zeile("Zahlungsart", daten.zahlungsart === "lastschrift"
       ? "SEPA-Lastschrift" : "Überweisung") +
     zeile("Kontoinhaber", daten.zahlungsart === "lastschrift" ? daten.kontoinhaber : "") +
+    zeile("Anschrift Kontoinhaber", daten.zahlungsart === "lastschrift"
+      ? daten.kontoinhaber_anschrift : "") +
     zeile("IBAN", daten.zahlungsart === "lastschrift"
       ? daten.iban.replace(/\s+/g, "").toUpperCase() : "") +
+    zeile("Kreditinstitut", daten.zahlungsart === "lastschrift" ? daten.bank_name : "") +
     zeile("Gesetzlicher Vertreter", daten.gesetzl_name) +
+    zeile("Zweiter Erziehungsberechtigter", daten.gesetzl2_name) +
+    zeile("Sorgerecht", daten.allein_sorgeberechtigt ? "alleiniges Sorgerecht erklärt" : "") +
     zeile("Fotoeinwilligung", daten.einwilligung_fotos ? "erteilt" : "nicht erteilt") +
     zeile("Anmerkung", daten.bemerkung) +
+    zeile("Ort und Datum", [daten.unterschrift_ort || daten.ort, datumDe(heuteIso())]
+      .filter(Boolean).join(", ")) +
     "</tbody></table></div>" +
     (daten.zahlungsart === "lastschrift" ? $("a-mandatstext").innerHTML : "") +
     '<div class="unterschrift-beleg">' +
@@ -335,6 +396,11 @@ function zeigeDanke(daten, antwort) {
       ? '<div><div class="unterschrift-titel">Gesetzlicher Vertreter</div>' +
         '<img alt="Unterschrift des gesetzlichen Vertreters" src="' +
         esc(daten.unterschrift_gesetzl) + '"></div>'
+      : "") +
+    (daten.unterschrift_gesetzl2
+      ? '<div><div class="unterschrift-titel">Zweiter Erziehungsberechtigter</div>' +
+        '<img alt="Unterschrift des zweiten Erziehungsberechtigten" src="' +
+        esc(daten.unterschrift_gesetzl2) + '"></div>'
       : "") +
     "</div>";
 
@@ -348,10 +414,20 @@ function verdrahten() {
   $("a-geburtsdatum").addEventListener("input", zeigeMinderjaehrig);
   $("a-zart-last").addEventListener("change", zeigeZahlungsart);
   $("a-zart-ueber").addEventListener("change", zeigeZahlungsart);
+  $("a-allein-sorge").addEventListener("change", zeigeZweitenVertreter);
   $("a-iban").addEventListener("blur", pruefeIbanFeld);
+  // Der Ort der Unterschrift ist fast immer der Wohnort. Vorbelegen, aber
+  // nur solange niemand selbst etwas eingetragen hat -- sonst ueber-
+  // schreibt eine spaetere Korrektur der Anschrift die Eingabe.
+  $("a-ort").addEventListener("blur", () => {
+    if (!$("a-sig-ort").value.trim()) $("a-sig-ort").value = $("a-ort").value;
+  });
   $("btn-sig-loeschen").addEventListener("click", () => { if (sigPad) sigPad.clear(); });
   $("btn-sig-gesetzl-loeschen").addEventListener("click", () => {
     if (sigPadGesetzl) sigPadGesetzl.clear();
+  });
+  $("btn-sig-gesetzl2-loeschen").addEventListener("click", () => {
+    if (sigPadGesetzl2) sigPadGesetzl2.clear();
   });
   $("btn-antrag-senden").addEventListener("click", absenden);
   $("btn-drucken").addEventListener("click", () => window.print());

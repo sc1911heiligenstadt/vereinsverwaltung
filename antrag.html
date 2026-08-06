@@ -78,6 +78,10 @@
           <input id="a-geburtsdatum" type="date" autocomplete="bday">
         </div>
         <div class="feld">
+          <label for="a-geburtsort">Geburtsort</label>
+          <input id="a-geburtsort">
+        </div>
+        <div class="feld">
           <label>&nbsp;</label>
           <span id="a-alter-hinweis" class="fussnote">&nbsp;</span>
         </div>
@@ -147,6 +151,14 @@
       <p class="fussnote">Die Beitragsart ist eine Angabe, keine Festlegung — die
       Geschäftsstelle ordnet den Beitrag beim Beschluss endgültig zu. Wer im
       Familienverbund zahlt, bekommt den halben Beitrag.</p>
+      <!-- Die Beitragsordnung kennt den ermäßigten Beitrag auch für
+           Schwerbehinderte. Er steht hier bewusst NICHT zur Auswahl: das
+           wäre ein Gesundheitsdatum nach Art. 9 DSGVO, und der Verein
+           sichtet den Nachweis, statt ihn zu speichern. Deshalb auch keine
+           Aufforderung, es in die Anmerkung zu schreiben. -->
+      <p class="fussnote">Eine Ermäßigung, die hier nicht aufgeführt ist, klären Sie
+      bitte unmittelbar mit der Geschäftsstelle — dafür ist in diesem Formular
+      keine Angabe nötig.</p>
 
       <h3>Abteilungen</h3>
       <div id="a-sparten" class="ankreuz-raster"></div>
@@ -171,6 +183,14 @@
             <label for="a-kontoinhaber">Kontoinhaber *</label>
             <input id="a-kontoinhaber" autocomplete="name">
           </div>
+          <!-- Zahlt jemand anders — Eltern, Großeltern, ein Betrieb —,
+               braucht das Mandat dessen Anschrift. Ohne sie ließe sich
+               eine Vorabankündigung nicht zustellen. -->
+          <div class="feld breit">
+            <label for="a-kontoinhaber-anschrift">Anschrift des Kontoinhabers
+              <span class="fussnote">(nur wenn abweichend)</span></label>
+            <input id="a-kontoinhaber-anschrift" placeholder="Straße, PLZ und Ort">
+          </div>
           <div class="feld">
             <label for="a-iban">IBAN *</label>
             <input id="a-iban" autocomplete="off" spellcheck="false" placeholder="DE00 0000 0000 0000 0000 00">
@@ -178,6 +198,10 @@
           <div class="feld">
             <label for="a-bic">BIC (nur wenn bekannt)</label>
             <input id="a-bic" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="feld breit">
+            <label for="a-bank-name">Kreditinstitut</label>
+            <input id="a-bank-name" placeholder="z. B. VR-Bank Mitte">
           </div>
         </div>
         <div id="a-iban-hinweis" class="hinweis fehler" hidden></div>
@@ -212,6 +236,34 @@
             <option>Vater</option>
             <option>Vormund</option>
           </select>
+        </div>
+      </div>
+
+      <!-- Das Papierformular verlangt die Unterschrift ALLER Erziehungs-
+           berechtigten. Der Regelfall sind zwei; wer allein sorgeberechtigt
+           ist, erklärt das ausdrücklich, statt das Feld einfach leer zu
+           lassen — sonst weiß später niemand, ob nur einer sorgeberechtigt
+           war oder ob der zweite schlicht nicht gefragt wurde. -->
+      <label class="ankreuz">
+        <input type="checkbox" id="a-allein-sorge">
+        <span>Ich bin allein sorgeberechtigt.</span>
+      </label>
+
+      <div id="a-gesetzl2-block">
+        <div class="formraster">
+          <div class="feld">
+            <label for="a-gesetzl2-name">Name des zweiten Erziehungsberechtigten *</label>
+            <input id="a-gesetzl2-name">
+          </div>
+          <div class="feld">
+            <label for="a-gesetzl2-verhaeltnis">Verhältnis</label>
+            <select id="a-gesetzl2-verhaeltnis">
+              <option value="">—</option>
+              <option>Mutter</option>
+              <option>Vater</option>
+              <option>Vormund</option>
+            </select>
+          </div>
         </div>
       </div>
     </div>
@@ -313,6 +365,20 @@
       unterschreiben. Die Unterschrift gilt für die Beitrittserklärung und
       — bei Lastschrift — für das SEPA-Mandat darüber.</p>
 
+      <!-- "Ort, Datum" steht auf dem Papierformular über jeder Unterschrift.
+           Das Datum ist hier der Zeitstempel des Servers; der Ort wird aus
+           dem Wohnort vorbelegt und bleibt änderbar. -->
+      <div class="formraster">
+        <div class="feld">
+          <label for="a-sig-ort">Ort der Unterschrift</label>
+          <input id="a-sig-ort">
+        </div>
+        <div class="feld">
+          <label>Datum</label>
+          <input id="a-sig-datum" disabled>
+        </div>
+      </div>
+
       <div class="unterschrift-block">
         <div class="unterschrift-titel" id="a-sig-titel">Unterschrift des Antragstellers</div>
         <canvas id="a-sig" class="unterschrift-feld"></canvas>
@@ -322,10 +388,18 @@
       </div>
 
       <div class="unterschrift-block" id="a-sig-gesetzl-block" hidden>
-        <div class="unterschrift-titel">Unterschrift des gesetzlichen Vertreters</div>
+        <div class="unterschrift-titel" id="a-sig-gesetzl-titel">Unterschrift des gesetzlichen Vertreters</div>
         <canvas id="a-sig-gesetzl" class="unterschrift-feld"></canvas>
         <div class="knopfreihe">
           <button class="btn grau klein" id="btn-sig-gesetzl-loeschen" type="button">Neu zeichnen</button>
+        </div>
+      </div>
+
+      <div class="unterschrift-block" id="a-sig-gesetzl2-block" hidden>
+        <div class="unterschrift-titel">Unterschrift des zweiten Erziehungsberechtigten</div>
+        <canvas id="a-sig-gesetzl2" class="unterschrift-feld"></canvas>
+        <div class="knopfreihe">
+          <button class="btn grau klein" id="btn-sig-gesetzl2-loeschen" type="button">Neu zeichnen</button>
         </div>
       </div>
     </div>
@@ -365,7 +439,7 @@
 </main>
 
 <script src="signature-pad.js?v=1.0"></script>
-<script src="db-antrag.js?v=1.0"></script>
-<script src="antrag.js?v=1.0"></script>
+<script src="db-antrag.js?v=1.1"></script>
+<script src="antrag.js?v=1.1"></script>
 </body>
 </html>

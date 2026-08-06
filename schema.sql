@@ -46,6 +46,12 @@ CREATE TABLE person (
   vorname           TEXT NOT NULL,
   nachname          TEXT NOT NULL,
   geburtsdatum      TEXT,                      -- 'YYYY-MM-DD'
+
+  -- Steht so auf dem Papier-Aufnahmeantrag. Bei zwei gleichnamigen
+  -- Mitgliedern mit demselben Geburtsdatum ist er das einzige
+  -- unterscheidende Merkmal, das der Verein hat.
+  geburtsort        TEXT,
+
   geschlecht        TEXT,                      -- 'w' | 'm' | 'd' | NULL
 
   -- Anschrift. Straße und Hausnummer bewusst in EINEM Feld — dieselbe
@@ -266,7 +272,15 @@ CREATE TABLE sepa_mandat (
   iban              TEXT NOT NULL,
   bic               TEXT,                   -- leer -> 'NOTPROVIDED' in der XML
 
+  -- Beides steht auf dem Papier-Mandat und gehört deshalb an das Mandat,
+  -- nicht in den Aufnahmeantrag: das Mandat ist das rechtlich maßgebliche
+  -- Papier und wird noch gelesen, wenn der Antrag Jahre alt ist. Für die
+  -- pain.008 werden beide NICHT gebraucht.
+  bank_name         TEXT,                   -- Kreditinstitut des Zahlers
+  kontoinhaber_anschrift TEXT,              -- nur wenn abweichend vom Mitglied
+
   erteilt_am        TEXT NOT NULL,          -- Unterschriftsdatum, muss in die XML
+  erteilt_ort       TEXT,                   -- "Ort, Datum" des Papierformulars
   quelle            TEXT NOT NULL DEFAULT 'papier',  -- 'papier' | 'digital' | 'import'
 
   -- Beweismittel für digital erteilte Mandate. Die Unterschrift selbst
@@ -441,6 +455,10 @@ CREATE TABLE aufnahmeantrag (
 
   unterschrift_datei     TEXT,
   unterschrift_gesetzl_datei TEXT,          -- bei Minderjährigen, § 4
+  -- Das Papierformular verlangt die Unterschrift ALLER Erziehungs-
+  -- berechtigten (§ 1629 BGB). Leer, wenn alleiniges Sorgerecht erklärt
+  -- wurde — das steht dann als Erklärung im antrag_json.
+  unterschrift_gesetzl2_datei TEXT,
   signatur_ip       TEXT,
   signatur_agent    TEXT,
   signatur_zeit     TEXT,

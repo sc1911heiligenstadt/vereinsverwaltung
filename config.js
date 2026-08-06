@@ -39,6 +39,17 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Antrag wie auf dem Papier",
+    datum: "2026-08-06",
+    punkte: [
+      "Der Online-Aufnahmeantrag fragt jetzt dasselbe ab wie das gedruckte Formular des Vereins: Geburtsort, Kreditinstitut, die Anschrift des Kontoinhabers, wenn sie abweicht, und den Ort der Unterschrift.",
+      "Bei Minderjährigen unterschreiben jetzt beide Erziehungsberechtigten. Wer allein sorgeberechtigt ist, kreuzt das an — dann genügt eine Unterschrift, und es steht später schwarz auf weiß, warum.",
+      "Im Reiter Anträge druckt ein Knopf den eingegangenen Antrag als vierseitigen Papierantrag mit allen Unterschriften — zum Abheften in der Geschäftsstelle.",
+      "Der Geburtsort steht auch beim Mitglied selbst und lässt sich dort pflegen. Bei zwei gleichnamigen Mitgliedern mit demselben Geburtsdatum ist er das einzige, was sie unterscheidet.",
+      "Eine Ermäßigung für Schwerbehinderte steht bewusst nicht zur Auswahl: das wäre ein Gesundheitsdatum. Sie wird wie bisher mit der Geschäftsstelle geklärt, die den Nachweis sichtet und nicht speichert."
+    ]
+  },
+  {
     version: "Einheitliches Aussehen",
     datum: "2026-08-05",
     punkte: [

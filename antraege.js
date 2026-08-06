@@ -10,6 +10,10 @@ let anListe = [];
 let anZaehler = {};
 let anAktuell = null;
 let anLaeuft = false;
+// Vereinsstammdaten fuer den Papierausdruck. Sie stehen in der Datenbank
+// und nicht im Code -- eine Vereins-IBAN gehoert nicht in ein
+// oeffentliches Repository.
+let anEinstellungen = null;
 
 const AN_ADRESSE = "https://sc1911heiligenstadt.github.io/vereinsverwaltung/antrag.html";
 
@@ -46,6 +50,9 @@ async function ladeAntragSchalter() {
   }
   const feld = (antwort.felder || []).find((f) => f.schluessel === "antrag_offen");
   const offen = !feld || feld.wert === "1";
+
+  anEinstellungen = {};
+  (antwort.felder || []).forEach((f) => { anEinstellungen[f.schluessel] = f.wert; });
 
   ziel.innerHTML =
     '<div class="hinweis ' + (offen ? "erfolg" : "warn") + '">' +
@@ -344,6 +351,7 @@ function zeichneAntrag() {
     '<div class="tabelle-scroll"><table class="zusammenfassung"><tbody>' +
     anZeile("Name", [i.anrede, i.vorname, i.nachname].filter(Boolean).join(" ")) +
     anZeile("Geboren", datumDe(i.geburtsdatum) + anAlter(i.geburtsdatum)) +
+    anZeile("Geburtsort", i.geburtsort) +
     anZeile("Anschrift", (i.strasse || "") + ", " + (i.plz || "") + " " + (i.ort || "")) +
     anZeile("E-Mail", i.email) +
     anZeile("Telefon", [i.mobil, i.telefon].filter(Boolean).join(" / ")) +
@@ -354,12 +362,18 @@ function zeichneAntrag() {
     anZeile("Familie im Verein", i.familie_hinweis) +
     anZeile("Zahlungsart", i.zahlungsart === "lastschrift" ? "SEPA-Lastschrift" : "Überweisung") +
     anZeile("Kontoinhaber", i.kontoinhaber) +
+    anZeile("Anschrift Kontoinhaber", i.kontoinhaber_anschrift) +
     anZeile("IBAN", i.iban) +
     anZeile("BIC", i.bic) +
+    anZeile("Kreditinstitut", i.bank_name) +
     anZeile("Gesetzlicher Vertreter", i.gesetzl_name
       ? i.gesetzl_name + (i.gesetzl_verhaeltnis ? " (" + i.gesetzl_verhaeltnis + ")" : "") : "") +
+    anZeile("Zweiter Erziehungsberechtigter", i.gesetzl2_name
+      ? i.gesetzl2_name + (i.gesetzl2_verhaeltnis ? " (" + i.gesetzl2_verhaeltnis + ")" : "")
+      : (i.minderjaehrig && i.allein_sorgeberechtigt ? "alleiniges Sorgerecht erklärt" : "")) +
     anZeile("Fotoeinwilligung", i.einwilligung_fotos ? "erteilt" : "nicht erteilt") +
     anZeile("Anmerkung", i.bemerkung) +
+    anZeile("Ort der Unterschrift", i.unterschrift_ort) +
     "</tbody></table></div>" +
 
     "<h3>Unterschrift</h3>" +
@@ -371,12 +385,21 @@ function zeichneAntrag() {
         ? '<div><div class="unterschrift-titel">Gesetzlicher Vertreter</div>' +
           '<img alt="Unterschrift des gesetzlichen Vertreters" src="' +
           esc(a.unterschrift_gesetzl) + '"></div>' : "") +
+      (a.unterschrift_gesetzl2
+        ? '<div><div class="unterschrift-titel">Zweiter Erziehungsberechtigter</div>' +
+          '<img alt="Unterschrift des zweiten Erziehungsberechtigten" src="' +
+          esc(a.unterschrift_gesetzl2) + '"></div>' : "") +
     "</div>" +
     '<p class="fussnote">Unterschrieben am ' + esc(datumDe(a.signatur_zeit)) +
       ", Internetadresse " + esc(a.signatur_ip || "—") + ". Gerät: " +
       esc((a.signatur_agent || "—").slice(0, 90)) + "</p>" +
+    '<div class="knopfreihe nicht-drucken">' +
+      '<button class="btn grau" id="btn-an-papier" type="button">Als Papierantrag drucken</button>' +
+    "</div>" +
 
     (entschieden ? anAngenommenBlock(a) : anEntscheidungsBlock(a, i));
+
+  $("btn-an-papier").addEventListener("click", druckePapierantrag);
 
   if (!entschieden) anVerdrahteEntscheidung();
 }
@@ -554,6 +577,227 @@ async function antragAnnehmen() {
     (antwort.mandat_angelegt
       ? "Das SEPA-Mandat wurde aus der Unterschrift angelegt."
       : (antwort.mandat_hinweis ? esc(antwort.mandat_hinweis) : ""));
+}
+
+// ---------------------------------------------------------------------
+// Papierantrag zum Abheften
+// ---------------------------------------------------------------------
+//
+// Vier Seiten im Aufbau des gedruckten Vereinsformulars, aus einem
+// eingegangenen Online-Antrag gefuellt. Anlass: die Geschaeftsstelle
+// heftet Aufnahmeantraege ab, und ein Bildschirmfoto ist kein Vorgang.
+//
+// ⚠️ Der Datenschutz-Abschnitt gibt die Erklaerungen wieder, die der
+// Antragsteller WIRKLICH abgegeben hat -- die drei Haekchen des
+// Online-Formulars mitsamt ihrer Antwort. Er uebernimmt NICHT den
+// Wortlaut des Papierbogens: dann stuende auf dem Ausdruck eine
+// Einwilligung, die so nie erteilt wurde. Das Layout darf dem Papier
+// gleichen, der Inhalt muss dem Vorgang folgen.
+//
+// window.open steht bewusst VOR jedem await -- alle Daten liegen schon
+// in anAktuell. Nach einem await blockt iOS-Safari das Fenster lautlos.
+function papierZeile(was, wert) {
+  return "<tr><th>" + esc(was) + "</th><td>" + esc(wert || "") + "</td></tr>";
+}
+
+function papierUnterschrift(titel, bild, ortDatum) {
+  return '<div class="sig">' +
+    (bild ? '<img src="' + esc(bild) + '" alt="">' : '<div class="sig-leer"></div>') +
+    '<div class="sig-linie"></div>' +
+    '<div class="sig-text"><span>' + esc(ortDatum || "") + "</span><span>" +
+    esc(titel) + "</span></div></div>";
+}
+
+function papierFusszeile() {
+  // Die Vereins-Bankverbindung steht in der Datenbank, nicht im Code --
+  // sie gehoert nicht in ein oeffentliches Repository. Fehlt sie noch,
+  // bleibt die Zeile weg statt falsch dazustehen.
+  const e = anEinstellungen || {};
+  const teile = [];
+  if (e.verein_iban) {
+    teile.push("IBAN: " + e.verein_iban + (e.verein_bic ? ", BIC: " + e.verein_bic : ""));
+  }
+  if (e.glaeubiger_id) teile.push("Gläubiger-ID: " + e.glaeubiger_id);
+  return '<div class="fuss">' + esc(e.verein_name || "1. SC 1911 Heiligenstadt e.V.") +
+    (teile.length ? "<br>" + esc(teile.join(" · ")) : "") + "</div>";
+}
+
+function druckePapierantrag() {
+  const a = anAktuell.antrag;
+  const i = a.inhalt || {};
+  const spartenNamen = (anAktuell.alle_sparten || [])
+    .filter((s) => (a.sparten || []).includes(s.id)).map((s) => s.name).join(", ");
+
+  const ortDatum = (i.unterschrift_ort || i.ort || "") + ", " + datumDe(a.signatur_zeit || a.eingang_am);
+  const nummer = (anAktuell.vorschlag && anAktuell.vorschlag.mitgliedsnummer) || "";
+  const lastschrift = i.zahlungsart === "lastschrift";
+
+  // Bei Minderjaehrigen traegt das Mandat die Unterschrift des
+  // gesetzlichen Vertreters -- genau wie handleAntragAnnehmen es waehlt.
+  const mandatSig = i.minderjaehrig ? a.unterschrift_gesetzl : a.unterschrift;
+
+  const seite1 =
+    '<div class="blatt">' +
+    '<div class="briefkopf"><div class="marke">1.Sportclub 1911<br>Heiligenstadt e.V.</div>' +
+    '<div class="sparten-zeile">Fußball _ Reha-Sport _ Breitensport</div></div>' +
+    "<h1>Aufnahmeantrag</h1>" +
+    "<p>Hiermit beantrage ich für mich bzw. für nachstehendes Familienmitglied die " +
+    "Mitgliedschaft beim 1. SC 1911 Heiligenstadt e.&nbsp;V.</p>" +
+    '<p class="zeile">Mitgliedsnummer: <span class="wert">' + esc(nummer) +
+    '</span> <span class="klein">(wird vom Verein vergeben)</span></p>' +
+    '<p class="zeile">Gewünschte Sportart: <span class="wert">' + esc(spartenNamen) + "</span></p>" +
+    "<h2>1. Beantragte Mitgliedschaft für:</h2>" +
+    "<table>" +
+    papierZeile("Vorname", i.vorname) +
+    papierZeile("Name", i.nachname) +
+    papierZeile("Geb.-Datum", datumDe(i.geburtsdatum)) +
+    papierZeile("Geburtsort", i.geburtsort) +
+    papierZeile("PLZ, Ort", [i.plz, i.ort].filter(Boolean).join(" ")) +
+    papierZeile("Straße + Hausnummer", i.strasse) +
+    papierZeile("Tel. privat", i.telefon) +
+    papierZeile("Handy", i.mobil) +
+    papierZeile("E-Mail", i.email) +
+    "</table>" +
+    "<h2>2. Aus meiner Familie ist/sind bereits Mitglied beim 1. SC:</h2>" +
+    '<p class="zeile">Name, Vorname: <span class="wert">' + esc(i.familie_hinweis || "—") + "</span></p>" +
+    papierFusszeile() + "</div>";
+
+  const seite2 =
+    '<div class="blatt">' +
+    "<h2>3. SEPA-Basislastschriftmandat für wiederkehrende Zahlungen</h2>" +
+    (lastschrift
+      ? "<p>1. SC 1911 Heiligenstadt e.&nbsp;V., Leineberg 2, 37308 Heilbad Heiligenstadt" +
+        (anEinstellungen && anEinstellungen.glaeubiger_id
+          ? "<br>Gläubiger-Identifikationsnummer " + esc(anEinstellungen.glaeubiger_id) : "") +
+        "</p>" +
+        "<p>Ich ermächtige den 1. SC 1911 Heiligenstadt e.&nbsp;V., Zahlungen von meinem Konto " +
+        "einmal jährlich mittels Lastschrift einzuziehen. Zugleich weise ich mein Kreditinstitut " +
+        "an, die vom 1. SC 1911 Heiligenstadt e.&nbsp;V. auf mein Konto gezogenen Lastschriften " +
+        "einzulösen.</p>" +
+        "<p>Hinweis: Ich kann innerhalb von acht Wochen, beginnend mit dem Belastungsdatum, die " +
+        "Erstattung des belasteten Betrages verlangen. Es gelten dabei die mit meinem " +
+        "Kreditinstitut vereinbarten Bedingungen.</p>" +
+        "<table>" +
+        papierZeile("Kontoinhaber", i.kontoinhaber) +
+        papierZeile("Adresse (wenn abweichend)", i.kontoinhaber_anschrift) +
+        papierZeile("Kreditinstitut", i.bank_name) +
+        papierZeile("IBAN", i.iban) +
+        papierZeile("BIC", i.bic) +
+        "</table>" +
+        papierUnterschrift("Unterschrift Kontoinhaber", mandatSig, ortDatum)
+      : '<div class="kasten">Es wurde <strong>keine Lastschrift</strong>, sondern Zahlung ' +
+        "per Überweisung gewählt. Ein SEPA-Mandat liegt deshalb nicht vor.</div>") +
+    papierFusszeile() + "</div>";
+
+  const ja = (wert) => (wert ? "ja" : "nein");
+  const seite3 =
+    '<div class="blatt">' +
+    "<h2>4. Erklärungen zum Datenschutz</h2>" +
+    '<p class="klein">Wiedergegeben sind die Erklärungen, die im Online-Formular ' +
+    "abgegeben wurden — mit der jeweils angekreuzten Antwort.</p>" +
+    "<table>" +
+    papierZeile("Satzung und Beitragsordnung anerkannt", ja(i.einwilligung_satzung)) +
+    papierZeile("Speicherung zur Mitglieder- und Beitragsverwaltung sowie Meldung an " +
+                "Landessportbund und Fachverbände", ja(i.einwilligung_datenschutz)) +
+    papierZeile("Veröffentlichung von Fotos von Vereinsveranstaltungen (freiwillig)",
+                ja(i.einwilligung_fotos)) +
+    "</table>" +
+    "<p>Die Erhebung, Verarbeitung und Nutzung personenbezogener Daten erfolgt nach der " +
+    "Datenschutz-Grundverordnung und dem Bundesdatenschutzgesetz. Über die Verarbeitung " +
+    "wurde vor der Abgabe der Erklärungen nach Art. 13 DSGVO informiert; der Text ist Teil " +
+    "des Online-Formulars. Bei Beendigung der Mitgliedschaft werden die Daten gelöscht, " +
+    "soweit keine steuerrechtlichen Aufbewahrungsfristen entgegenstehen. Es besteht ein " +
+    "Recht auf Auskunft und Berichtigung; erteilte Einwilligungen sind jederzeit mit " +
+    "Wirkung für die Zukunft widerrufbar.</p>" +
+    papierUnterschrift(i.minderjaehrig
+      ? "Unterschrift gesetzlicher Vertreter" : "Unterschrift Mitglied",
+      i.minderjaehrig ? a.unterschrift_gesetzl : a.unterschrift, ortDatum) +
+    papierFusszeile() + "</div>";
+
+  const seite4 =
+    '<div class="blatt">' +
+    "<h2>5. Die Satzung des 1. SC 1911 Heiligenstadt e.&nbsp;V.</h2>" +
+    "<p>habe ich zur Kenntnis erhalten und erkenne diese an.</p>" +
+    papierUnterschrift("Unterschrift Antragsteller", a.unterschrift, ortDatum) +
+    (i.minderjaehrig
+      ? papierUnterschrift("bei Minderjährigen: " + (i.gesetzl_name || "gesetzlicher Vertreter"),
+                           a.unterschrift_gesetzl, ortDatum) +
+        (a.unterschrift_gesetzl2
+          ? papierUnterschrift("zweiter Erziehungsberechtigter: " + (i.gesetzl2_name || ""),
+                               a.unterschrift_gesetzl2, ortDatum)
+          : '<p class="klein">Eine zweite Unterschrift liegt nicht vor: es wurde ' +
+            "<strong>alleiniges Sorgerecht</strong> erklärt.</p>")
+      : "") +
+    '<div class="auszug">' +
+    "<h3>Auszug aus der Satzung §§ 4, 5, 7</h3>" +
+    "<p><strong>§ 4 Abs. 1 Erwerb der Mitgliedschaft.</strong> Wer die Mitgliedschaft erwerben " +
+    "will, hat an den Gesamtvorstand einen schriftlichen Antrag zu stellen.</p>" +
+    "<p><strong>§ 5 Abs. 2 Beendigung der Mitgliedschaft.</strong> Der Austritt eines " +
+    "ordentlichen Mitgliedes erfolgt durch schriftliche Erklärung an den Gesamtvorstand " +
+    "halbjährlich zum 30.06. bzw. 31.12. eines Jahres mit vierwöchiger Kündigungsfrist.</p>" +
+    "<p><strong>§ 7 Abs. 1 Beiträge und Dienstleistungen.</strong> Die ordentlichen Mitglieder " +
+    "sind zur Entrichtung von Mitgliedsbeiträgen verpflichtet.</p>" +
+    "<h3>Beitragsordnung gültig ab 01.01.2024</h3>" +
+    "<table>" +
+    papierZeile("Erwachsene", "8,00 €/Monat") +
+    papierZeile("Rentner, Schwerbehinderte", "6,00 €/Monat") +
+    papierZeile("Kinder, Jugendliche", "6,00 €/Monat") +
+    papierZeile("Familienbeitrag", "1 Vollzahler (höchster Einzelbetrag), " +
+                "jedes weitere Familienmitglied 50 % des Einzelbeitrags") +
+    "</table></div>" +
+    papierFusszeile() + "</div>";
+
+  const stil =
+    "@page { size: A4; margin: 18mm 16mm; }" +
+    "body { font-family: Arial, Helvetica, sans-serif; font-size: 11pt; color: #000; margin: 0; }" +
+    ".blatt { page-break-after: always; position: relative; min-height: 245mm; }" +
+    ".blatt:last-child { page-break-after: auto; }" +
+    ".briefkopf { border-bottom: 2px solid #282562; padding-bottom: 6px; margin-bottom: 14px; }" +
+    ".marke { font-size: 15pt; font-weight: 700; color: #282562; line-height: 1.2; }" +
+    ".sparten-zeile { font-size: 9pt; letter-spacing: .06em; color: #444; margin-top: 3px; }" +
+    "h1 { font-size: 17pt; margin: 16px 0 10px; }" +
+    "h2 { font-size: 12pt; margin: 16px 0 8px; }" +
+    "h3 { font-size: 11pt; margin: 12px 0 6px; }" +
+    "p { margin: 6px 0; line-height: 1.45; }" +
+    ".zeile { margin: 10px 0; }" +
+    ".wert { display: inline-block; min-width: 55%; border-bottom: 1px solid #000; " +
+    "        padding: 0 4px 1px; font-weight: 600; }" +
+    ".klein { font-size: 9pt; color: #444; }" +
+    "table { width: 100%; border-collapse: collapse; margin: 8px 0 4px; }" +
+    "th, td { border: 1px solid #000; padding: 5px 7px; text-align: left; " +
+    "         vertical-align: top; font-size: 10.5pt; }" +
+    "th { width: 34%; font-weight: 400; background: #f2f2f4; }" +
+    "td { font-weight: 600; }" +
+    ".kasten { border: 1px solid #000; padding: 10px; margin: 10px 0; }" +
+    ".sig { margin: 26px 0 10px; max-width: 320px; }" +
+    ".sig img { display: block; height: 60px; margin-bottom: 2px; }" +
+    ".sig-leer { height: 60px; }" +
+    ".sig-linie { border-top: 1px solid #000; }" +
+    ".sig-text { display: flex; justify-content: space-between; gap: 12px; " +
+    "            font-size: 8.5pt; color: #333; padding-top: 3px; }" +
+    ".auszug { margin-top: 20px; border-top: 1px solid #999; padding-top: 10px; font-size: 10pt; }" +
+    ".fuss { position: absolute; bottom: 0; left: 0; right: 0; font-size: 7.5pt; " +
+    "        color: #333; border-top: 1px solid #999; padding-top: 4px; }";
+
+  const w = window.open("", "_blank");
+  if (!w) {
+    alert("Der Ausdruck konnte nicht geöffnet werden — bitte den Popup-Blocker für diese " +
+          "Seite erlauben.");
+    return;
+  }
+  w.document.write(
+    "<!DOCTYPE html><html lang=\"de\"><head><meta charset=\"utf-8\">" +
+    "<title>Aufnahmeantrag " + esc((i.vorname || "") + " " + (i.nachname || "")) + "</title>" +
+    "<style>" + stil + "</style></head><body>" +
+    seite1 + seite2 + seite3 + seite4 +
+    // Der Druckbefehl steht IM erzeugten Dokument, nicht als w.onload von
+    // aussen: nach document.write() ist das Fenster je nach Browser
+    // bereits "geladen", und ein von aussen gesetztes onload feuert dann
+    // nie. Erst das eigene load-Event garantiert, dass die Unterschrifts-
+    // bilder gezeichnet sind -- sonst druckt es eine leere Flaeche.
+    "<script>window.addEventListener('load',function(){window.print();});<\/script>" +
+    "</body></html>");
+  w.document.close();
 }
 
 function antraegeVerdrahten() {

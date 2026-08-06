@@ -493,7 +493,7 @@ async function handleSpartenListe(env, me, corsHeaders) {
 // Felder, die geaendert werden duerfen -- als Weissliste, nicht als
 // Sperrliste. Was hier nicht steht, kommt auch dann nicht in die
 // Datenbank, wenn es im Body mitgeschickt wird.
-const PERSON_FELDER = ["vorname", "nachname", "geburtsdatum", "geschlecht",
+const PERSON_FELDER = ["vorname", "nachname", "geburtsdatum", "geburtsort", "geschlecht",
                        "strasse", "plz", "ort", "email", "telefon", "mobil", "bemerkung"];
 
 // Diese Felder darf ein Abteilungsleiter NICHT anfassen. Kontaktdaten
@@ -540,7 +540,8 @@ async function handleMitgliedDetail(body, env, me, corsHeaders) {
     "       m.kuendigung_am, m.status, m.beschluss_am, m.beschluss_von, " +
     "       m.ermaessigt, m.ermaessigt_grund, m.nachweis_geprueft_am, m.nachweis_gueltig_bis, " +
     "       m.beitragsklasse_id, m.familienbeitrag, " +
-    "       p.id AS person_id, p.vorname, p.nachname, p.geburtsdatum, p.geschlecht, " +
+    "       p.id AS person_id, p.vorname, p.nachname, p.geburtsdatum, p.geburtsort, " +
+    "       p.geschlecht, " +
     "       p.strasse, p.plz, p.ort, p.email, p.telefon, p.mobil, p.bemerkung, " +
     "       p.zusatz_json, p.haushalt_id " +
     "FROM mitgliedschaft m JOIN person p ON p.id = m.person_id WHERE m.id = ?"
@@ -757,10 +758,11 @@ function anweisungenFuerNeuesMitglied(env, satz, jetzt, username) {
   }
 
   an.push(env.VV_DB.prepare(
-    "INSERT INTO person (id, haushalt_id, vorname, nachname, geburtsdatum, geschlecht, " +
-    "strasse, plz, ort, email, telefon, mobil, bemerkung, zusatz_json, erstellt_am, erstellt_von) " +
-    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
-  ).bind(personId, haushaltId, satz.vorname, satz.nachname, satz.geburtsdatum, satz.geschlecht,
+    "INSERT INTO person (id, haushalt_id, vorname, nachname, geburtsdatum, geburtsort, " +
+    "geschlecht, strasse, plz, ort, email, telefon, mobil, bemerkung, zusatz_json, " +
+    "erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+  ).bind(personId, haushaltId, satz.vorname, satz.nachname, satz.geburtsdatum,
+         satz.geburtsort || null, satz.geschlecht,
          satz.strasse, satz.plz, satz.ort, satz.email, satz.telefon, satz.mobil,
          satz.bemerkung, satz.zusatz_json, jetzt, username));
 
@@ -821,6 +823,7 @@ function pruefeMitgliedssatz(roh) {
   return {
     satz: {
       vorname, nachname, geburtsdatum, geschlecht,
+      geburtsort: sauber(roh.geburtsort, 80),
       strasse: sauber(roh.strasse, 120),
       plz: sauber(roh.plz, 10),
       ort: sauber(roh.ort, 80),
@@ -1342,7 +1345,17 @@ function klassenVorschlag(geburtsdatum) {
 // Seite geoeffnet hat.
 async function handleMigration(env, me, corsHeaders) {
   const rolle = await ladeRolle(env, me);
-  if (!rolle.istAdmin && !rolle.darfBuchen && !rolle.darfSchreiben) {
+  // Wer die Spalte braucht, muss an die Migration kommen -- dieselbe
+  // Ueberlegung, die sie schon vom globalen Admin auf Schatzmeister und
+  // Geschaeftsstelle geoeffnet hat. Seit person.geburtsort dazugehoert,
+  // braucht sie auch der Abteilungsleiter: die Mitglieder-Einzelansicht
+  // liest die Spalte, und ohne sie saehe er einen nackten SQL-Fehler.
+  // Vertretbar bleibt es aus demselben Grund wie vorher: die Aktion
+  // fuehrt ausschliesslich fest verdrahtetes ADD COLUMN und
+  // CREATE TABLE IF NOT EXISTS aus, nimmt keine Eingabe entgegen und
+  // loescht nichts.
+  if (!rolle.istAdmin && !rolle.darfBuchen && !rolle.darfSchreiben
+      && !rolle.darfPersonenSehen) {
     return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
   }
 
@@ -1381,6 +1394,48 @@ async function handleMigration(env, me, corsHeaders) {
     fehlend.push("ALTER TABLE sepa_datei ADD COLUMN gebucht_am TEXT");
   }
 
+  // Felder des Papier-Aufnahmeantrags (Stand 2026-08). Das gedruckte
+  // Formular fragt sie ab, das Online-Formular tat es nicht -- und wer
+  // beide nebeneinander legt, muss dasselbe Blatt sehen.
+  //
+  // geburtsort ist kein Beiwerk: bei zwei gleichnamigen Mitgliedern mit
+  // demselben Geburtsdatum ist er das einzige unterscheidende Merkmal,
+  // das der Verein hat.
+  const personSpalten = await env.VV_DB.prepare("PRAGMA table_info(person)").all();
+  const personDa = new Set((personSpalten.results || []).map((s) => s.name));
+  const personFehlend = [];
+  if (!personDa.has("geburtsort")) {
+    personFehlend.push("ALTER TABLE person ADD COLUMN geburtsort TEXT");
+  }
+
+  // Das Mandat ist das rechtlich massgebliche Papier, nicht der Antrag.
+  // Wer der Zahler ist, wo er wohnt und wo er unterschrieben hat, gehoert
+  // deshalb an das Mandat -- ein Antrag von vor sieben Jahren ist kein
+  // Ort, an dem man das nachschlaegt.
+  const mandatSpalten = await env.VV_DB.prepare("PRAGMA table_info(sepa_mandat)").all();
+  const mandatDa = new Set((mandatSpalten.results || []).map((s) => s.name));
+  const mandatFehlend = [];
+  if (!mandatDa.has("bank_name")) {
+    mandatFehlend.push("ALTER TABLE sepa_mandat ADD COLUMN bank_name TEXT");
+  }
+  if (!mandatDa.has("kontoinhaber_anschrift")) {
+    mandatFehlend.push("ALTER TABLE sepa_mandat ADD COLUMN kontoinhaber_anschrift TEXT");
+  }
+  if (!mandatDa.has("erteilt_ort")) {
+    mandatFehlend.push("ALTER TABLE sepa_mandat ADD COLUMN erteilt_ort TEXT");
+  }
+
+  // Das Papierformular verlangt die Unterschrift ALLER Erziehungs-
+  // berechtigten. Ohne eine zweite Spalte kaeme die zweite Unterschrift
+  // beim Absenden an und fiele danach lautlos weg.
+  const antragSpalten = await env.VV_DB.prepare("PRAGMA table_info(aufnahmeantrag)").all();
+  const antragDa = new Set((antragSpalten.results || []).map((s) => s.name));
+  const antragFehlend = [];
+  if (!antragDa.has("unterschrift_gesetzl2_datei")) {
+    antragFehlend.push("ALTER TABLE aufnahmeantrag ADD COLUMN unterschrift_gesetzl2_datei TEXT");
+  }
+
+  fehlend.push(...personFehlend, ...mandatFehlend, ...antragFehlend);
   for (const sql of fehlend) await env.VV_DB.prepare(sql).run();
 
   // Vereinsstammdaten fuer die SEPA-Datei. Eigene Tabelle statt Konstanten
@@ -3725,6 +3780,9 @@ function pruefeAntrag(roh, erlaubteSparten, heute) {
   const minderjaehrig = alter !== null && alter < 18;
   let gesetzl = null;
   let gesetzlName = null;
+  let gesetzl2 = null;
+  let gesetzl2Name = null;
+  let alleinSorge = false;
   if (minderjaehrig) {
     gesetzlName = sauber(roh.gesetzl_name, 120);
     if (!gesetzlName) {
@@ -3732,6 +3790,24 @@ function pruefeAntrag(roh, erlaubteSparten, heute) {
     }
     gesetzl = pruefeUnterschrift(roh.unterschrift_gesetzl, "Die Unterschrift des gesetzlichen Vertreters");
     if (gesetzl.fehler) return { fehler: gesetzl.fehler };
+
+    // Das Papierformular verlangt die Unterschrift ALLER Erziehungs-
+    // berechtigten (§ 1629 BGB: die Sorge steht beiden Eltern gemeinsam
+    // zu). Der Regelfall sind zwei; der Ausweg fuer Alleinsorgeberechtigte
+    // ist eine ausdrueckliche Erklaerung, kein stilles Weglassen -- sonst
+    // liesse sich hinterher nicht unterscheiden, ob nur einer sorge-
+    // berechtigt war oder ob der zweite schlicht nicht gefragt wurde.
+    alleinSorge = roh.allein_sorgeberechtigt === true;
+    if (!alleinSorge) {
+      gesetzl2Name = sauber(roh.gesetzl2_name, 120);
+      if (!gesetzl2Name) {
+        return { fehler: "Es wird die Unterschrift beider Erziehungsberechtigter gebraucht. " +
+                         "Wer allein sorgeberechtigt ist, kreuzt das bitte an" };
+      }
+      gesetzl2 = pruefeUnterschrift(roh.unterschrift_gesetzl2,
+                                    "Die Unterschrift des zweiten Erziehungsberechtigten");
+      if (gesetzl2.fehler) return { fehler: gesetzl2.fehler };
+    }
   }
 
   return {
@@ -3739,6 +3815,7 @@ function pruefeAntrag(roh, erlaubteSparten, heute) {
       inhalt: {
         anrede: sauber(roh.anrede, 20),
         vorname, nachname, geburtsdatum,
+        geburtsort: sauber(roh.geburtsort, 80),
         geschlecht: ["w", "m", "d"].includes(roh.geschlecht) ? roh.geschlecht : null,
         strasse, plz, ort, email,
         telefon: sauber(roh.telefon, 40),
@@ -3750,9 +3827,21 @@ function pruefeAntrag(roh, erlaubteSparten, heute) {
         familie_hinweis: sauber(roh.familie_hinweis, 200),
         zahlungsart, kontoinhaber, iban,
         bic: (sauber(roh.bic, 20) || "").replace(/\s+/g, "").toUpperCase() || null,
+        // Nur bei Lastschrift erhoben und nur dann gespeichert: bei
+        // Ueberweisung gibt es kein Mandat, an dem sie haengen wuerden.
+        bank_name: zahlungsart === "lastschrift" ? sauber(roh.bank_name, 80) : null,
+        kontoinhaber_anschrift: zahlungsart === "lastschrift"
+          ? sauber(roh.kontoinhaber_anschrift, 200) : null,
+        // "Ort, Datum" steht auf dem Papierformular ueber beiden
+        // Unterschriften. Das Datum ist der Zeitstempel; der Ort faellt
+        // auf den Wohnort zurueck, statt leer zu bleiben.
+        unterschrift_ort: sauber(roh.unterschrift_ort, 80) || ort,
         minderjaehrig,
         gesetzl_name: gesetzlName,
         gesetzl_verhaeltnis: minderjaehrig ? sauber(roh.gesetzl_verhaeltnis, 40) : null,
+        gesetzl2_name: gesetzl2Name,
+        gesetzl2_verhaeltnis: gesetzl2Name ? sauber(roh.gesetzl2_verhaeltnis, 40) : null,
+        allein_sorgeberechtigt: minderjaehrig ? alleinSorge : false,
         einwilligung_satzung: true,
         einwilligung_datenschutz: true,
         einwilligung_fotos: roh.einwilligung_fotos === true,
@@ -3760,7 +3849,8 @@ function pruefeAntrag(roh, erlaubteSparten, heute) {
       },
       sparten,
       unterschrift: unterschrift.wert,
-      unterschrift_gesetzl: gesetzl ? gesetzl.wert : null
+      unterschrift_gesetzl: gesetzl ? gesetzl.wert : null,
+      unterschrift_gesetzl2: gesetzl2 ? gesetzl2.wert : null
     }
   };
 }
@@ -3916,6 +4006,30 @@ async function handleAntragInfo(env, corsHeaders) {
   }, 200, corsHeaders);
 }
 
+// Die Spalte fuer die zweite Unterschrift entsteht in handleMigration --
+// und der oeffentliche Endpunkt kann die nicht anstossen, sie verlangt
+// eine Rolle. Faende er die Spalte nicht und benannte sie trotzdem im
+// INSERT, wuerde JEDER Antrag scheitern, auch der eines Erwachsenen.
+//
+// ⚠️ Gemerkt wird NUR das Ja. Ein Nein zu merken war der erste Entwurf
+// und vom Pruefstand als Fehler entlarvt: die Migration laeuft in einem
+// ANDEREN Isolate als der oeffentliche Antrag, das Zuruecksetzen dort
+// erreicht dieses hier also nie -- und der Worker wiese noch stundenlang
+// mit 503 ab, obwohl die Spalte laengst da ist. Die zusaetzliche Abfrage
+// kostet nur, solange die Spalte wirklich fehlt.
+let gesetzl2SpalteDa = false;
+async function hatGesetzl2Spalte(env) {
+  if (gesetzl2SpalteDa) return true;
+  try {
+    const r = await env.VV_DB.prepare("PRAGMA table_info(aufnahmeantrag)").all();
+    gesetzl2SpalteDa = (r.results || [])
+      .some((s) => s.name === "unterschrift_gesetzl2_datei");
+  } catch {
+    return false;
+  }
+  return gesetzl2SpalteDa;
+}
+
 async function handleAntragSenden(body, env, request, corsHeaders) {
   const cfg = await ladeEinstellungen(env);
   if (einstellungZahl(cfg, "antrag_offen") !== 1) {
@@ -3950,13 +4064,28 @@ async function handleAntragSenden(body, env, request, corsHeaders) {
   if (geprueft.fehler) return json({ error: geprueft.fehler }, 400, corsHeaders);
   const satz = geprueft.satz;
 
+  const zweiteSpalte = await hatGesetzl2Spalte(env);
+  if (satz.unterschrift_gesetzl2 && !zweiteSpalte) {
+    // Lieber sichtbar abweisen als still verlieren: die Unterschrift des
+    // zweiten Erziehungsberechtigten ist der Grund, warum der Antrag
+    // wirksam ist. Das Fenster dauert Minuten -- bis jemand mit einer
+    // Rolle die App oeffnet und damit die Migration anstoesst.
+    return json({ error: "Das Formular wird gerade umgestellt. Bitte in wenigen Minuten " +
+                         "noch einmal absenden oder die Geschaeftsstelle anrufen." },
+                503, corsHeaders);
+  }
+
   const id = uuid();
   await env.VV_DB.prepare(
     "INSERT INTO aufnahmeantrag (id, eingang_am, antrag_json, sparten_json, " +
-    "unterschrift_datei, unterschrift_gesetzl_datei, signatur_ip, signatur_agent, " +
-    "signatur_zeit, status) VALUES (?,?,?,?,?,?,?,?,?,'neu')"
-  ).bind(id, jetzt, JSON.stringify(satz.inhalt), JSON.stringify(satz.sparten),
-         satz.unterschrift, satz.unterschrift_gesetzl, ip, agent, jetzt).run();
+    "unterschrift_datei, unterschrift_gesetzl_datei, " +
+    (zweiteSpalte ? "unterschrift_gesetzl2_datei, " : "") +
+    "signatur_ip, signatur_agent, signatur_zeit, status) " +
+    "VALUES (?,?,?,?,?,?," + (zweiteSpalte ? "?," : "") + "?,?,?,'neu')"
+  ).bind(...[id, jetzt, JSON.stringify(satz.inhalt), JSON.stringify(satz.sparten),
+             satz.unterschrift, satz.unterschrift_gesetzl]
+           .concat(zweiteSpalte ? [satz.unterschrift_gesetzl2] : [])
+           .concat([ip, agent, jetzt])).run();
 
   await protokolliere(env, null, "antrag-eingegangen", "aufnahmeantrag", id,
                       { nachname: satz.inhalt.nachname });
@@ -4094,6 +4223,7 @@ async function handleAntragDetail(body, env, me, corsHeaders) {
       sparten,
       unterschrift: zeile.unterschrift_datei || null,
       unterschrift_gesetzl: zeile.unterschrift_gesetzl_datei || null,
+      unterschrift_gesetzl2: zeile.unterschrift_gesetzl2_datei || null,
       signatur_ip: zeile.signatur_ip || null,
       signatur_agent: zeile.signatur_agent || null,
       signatur_zeit: zeile.signatur_zeit || null,
@@ -4179,11 +4309,12 @@ function anweisungenFuerAnnahme(env, plan, jetzt, username) {
   }
 
   an.push(env.VV_DB.prepare(
-    "INSERT INTO person (id, haushalt_id, vorname, nachname, geburtsdatum, geschlecht, " +
-    "strasse, plz, ort, email, telefon, mobil, bemerkung, erstellt_am, erstellt_von) " +
-    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+    "INSERT INTO person (id, haushalt_id, vorname, nachname, geburtsdatum, geburtsort, " +
+    "geschlecht, strasse, plz, ort, email, telefon, mobil, bemerkung, " +
+    "erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
   ).bind(personId, haushaltId, plan.inhalt.vorname, plan.inhalt.nachname,
-         plan.inhalt.geburtsdatum, plan.inhalt.geschlecht, plan.inhalt.strasse,
+         plan.inhalt.geburtsdatum, plan.inhalt.geburtsort || null,
+         plan.inhalt.geschlecht, plan.inhalt.strasse,
          plan.inhalt.plz, plan.inhalt.ort, plan.inhalt.email, plan.inhalt.telefon,
          plan.inhalt.mobil, plan.bemerkung, jetzt, username));
 
@@ -4213,10 +4344,13 @@ function anweisungenFuerAnnahme(env, plan, jetzt, username) {
   if (plan.mandat) {
     an.push(env.VV_DB.prepare(
       "INSERT INTO sepa_mandat (id, haushalt_id, referenz, kontoinhaber, iban, bic, " +
-      "erteilt_am, quelle, unterschrift_datei, signatur_ip, signatur_agent, " +
-      "erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?,?,'digital',?,?,?,?,?)"
+      "bank_name, kontoinhaber_anschrift, erteilt_am, erteilt_ort, quelle, " +
+      "unterschrift_datei, signatur_ip, signatur_agent, " +
+      "erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?,?,?,?,?,'digital',?,?,?,?,?)"
     ).bind(uuid(), haushaltId, plan.mandat.referenz, plan.mandat.kontoinhaber,
-           plan.mandat.iban, plan.mandat.bic, plan.mandat.erteilt_am,
+           plan.mandat.iban, plan.mandat.bic, plan.mandat.bank_name,
+           plan.mandat.kontoinhaber_anschrift, plan.mandat.erteilt_am,
+           plan.mandat.erteilt_ort,
            plan.mandat.unterschrift, plan.mandat.ip, plan.mandat.agent, jetzt, username));
   }
 
@@ -4323,7 +4457,10 @@ async function handleAntragAnnehmen(body, env, me, corsHeaders) {
         kontoinhaber: inhalt.kontoinhaber || (inhalt.vorname + " " + inhalt.nachname),
         iban: inhalt.iban,
         bic: inhalt.bic || null,
+        bank_name: inhalt.bank_name || null,
+        kontoinhaber_anschrift: inhalt.kontoinhaber_anschrift || null,
         erteilt_am: String(zeile.signatur_zeit || zeile.eingang_am).slice(0, 10),
+        erteilt_ort: inhalt.unterschrift_ort || inhalt.ort || null,
         unterschrift: mandatUnterschrift,
         ip: zeile.signatur_ip || null,
         agent: zeile.signatur_agent || null
@@ -4336,6 +4473,14 @@ async function handleAntragAnnehmen(body, env, me, corsHeaders) {
   if (inhalt.gesetzl_name) {
     bemerkungTeile.push("Gesetzlicher Vertreter: " + inhalt.gesetzl_name +
                         (inhalt.gesetzl_verhaeltnis ? " (" + inhalt.gesetzl_verhaeltnis + ")" : ""));
+  }
+  if (inhalt.gesetzl2_name) {
+    bemerkungTeile.push("Zweiter Erziehungsberechtigter: " + inhalt.gesetzl2_name +
+                        (inhalt.gesetzl2_verhaeltnis ? " (" + inhalt.gesetzl2_verhaeltnis + ")" : ""));
+  } else if (inhalt.allein_sorgeberechtigt) {
+    // Die Erklaerung muss am Mitglied stehen bleiben: sie ist der Grund,
+    // warum nur eine Unterschrift vorliegt.
+    bemerkungTeile.push("Alleiniges Sorgerecht erklaert");
   }
   // Die Foto-Einwilligung ist freiwillig und muss belegbar bleiben --
   // auch die Verweigerung, sonst weiss spaeter niemand, ob nur nicht

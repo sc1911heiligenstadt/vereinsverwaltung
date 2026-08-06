@@ -135,6 +135,12 @@ async function start() {
   $("nav-auswertung").hidden = !(meineRechte.isAdmin
     || (meineRechte.rollen && meineRechte.rollen.length > 0));
 
+  // Vor der ersten Abfrage von Personendaten: die Einzelansicht liest
+  // p.geburtsort, und die Spalte entsteht erst hier. Nicht kritisch, wenn
+  // es fehlschlaegt -- dann ist sie schon da oder die Rolle darf ohnehin
+  // keine Person sehen.
+  try { await vvRequest("vv-migration", {}); } catch { /* nicht kritisch */ }
+
   await ladeSpartenAuswahl();
   await ladeUndZeige();
   if (meineRechte.isAdmin) { ladeRollen(); ladeSicherung(); }
@@ -413,6 +419,7 @@ let offenesMitglied = null;
 
 const PERSONENFELDER = {
   "d-vorname": "vorname", "d-nachname": "nachname", "d-geburtsdatum": "geburtsdatum",
+  "d-geburtsort": "geburtsort",
   "d-geschlecht": "geschlecht", "d-strasse": "strasse", "d-plz": "plz", "d-ort": "ort",
   "d-email": "email", "d-telefon": "telefon", "d-mobil": "mobil"
 };
@@ -580,6 +587,7 @@ async function fuegeSparteHinzu() {
 
 const NEUFELDER = {
   "n-vorname": "vorname", "n-nachname": "nachname", "n-geburtsdatum": "geburtsdatum",
+  "n-geburtsort": "geburtsort",
   "n-geschlecht": "geschlecht", "n-strasse": "strasse", "n-plz": "plz", "n-ort": "ort",
   "n-email": "email", "n-telefon": "telefon", "n-mobil": "mobil",
   "n-nummer": "mitgliedsnummer", "n-art": "art", "n-eintritt": "eintritt",
