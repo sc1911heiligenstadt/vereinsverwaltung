@@ -20,6 +20,29 @@ let laeuft = false;
 let nachweisOwner = null;
 const nachweisStand = {};   // slot -> "laeuft" | "fertig" | Fehlertext
 
+// --- Passbild ---------------------------------------------------------
+//
+// ⚠️ Das Bild kommt NICHT auf den Verbandsbogen -- der hat gar kein
+// Bildfeld (nachgemessen: das einzige Bild darauf ist das TFV-Logo). Es
+// wird gesammelt, damit die Geschaeftsstelle es beim Eintragen in DFBnet
+// Pass-Online hochladen kann, ohne die Familie noch einmal anzuschreiben.
+//
+// Format 35x45 mm wie beim amtlichen Passbild. Der Puffer ist GENAU so
+// gross wie das Ergebnis: was im Dialog zu sehen ist, ist byte-genau das,
+// was gespeichert wird -- es gibt keine zweite Umrechnung beim Export.
+const PASSBILD_B = 350;
+const PASSBILD_H = 450;
+
+// Nur wo der Verband ein neues Bild braucht. Ein Rueckkehrer und eine
+// Namensaenderung haengen an einem bestehenden Pass, dort liegt es schon.
+const PASSBILD_ARTEN = ["erstausstellung", "vereinswechsel"];
+
+let passbildDaten = null;      // fertiges Bild als Data-URL
+let passbildStand = null;      // null | "laeuft" | "fertig" | Fehlertext
+let pbBild = null;             // das geladene Original
+let pbZoom = 1, pbX = 0, pbY = 0, pbDrehung = 0;
+let pbZieht = false, pbVonX = 0, pbVonY = 0;
+
 // Welche Anlage der Verband wann verlangt. Die Slots sind dieselben wie
 // in der Weissliste des Gateways -- ein hier erfundener Wert wuerde dort
 // abgewiesen.
@@ -174,7 +197,7 @@ function zeigeMinderjaehrig() {
   $("nr-beitrag").textContent = (4 + n) + " — Beitragszahlung";
   $("nr-einwilligung").textContent = (5 + n) + " — Erklärungen";
   $("nr-unterschrift").textContent = (6 + n) + " — Unterschriften";
-  $("nr-nachweise").textContent = (7 + n) + " — Nachweise";
+  zeigePassbildKarte();   // vergibt 7/8 je nachdem, ob ein Bild verlangt ist
 
   sigPadGesetzl = sigFeldPflegen(sigPadGesetzl, "a-sig-gesetzl", minder);
   zeigeZweitenVertreter();
@@ -241,7 +264,20 @@ function spielerlaubnisArt() {
 
 function zeigeSpielerlaubnisArt() {
   $("sp-wechsel-block").hidden = spielerlaubnisArt() !== "vereinswechsel";
+  zeigePassbildKarte();
   zeichneNachweise();
+}
+
+// Die Passbild-Karte haengt an der Art der Passausstellung. Faellt sie
+// weg, rutschen die Nummern der Karten darunter -- eine springende
+// Zaehlung liest sich wie ein vergessener Abschnitt.
+function zeigePassbildKarte() {
+  const noetig = PASSBILD_ARTEN.includes(spielerlaubnisArt());
+  $("sp-passbild-karte").hidden = !noetig;
+  const minder = !$("a-karte-gesetzl").hidden;
+  const n = minder ? 0 : -1;
+  $("nr-passbild").textContent = (7 + n) + " — Passbild";
+  $("nr-nachweise").textContent = (7 + n + (noetig ? 1 : 0)) + " — Nachweise";
 }
 
 function pruefeIbanFeld() {
@@ -336,6 +372,231 @@ async function nachweisGewaehlt(feld) {
     nachweisStand[slot] = e.message;
   }
   zeichneNachweise();
+}
+
+// ---------------------------------------------------------------------
+// Passbild: aufnehmen, zuschneiden, hochladen
+// ---------------------------------------------------------------------
+
+// ⚠️ Am Handy oeffnet capture="user" die SYSTEM-Kamera. Darin laesst sich
+// nichts ueberlagern -- eine Hilfslinie waehrend der Aufnahme ist technisch
+// nicht moeglich, ohne die Kamera selbst nachzubauen (getUserMedia mit
+// eigener Vorschau). Das waere eine zusaetzliche Berechtigung und auf den
+// aelteren iOS-Geraeten der Flotte unzuverlaessig. Deshalb: erst aufnehmen,
+// DANN zuschneiden -- die ovale Hilfslinie steht im Zuschnitt-Dialog, wo
+// sie sich beliebig oft korrigieren laesst.
+function passbildGewaehlt(feld) {
+  const datei = feld.files && feld.files[0];
+  feld.value = "";   // damit dieselbe Datei erneut gewaehlt werden kann
+  if (!datei) return;
+
+  const leser = new FileReader();
+  leser.onload = () => {
+    const bild = new Image();
+    bild.onload = () => oeffnePassbildDialog(bild);
+    bild.onerror = () => {
+      passbildStand = "Das Bild konnte nicht gelesen werden.";
+      zeichnePassbildStand();
+    };
+    bild.src = String(leser.result || "");
+  };
+  leser.onerror = () => {
+    passbildStand = "Die Datei konnte nicht gelesen werden.";
+    zeichnePassbildStand();
+  };
+  leser.readAsDataURL(datei);
+}
+
+function oeffnePassbildDialog(bild) {
+  pbBild = bild;
+  pbDrehung = 0;
+  $("passbild-zoom").value = 100;
+
+  // ⚠️ Erst sichtbar machen, dann messen: ein Canvas hinter hidden ist
+  // 300x150, und der ganze Zuschnitt saesse daneben.
+  $("passbild-overlay").hidden = false;
+
+  const c = $("passbild-canvas");
+  c.width = PASSBILD_B;
+  c.height = PASSBILD_H;
+
+  passbildEinpassen();
+  zeichnePassbild();
+}
+
+// Startzustand: das Bild fuellt den Rahmen und sitzt mittig. Von dort aus
+// ist jede Korrektur eine kleine Bewegung -- von einer Ecke aus waere sie
+// eine Suche.
+function passbildEinpassen() {
+  const [b, h] = pbMasse();
+  pbZoom = Math.max(PASSBILD_B / b, PASSBILD_H / h);
+  pbX = (PASSBILD_B - b * pbZoom) / 2;
+  pbY = (PASSBILD_H - h * pbZoom) / 2;
+}
+
+// Breite und Hoehe NACH der Drehung -- bei 90 und 270 Grad vertauscht.
+function pbMasse() {
+  return (pbDrehung % 180 === 0)
+    ? [pbBild.width, pbBild.height]
+    : [pbBild.height, pbBild.width];
+}
+
+function zeichnePassbild(mitHilfe = true) {
+  const c = $("passbild-canvas");
+  const ctx = c.getContext("2d");
+  const regler = Number($("passbild-zoom").value) / 100;
+
+  ctx.clearRect(0, 0, PASSBILD_B, PASSBILD_H);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, PASSBILD_B, PASSBILD_H);
+
+  const [b, h] = pbMasse();
+  const z = pbZoom * regler;
+  const bb = b * z, hh = h * z;
+  // Der Regler vergroessert um die MITTE des Rahmens, nicht um die linke
+  // obere Ecke -- sonst wandert das Gesicht beim Zoomen aus dem Bild.
+  const x = pbX - (bb - b * pbZoom) / 2;
+  const y = pbY - (hh - h * pbZoom) / 2;
+
+  ctx.save();
+  ctx.translate(x + bb / 2, y + hh / 2);
+  ctx.rotate(pbDrehung * Math.PI / 180);
+  ctx.drawImage(pbBild, -pbBild.width * z / 2, -pbBild.height * z / 2,
+                pbBild.width * z, pbBild.height * z);
+  ctx.restore();
+
+  if (!mitHilfe) return;
+
+  // Die ovale Hilfslinie: Kopfhoehe belegt beim amtlichen Passbild rund
+  // zwei Drittel der Bildhoehe, mit etwas Luft ueber dem Scheitel. Sie ist
+  // eine HILFE, keine Maske -- gespeichert wird das volle Rechteck, weil
+  // DFBnet ein rechteckiges Bild erwartet.
+  ctx.save();
+  ctx.strokeStyle = "rgba(26, 86, 160, .85)";
+  ctx.setLineDash([9, 7]);
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.ellipse(PASSBILD_B / 2, PASSBILD_H * 0.46,
+              PASSBILD_B * 0.30, PASSBILD_H * 0.34, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function pbZeigerPos(e) {
+  const c = $("passbild-canvas");
+  const r = c.getBoundingClientRect();
+  // ⚠️ In Puffer-Pixel umrechnen: die Anzeige ist am Handy schmaler als
+  // die 350 des Puffers, und ohne das wandert das Bild spuerbar langsamer
+  // als der Finger.
+  return { x: (e.clientX - r.left) * (PASSBILD_B / r.width),
+           y: (e.clientY - r.top) * (PASSBILD_H / r.height) };
+}
+
+function verdrahtePassbild() {
+  const c = $("passbild-canvas");
+
+  c.addEventListener("pointerdown", (e) => {
+    if (!pbBild) return;
+    pbZieht = true;
+    c.setPointerCapture(e.pointerId);
+    const p = pbZeigerPos(e);
+    pbVonX = p.x - pbX;
+    pbVonY = p.y - pbY;
+  });
+  c.addEventListener("pointermove", (e) => {
+    if (!pbZieht) return;
+    const p = pbZeigerPos(e);
+    pbX = p.x - pbVonX;
+    pbY = p.y - pbVonY;
+    zeichnePassbild();
+  });
+  const los = (e) => {
+    if (!pbZieht) return;
+    pbZieht = false;
+    try { c.releasePointerCapture(e.pointerId); } catch {}
+  };
+  c.addEventListener("pointerup", los);
+  c.addEventListener("pointercancel", los);
+
+  $("passbild-zoom").addEventListener("input", () => zeichnePassbild());
+
+  // Handyfotos tragen ihre Ausrichtung im EXIF, und die aelteren
+  // iOS-Geraete der Flotte wenden sie beim Zeichnen nicht an -- ein
+  // Hochkant-Selfie landet dann quer. Statt EXIF im Code zu raten, sieht
+  // man die Schieflage und dreht sie mit einem Tipp gerade.
+  $("btn-passbild-drehen").addEventListener("click", () => {
+    if (!pbBild) return;
+    pbDrehung = (pbDrehung + 90) % 360;
+    $("passbild-zoom").value = 100;
+    passbildEinpassen();     // Versatz zurueck: er zeigte in die alte Richtung
+    zeichnePassbild();
+  });
+
+  $("btn-passbild-abbrechen").addEventListener("click", schliessePassbildDialog);
+  $("btn-passbild-uebernehmen").addEventListener("click", uebernehmePassbild);
+
+  $("btn-passbild-kamera").addEventListener("click", () => $("passbild-kamera").click());
+  $("btn-passbild-datei").addEventListener("click", () => $("passbild-datei").click());
+  $("passbild-kamera").addEventListener("change", () => passbildGewaehlt($("passbild-kamera")));
+  $("passbild-datei").addEventListener("change", () => passbildGewaehlt($("passbild-datei")));
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !$("passbild-overlay").hidden) schliessePassbildDialog();
+  });
+}
+
+function schliessePassbildDialog() {
+  $("passbild-overlay").hidden = true;
+  pbBild = null;
+  pbZieht = false;
+}
+
+async function uebernehmePassbild() {
+  // ⚠️ Ohne Hilfslinie neu zeichnen, sonst wandert das gestrichelte Oval
+  // ins gespeicherte Bild. Danach wieder mit -- der Dialog koennte noch
+  // einen Lidschlag sichtbar sein.
+  zeichnePassbild(false);
+  passbildDaten = $("passbild-canvas").toDataURL("image/jpeg", 0.9);
+  zeichnePassbild(true);
+  schliessePassbildDialog();
+
+  passbildStand = "laeuft";
+  zeichnePassbildStand();
+
+  try {
+    const blob = await passbildAlsBlob(passbildDaten);
+    const antwort = await ladeNachweisHoch("passbild", blob, nachweisOwner);
+    if (antwort && antwort.owner) nachweisOwner = antwort.owner;
+    passbildStand = "fertig";
+  } catch (e) {
+    passbildStand = e.message;
+  }
+  zeichnePassbildStand();
+}
+
+// ladeNachweisHoch erwartet etwas, das FileReader lesen kann. Ein Blob aus
+// der Data-URL zu bauen ist der kuerzere Weg, als dort einen zweiten
+// Eingang fuer Data-URLs zu oeffnen.
+function passbildAlsBlob(dataUrl) {
+  return fetch(dataUrl).then((r) => r.blob());
+}
+
+function zeichnePassbildStand() {
+  const ziel = $("passbild-stand");
+  if (!passbildDaten) { ziel.innerHTML = ""; return; }
+
+  let hinweis = "";
+  if (passbildStand === "laeuft") hinweis = '<span class="fussnote">wird übertragen …</span>';
+  else if (passbildStand === "fertig") hinweis = '<span class="hinweis erfolg">✓ übertragen</span>';
+  else if (passbildStand) hinweis = '<span class="hinweis fehler">' + esc(passbildStand) + "</span>";
+
+  ziel.innerHTML =
+    '<div class="passbild-vorschau">' +
+      '<img alt="Aufgenommenes Passbild" src="' + esc(passbildDaten) + '">' +
+      "<div>" + hinweis +
+        '<div class="fussnote">Nicht zufrieden? Einfach noch einmal aufnehmen.</div>' +
+      "</div>" +
+    "</div>";
 }
 
 // ---------------------------------------------------------------------
@@ -498,6 +759,8 @@ function zeigeDanke(daten, antwort) {
     zeile("Sorgerecht", daten.allein_sorgeberechtigt ? "alleiniges Sorgerecht erklärt" : "") +
     zeile("Fotoeinwilligung", daten.einwilligung_fotos ? "erteilt" : "nicht erteilt") +
     zeile("DFB-Werbeeinwilligung", s.einwilligung_dfb_marketing ? "erteilt" : "nicht erteilt") +
+    zeile("Passbild", passbildStand === "fertig" ? "übertragen"
+      : (PASSBILD_ARTEN.includes(s.art) ? "fehlt noch" : "")) +
     zeile("Nachweise", hochgeladen.length ? hochgeladen.join(", ") : "keine hochgeladen") +
     zeile("Anmerkung", daten.bemerkung) +
     zeile("Ort und Datum", [daten.unterschrift_ort || daten.ort, datumDe(heuteIso())]
@@ -559,6 +822,7 @@ function verdrahten() {
   });
   $("btn-antrag-senden").addEventListener("click", absenden);
   $("btn-drucken").addEventListener("click", () => window.print());
+  verdrahtePassbild();
 
   zeigeZahlungsart();
   zeigeMinderjaehrig();

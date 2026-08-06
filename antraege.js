@@ -411,6 +411,7 @@ function zeichneAntrag() {
   $("btn-an-papier").addEventListener("click", druckePapierantrag);
   if ($("btn-an-tfv")) $("btn-an-tfv").addEventListener("click", erzeugeTfvAntrag);
   anZeigeNachweise(a);
+  anZeigeTfvStand(a);
 
   if (!entschieden) anVerdrahteEntscheidung();
 }
@@ -538,13 +539,31 @@ async function erzeugeTfvAntrag() {
   hinweisZiel.innerHTML = "";
 
   try {
-    const hinweise = await tfvAntragHerunterladen({
+    const { bytes, hinweise } = await tfvAntragErzeugen({
       antrag: anAktuell.antrag,
       vereinsname: (anEinstellungen && anEinstellungen.verein_name) || "",
       vereinsNr: (anEinstellungen && anEinstellungen.tfv_vereinsnummer) || "",
       unterschriftOrt: anAktuell.antrag.inhalt.unterschrift_ort,
       datum: anAktuell.antrag.signatur_zeit || anAktuell.antrag.eingang_am
     });
+
+    // Erst herunterladen, dann ablegen. Die Reihenfolge ist Absicht: der
+    // Download ist die Handlung, die die Geschaeftsstelle gerade will --
+    // ein Fehler bei der Ablage darf ihn nicht verschlucken.
+    tfvAntragSpeichern(bytes, anAktuell.antrag);
+
+    let ablage = "";
+    try {
+      await legeTfvAntragAb(anAktuell.antrag.id, bytes);
+      ablage = " Es liegt zugleich beim Antrag in der Vereins-Nextcloud — " +
+               "der Verband verlangt die Aufbewahrung für mindestens zwei Jahre.";
+      tfvVorhanden = true;
+    } catch (e) {
+      // Sichtbar melden statt still schlucken: sonst verlaesst sich
+      // jemand auf eine Aufbewahrung, die es nie gab.
+      ablage = ' <strong>Nicht abgelegt:</strong> ' + esc(e.message) +
+               " Das heruntergeladene Blatt ist davon unberührt.";
+    }
 
     // Ueberlaengen werden GEMELDET, nicht still abgeschnitten: das Raster
     // fasst 29 Zeichen, und was darueber hinausgeht, faellt sonst erst
@@ -554,16 +573,61 @@ async function erzeugeTfvAntrag() {
         hinweise.map((h) => "<li>" + esc(h) + "</li>").join("") +
         "</ul>Die betroffenen Felder sind im PDF gekürzt. Korrigieren lässt sich das " +
         "nur, indem die Angabe in der Mitgliederverwaltung geändert und der Antrag " +
-        "neu erzeugt wird.</div>"
+        "neu erzeugt wird." + ablage + "</div>"
       : '<div class="hinweis erfolg">Der Verbandsantrag ist erzeugt. ' +
         "Bitte ausdrucken, mit Vereinsstempel und Unterschrift versehen und über " +
-        "DFBnet Pass-Online einreichen.</div>";
+        "DFBnet Pass-Online einreichen." + ablage + "</div>";
   } catch (e) {
     hinweisZiel.innerHTML = '<div class="hinweis fehler">' + esc(e.message) + "</div>";
   }
 
   knopf.disabled = false;
-  knopf.textContent = "TFV-Antrag erzeugen";
+  knopf.textContent = tfvVorhanden ? "TFV-Antrag neu erzeugen" : "TFV-Antrag erzeugen";
+}
+
+let tfvVorhanden = false;
+
+// Liegt schon ein Blatt zu diesem Antrag? Beschriftet den Knopf und bietet
+// den Abruf an. Laeuft NACH dem Zeichnen der Karte; ein Fehlschlag darf
+// die Antragsansicht nicht aufhalten.
+async function anZeigeTfvStand(a) {
+  tfvVorhanden = false;
+  if (!$("btn-an-tfv")) return;
+
+  let stand;
+  try {
+    stand = await ladeTfvAntragStatus(a.id);
+  } catch {
+    return;   // aelteres Gateway oder Netz weg: der Knopf funktioniert trotzdem
+  }
+  if (!stand || !stand.vorhanden) return;
+
+  tfvVorhanden = true;
+  $("btn-an-tfv").textContent = "TFV-Antrag neu erzeugen";
+  $("an-tfv-hinweise").innerHTML =
+    '<div class="hinweis info">Zu diesem Antrag liegt bereits ein erzeugtes ' +
+    "Verbandsformular (" + Math.round((stand.groesse || 0) / 1024) + " KB" +
+    (stand.erzeugt_am ? ", " + esc(new Date(stand.erzeugt_am).toLocaleString("de-DE")) : "") +
+    "). " +
+    '<button class="btn grau klein" id="btn-an-tfv-holen" type="button">Abgelegtes ' +
+    "Blatt öffnen</button></div>";
+
+  $("btn-an-tfv-holen").addEventListener("click", () => oeffneAbgelegtenTfvAntrag(a.id));
+}
+
+// ⚠️ window.open steht VOR jedem await -- iOS-Safari blockt danach lautlos.
+async function oeffneAbgelegtenTfvAntrag(id) {
+  const fenster = window.open("", "_blank");
+  try {
+    const blob = await ladeTfvAntragDatei(id);
+    const url = URL.createObjectURL(blob);
+    if (fenster) fenster.location = url;
+    else window.location = url;
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (e) {
+    if (fenster) fenster.close();
+    alert("Das abgelegte Formular konnte nicht geladen werden: " + e.message);
+  }
 }
 
 function anAngenommenBlock(a) {

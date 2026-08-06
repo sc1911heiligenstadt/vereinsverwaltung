@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Anmeldung Nachwuchs &mdash; 1. SC 1911 Heiligenstadt</title>
 <meta name="robots" content="noindex">
-<link rel="stylesheet" href="style.css?v=3.0">
+<link rel="stylesheet" href="style.css?v=3.1">
 </head>
 <!-- Zweite Klasse zusätzlich zu .antragseite: die Rechtsbündigkeits-Regel
      der Antragsseite hängt an #nav-eingang, den es hier nicht gibt. -->
@@ -466,8 +466,36 @@
       </div>
     </div>
 
+    <!-- Nur bei Erstausstellung und Vereinswechsel: für beide braucht der
+         Verband ein Passbild, das die Geschäftsstelle beim Eintragen in
+         DFBnet Pass-Online hochlädt. Bei Rückkehrern und einer
+         Namensänderung liegt es dort bereits. -->
+    <div class="karte" id="sp-passbild-karte" hidden>
+      <div class="schritt-nummer" id="nr-passbild">7 — Passbild</div>
+      <p class="fussnote">Für den Spielerpass wird ein Bild vom Kopf gebraucht. Ein Foto
+      mit dem Handy genügt — den Ausschnitt wählen Sie danach selbst.</p>
+
+      <div class="hinweis info">
+        <strong>So wird es gut:</strong> vor einer möglichst hellen, einfarbigen Wand
+        aufnehmen, das Gesicht gerade nach vorn, Augen offen, keine Mütze und keine
+        Sonnenbrille. Gleichmäßiges Licht ohne harten Schatten im Gesicht.
+      </div>
+
+      <div class="knopfreihe">
+        <button class="btn" id="btn-passbild-kamera" type="button">📷 Foto aufnehmen</button>
+        <button class="btn grau" id="btn-passbild-datei" type="button">Bild auswählen</button>
+      </div>
+      <!-- capture="user" springt am Handy direkt in die Frontkamera. Am
+           Rechner ohne Kamera öffnet es denselben Dialog wie der Knopf
+           daneben — deshalb sind es zwei. -->
+      <input type="file" id="passbild-kamera" accept="image/*" capture="user" hidden>
+      <input type="file" id="passbild-datei" accept="image/*" hidden>
+
+      <div id="passbild-stand"></div>
+    </div>
+
     <div class="karte">
-      <div class="schritt-nummer" id="nr-nachweise">7 — Nachweise</div>
+      <div class="schritt-nummer" id="nr-nachweise">8 — Nachweise</div>
       <p class="fussnote">Der Verband verlangt Anlagen zum Spielerlaubnisantrag. Ein
       Foto mit dem Handy genügt. Sie werden getrennt von den übrigen Daten und nur für
       die Geschäftsstelle einsehbar abgelegt.</p>
@@ -538,9 +566,35 @@
 
 </main>
 
+<!-- Zuschnitt des Passbilds. Eigenes Overlay statt eines dritten Reiters:
+     es gehört zu genau einer Handlung und ist danach wieder weg.
+     ⚠️ Der Canvas wird erst vermessen, wenn das Overlay sichtbar ist —
+     hinter display:none bleibt er 300×150. -->
+<div class="foto-overlay" id="passbild-overlay" hidden>
+  <div class="foto-dialog">
+    <h2>Ausschnitt wählen</h2>
+    <p class="fussnote">Das Bild mit dem Finger verschieben, mit dem Regler vergrößern.
+    Der Kopf soll die <strong>ovale Hilfslinie</strong> ausfüllen — Kinn unten, Scheitel
+    oben, etwas Luft über dem Kopf.</p>
+
+    <canvas id="passbild-canvas"></canvas>
+
+    <div class="feld">
+      <label for="passbild-zoom">Größe</label>
+      <input type="range" id="passbild-zoom" min="100" max="300" value="100">
+    </div>
+
+    <div class="knopfreihe">
+      <button class="btn grau klein" id="btn-passbild-drehen" type="button">↻ Drehen</button>
+      <button class="btn grau klein" id="btn-passbild-abbrechen" type="button">Abbrechen</button>
+      <button class="btn" id="btn-passbild-uebernehmen" type="button">Übernehmen</button>
+    </div>
+  </div>
+</div>
+
 <script src="signature-pad.js?v=1.0"></script>
 <script src="antrag-felder.js?v=1.0"></script>
-<script src="db-antrag.js?v=1.3"></script>
-<script src="nachwuchs.js?v=1.0"></script>
+<script src="db-antrag.js?v=1.4"></script>
+<script src="nachwuchs.js?v=1.1"></script>
 </body>
 </html>

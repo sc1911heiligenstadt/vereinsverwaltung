@@ -370,13 +370,14 @@ async function tfvUnterschriftSetzen(pdf, seite, dataUrl, feld) {
   });
 }
 
-// Erzeugt und laedt herunter. ⚠️ Der Aufrufer muss window.open/den
-// Download VOR jedem await ansetzen, wenn er ein Fenster braucht --
-// iOS-Safari blockt danach lautlos. Hier wird ein Blob-Link benutzt, der
-// diese Einschraenkung nicht hat.
-async function tfvAntragHerunterladen(opt) {
-  const { bytes, hinweise } = await tfvAntragErzeugen(opt);
-  const i = (opt.antrag && opt.antrag.inhalt) || {};
+// Schickt fertige Bytes in den Download-Ordner. Getrennt vom Erzeugen,
+// damit der Aufrufer dazwischen etwas anderes tun kann -- etwa das Blatt
+// zugleich in Nextcloud ablegen.
+//
+// ⚠️ Ein Blob-Link, kein window.open: der braucht keine Nutzergeste und
+// wird deshalb auch nach einem await nicht von iOS-Safari geblockt.
+function tfvAntragSpeichern(bytes, antrag) {
+  const i = (antrag && antrag.inhalt) || {};
   const name = ["Spielerlaubnis", i.nachname, i.vorname].filter(Boolean)
     .join("_").replace(/[^A-Za-z0-9_-]/g, "") + ".pdf";
 
@@ -389,5 +390,12 @@ async function tfvAntragHerunterladen(opt) {
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 10000);
+  return name;
+}
+
+// Bequemer Weg fuer Aufrufer, die nur herunterladen wollen.
+async function tfvAntragHerunterladen(opt) {
+  const { bytes, hinweise } = await tfvAntragErzeugen(opt);
+  tfvAntragSpeichern(bytes, opt.antrag);
   return hinweise;
 }

@@ -518,6 +518,87 @@ for (const iban of IBANS) {
 }
 
 // ======================================================================
+console.log("H  Passbild und Ablage des erzeugten Formulars");
+// ======================================================================
+
+// ⚠️ Der Bogen hat KEIN Bildfeld. Das ist die Grundlage der Entscheidung,
+// das Passbild nicht aufs Blatt zu drucken, sondern es der
+// Geschaeftsstelle fuer DFBnet zum Download zu geben. Hier gegen die
+// echte Vorlage nachgemessen statt behauptet.
+const pdfRoh = readFileSync(REPO + "/AO21_spielerlaubnis_national.pdf", "latin1");
+const bildStellen = [...pdfRoh.matchAll(/\/Subtype\s*\/Image/g)].length;
+pruefe("H1 Die Vorlage traegt genau EIN Bild (das Verbandslogo)", bildStellen === 1,
+       String(bildStellen));
+for (const wort of ["Lichtbild", "Passbild", "Lichtbildes"]) {
+  pruefe("H2 Kein Feld '" + wort + "' auf dem Bogen", !pdfRoh.includes(wort));
+}
+
+// Der Slot muss in BEIDEN Weisslisten stehen -- Client und Gateway.
+const nachwuchsJs = readFileSync(REPO + "/nachwuchs.js", "utf8");
+const gatewayJs = readFileSync("E:/ToolsUebersicht/admin-worker.js", "utf8");
+pruefe("H3 Gateway kennt den Slot 'passbild'",
+       /VV_NACHWEIS_SLOTS[\s\S]{0,220}"passbild"/.test(gatewayJs));
+pruefe("H4 Client laedt unter genau diesem Slot hoch",
+       /ladeNachweisHoch\("passbild"/.test(nachwuchsJs));
+
+// Nur wo der Verband ein neues Bild braucht.
+const arten = nachwuchsJs.match(/PASSBILD_ARTEN\s*=\s*\[([^\]]*)\]/);
+pruefe("H5 Passbild nur bei Erstausstellung und Vereinswechsel",
+       !!arten && /erstausstellung/.test(arten[1]) && /vereinswechsel/.test(arten[1]) &&
+       !/rueckkehrer/.test(arten[1]) && !/namensaenderung/.test(arten[1]),
+       arten ? arten[1].trim() : "nicht gefunden");
+
+// Passbild-Format: 35x45 wie das amtliche Bild, nicht quadratisch.
+const pbB = Number((nachwuchsJs.match(/PASSBILD_B\s*=\s*(\d+)/) || [])[1]);
+const pbH = Number((nachwuchsJs.match(/PASSBILD_H\s*=\s*(\d+)/) || [])[1]);
+pruefe("H6 Seitenverhaeltnis 35:45", Math.abs(pbB / pbH - 35 / 45) < 0.001,
+       pbB + "x" + pbH);
+
+// ⚠️ Die Hilfslinie darf NICHT ins gespeicherte Bild wandern.
+pruefe("H7 Export zeichnet ohne Hilfslinie",
+       /zeichnePassbild\(false\)[\s\S]{0,120}toDataURL/.test(nachwuchsJs));
+pruefe("H8 Danach wird die Hilfslinie wieder gezeichnet",
+       /toDataURL[\s\S]{0,120}zeichnePassbild\(true\)/.test(nachwuchsJs));
+
+// Die Ablage des erzeugten Formulars.
+pruefe("H9 Gateway kennt vv-antrag-pdf-put", /case "vv-antrag-pdf-put"/.test(gatewayJs));
+pruefe("H10 Gateway kennt vv-antrag-pdf-get", /case "vv-antrag-pdf-get"/.test(gatewayJs));
+pruefe("H11 Gateway kennt vv-antrag-pdf-status", /case "vv-antrag-pdf-status"/.test(gatewayJs));
+
+// ⚠️ Die drei verlangen IMMER eine Sitzung -- anders als der
+// Nachweis-Upload. Das Blatt entsteht in der Verwaltung.
+// Das Fenster muss den ganzen Handler fassen -- die Magic-Byte-Pruefung
+// steht hinter der Groessenpruefung, nicht gleich am Anfang.
+const pdfPut = gatewayJs.match(/async function handleVvAntragPdfPut[\s\S]{0,2000}/);
+pruefe("H12 Ablage prueft die Sitzung", !!pdfPut && /vvNachweisDarfSehen/.test(pdfPut[0]));
+pruefe("H13 Ablage nimmt nur PDF (Magic Bytes)",
+       !!pdfPut && /bytes\[0\] === 0x25[\s\S]{0,120}bytes\[3\] === 0x46/.test(pdfPut[0]));
+
+// Die Antrags-Id ist eine UUID MIT Bindestrichen -- eigenes Muster, nicht
+// das des Nachweis-Owners.
+const idRe = gatewayJs.match(/VV_ANTRAG_ID_RE\s*=\s*\/(.+?)\//);
+pruefe("H14 Eigenes Muster fuer die Antrags-Id", !!idRe && idRe[1].includes("-"),
+       idRe ? idRe[1] : "nicht gefunden");
+if (idRe) {
+  const re = new RegExp(idRe[1]);
+  pruefe("H15 Echte UUID passt", re.test("3f2504e0-4f89-41d3-9a0c-0305e82c3301"));
+  pruefe("H16 Nachweis-Owner passt NICHT", !re.test(OWNER));
+  pruefe("H17 Pfad-Ausbruch passt nicht", !re.test("../../etc/passwd"));
+}
+
+// ⚠️ Der Download darf nicht an einem Fehler der Ablage haengen.
+const antraegeJs = readFileSync(REPO + "/antraege.js", "utf8");
+pruefe("H18 Erst herunterladen, dann ablegen",
+       /tfvAntragSpeichern\([\s\S]{0,400}legeTfvAntragAb\(/.test(antraegeJs));
+pruefe("H19 Fehlgeschlagene Ablage wird gemeldet, nicht geschluckt",
+       /Nicht abgelegt/.test(antraegeJs));
+
+// base64 in Bloecken -- ein 300-KB-Array auf einmal wirft in Safari.
+const dbJs = readFileSync(REPO + "/db.js", "utf8");
+pruefe("H20 base64-Umwandlung laeuft blockweise",
+       /const block = 0x8000/.test(dbJs) && /subarray\(i, i \+ block\)/.test(dbJs));
+
+// ======================================================================
 
 console.log("");
 console.log("────────────────────────────────────────────────────────────");

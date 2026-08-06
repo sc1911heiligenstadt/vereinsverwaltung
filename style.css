@@ -1028,3 +1028,67 @@ table.schmal { width: auto; max-width: 100%; }
 /* Der Zustand steht in einem .hinweis, der sonst 14px Aussenabstand
    mitbringt und den Block auseinanderzieht. */
 .nachweis-stand .hinweis { margin: 0; padding: 6px 10px; font-size: 13px; }
+
+/* Passbild-Zuschnitt (nachwuchs.html).
+   Vorbild ist der Nutzerfoto-Dialog der ToolsUebersicht; die Lehren von
+   dort sind hier eingebaut: der Canvas-Puffer ist GENAU so gross wie das
+   Ergebnis (was man sieht, ist byte-genau was gespeichert wird), die
+   Anzeige darf kleiner sein, und es steht bewusst KEIN aspect-ratio im
+   CSS -- das kennen die aelteren iOS-Geraete der Flotte nicht. */
+.foto-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, .62);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 1000;
+}
+.foto-overlay[hidden] { display: none; }
+.foto-dialog {
+  background: #fff;
+  border-radius: 12px;
+  padding: 18px;
+  width: 420px;
+  max-width: 100%;
+  /* Der Dialog scrollt in SICH, nicht die Seite dahinter -- sonst ist der
+     Übernehmen-Knopf auf einem kurzen Bildschirm nur per Zoom erreichbar.
+     Die 40px sind das padding des Overlays. */
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+}
+.foto-dialog h2 { margin: 0 0 6px; font-size: 17px; }
+.foto-dialog canvas {
+  display: block;
+  margin: 12px auto;
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  background: #eef1f5;
+  touch-action: none;   /* sonst scrollt die Seite statt das Bild zu ziehen */
+  cursor: grab;
+}
+.foto-dialog input[type="range"] { width: 100%; }
+
+/* Vorschau der fertigen Aufnahme in der Karte. Im Seitenverhaeltnis des
+   Passbilds (35:45), damit sofort sichtbar ist, was der Verband bekommt. */
+.passbild-vorschau {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 12px;
+}
+.passbild-vorschau img {
+  width: 84px;
+  height: 108px;
+  /* ⚠️ flex: 0 0 auto ist Pflicht, nicht Kosmetik: als Flex-Kind schrumpft
+     das Bild sonst auf 72px, waehrend die Hoehe bei 108 bleibt — und
+     object-fit: cover schneidet dann seitlich ab. Der Nutzer saehe einen
+     ANDEREN Ausschnitt als den, den er eben gewaehlt hat. Bei 375px
+     nachgemessen. */
+  flex: 0 0 auto;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--line, #dfe3e8);
+}

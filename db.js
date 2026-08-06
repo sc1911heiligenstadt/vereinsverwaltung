@@ -173,3 +173,46 @@ async function ladeNachweisDatei(owner, slot) {
   }
   return await res.blob();
 }
+
+// --- Das erzeugte Verbandsformular ------------------------------------
+//
+// Der Verband verlangt Aufbewahrung des unterschriebenen Antrags beim
+// Verein fuer mindestens zwei Jahre. Aufbewahrt wurde bis 06.08.2026 nur
+// die QUELLE (Antrag in D1, Anlagen in Nextcloud) -- nicht das Blatt, das
+// die Geschaeftsstelle gestempelt und eingereicht hat.
+async function legeTfvAntragAb(antragId, bytes) {
+  const res = await gatewayRequest("vv-antrag-pdf-put", {
+    antrag_id: antragId,
+    dataBase64: bytesZuBase64(bytes)
+  });
+  const daten = await res.json().catch(() => null);
+  if (!res.ok) throw new Error((daten && daten.error) || ("Fehler " + res.status));
+  return daten;
+}
+
+async function ladeTfvAntragStatus(antragId) {
+  const res = await gatewayRequest("vv-antrag-pdf-status", { antrag_id: antragId });
+  const daten = await res.json().catch(() => null);
+  if (!res.ok) throw new Error((daten && daten.error) || ("Fehler " + res.status));
+  return daten;
+}
+
+async function ladeTfvAntragDatei(antragId) {
+  const res = await gatewayRequest("vv-antrag-pdf-get", { antrag_id: antragId });
+  if (!res.ok) {
+    const daten = await res.json().catch(() => null);
+    throw new Error((daten && daten.error) || ("Fehler " + res.status));
+  }
+  return await res.blob();
+}
+
+// ⚠️ In Bloecken umwandeln, nicht in einem Rutsch: String.fromCharCode mit
+// einem 300-KB-Array auf einmal wirft in Safari "too many arguments".
+function bytesZuBase64(bytes) {
+  let s = "";
+  const block = 0x8000;
+  for (let i = 0; i < bytes.length; i += block) {
+    s += String.fromCharCode.apply(null, bytes.subarray(i, i + block));
+  }
+  return btoa(s);
+}
