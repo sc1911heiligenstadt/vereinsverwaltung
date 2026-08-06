@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Anmeldung Nachwuchs &mdash; 1. SC 1911 Heiligenstadt</title>
 <meta name="robots" content="noindex">
-<link rel="stylesheet" href="style.css?v=3.1">
+<link rel="stylesheet" href="style.css?v=3.2">
 </head>
 <!-- Zweite Klasse zusätzlich zu .antragseite: die Rechtsbündigkeits-Regel
      der Antragsseite hängt an #nav-eingang, den es hier nicht gibt. -->
@@ -485,9 +485,10 @@
         <button class="btn" id="btn-passbild-kamera" type="button">📷 Foto aufnehmen</button>
         <button class="btn grau" id="btn-passbild-datei" type="button">Bild auswählen</button>
       </div>
-      <!-- capture="user" springt am Handy direkt in die Frontkamera. Am
-           Rechner ohne Kamera öffnet es denselben Dialog wie der Knopf
-           daneben — deshalb sind es zwei. -->
+      <!-- Rückfallebene: capture="user" springt in die System-Kamera. Wird
+           nur benutzt, wenn die eigene Vorschau nicht geht (kein
+           getUserMedia, keine Erlaubnis, keine Kamera) — dort lässt sich
+           keine Hilfslinie einblenden, deshalb ist sie der zweite Weg. -->
       <input type="file" id="passbild-kamera" accept="image/*" capture="user" hidden>
       <input type="file" id="passbild-datei" accept="image/*" hidden>
 
@@ -566,6 +567,33 @@
 
 </main>
 
+<!-- Eigene Kameravorschau mit Hilfslinie (Michel-Wunsch 06.08.2026: der
+     Kreis soll schon BEIM Fotografieren zu sehen sein).
+     ⚠️ Der Stream muss beim Schließen zwingend gestoppt werden, sonst
+     leuchtet die Kamera-Anzeige des Geräts weiter. -->
+<div class="foto-overlay" id="kamera-overlay" hidden>
+  <div class="foto-dialog kamera-dialog">
+    <h2>Foto aufnehmen</h2>
+    <p class="fussnote">Den Kopf in das Oval bringen — Kinn unten, Scheitel oben.
+    Möglichst vor einer hellen, einfarbigen Wand.</p>
+
+    <!-- playsinline ist auf iOS Pflicht: ohne das reisst Safari das Video
+         in den Vollbild-Player und die Hilfslinie ist weg. -->
+    <div class="kamera-buehne" id="kamera-buehne-halter">
+      <video id="kamera-video" playsinline autoplay muted></video>
+      <div class="kamera-oval"></div>
+    </div>
+
+    <div id="kamera-fehler" class="hinweis fehler" hidden></div>
+
+    <div class="knopfreihe">
+      <button class="btn grau klein" id="btn-kamera-wechseln" type="button">🔄 Kamera wechseln</button>
+      <button class="btn grau klein" id="btn-kamera-abbrechen" type="button">Abbrechen</button>
+      <button class="btn" id="btn-kamera-ausloesen" type="button">Auslösen</button>
+    </div>
+  </div>
+</div>
+
 <!-- Zuschnitt des Passbilds. Eigenes Overlay statt eines dritten Reiters:
      es gehört zu genau einer Handlung und ist danach wieder weg.
      ⚠️ Der Canvas wird erst vermessen, wenn das Overlay sichtbar ist —
@@ -595,6 +623,6 @@
 <script src="signature-pad.js?v=1.0"></script>
 <script src="antrag-felder.js?v=1.0"></script>
 <script src="db-antrag.js?v=1.4"></script>
-<script src="nachwuchs.js?v=1.1"></script>
+<script src="nachwuchs.js?v=1.2"></script>
 </body>
 </html>

@@ -378,13 +378,133 @@ async function nachweisGewaehlt(feld) {
 // Passbild: aufnehmen, zuschneiden, hochladen
 // ---------------------------------------------------------------------
 
-// ⚠️ Am Handy oeffnet capture="user" die SYSTEM-Kamera. Darin laesst sich
-// nichts ueberlagern -- eine Hilfslinie waehrend der Aufnahme ist technisch
-// nicht moeglich, ohne die Kamera selbst nachzubauen (getUserMedia mit
-// eigener Vorschau). Das waere eine zusaetzliche Berechtigung und auf den
-// aelteren iOS-Geraeten der Flotte unzuverlaessig. Deshalb: erst aufnehmen,
-// DANN zuschneiden -- die ovale Hilfslinie steht im Zuschnitt-Dialog, wo
-// sie sich beliebig oft korrigieren laesst.
+// --- Eigene Kameravorschau --------------------------------------------
+//
+// Michel-Wunsch vom 06.08.2026: die Hilfslinie soll schon BEIM
+// Fotografieren zu sehen sein. Mit capture="user" geht das nicht -- das
+// oeffnet die System-Kamera, darin laesst sich nichts ueberlagern. Also
+// eine eigene Vorschau ueber getUserMedia.
+//
+// ⚠️ Laeuft auf BEIDEN Plattformen: Safari kann getUserMedia seit iOS 11,
+// Android-Chrome seit jeher. Voraussetzung ist HTTPS (haben wir) und die
+// Erlaubnis des Nutzers. Wo eines von beidem fehlt, faellt der Knopf auf
+// den alten Weg ueber die System-Kamera zurueck -- dort ohne Hilfslinie,
+// aber er tut etwas.
+
+let kameraStream = null;
+let kameraRichtung = "environment";   // Regelfall: ein Elternteil fotografiert das Kind
+
+function kameraMoeglich() {
+  return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+}
+
+async function oeffneKamera() {
+  if (!kameraMoeglich()) { $("passbild-kamera").click(); return; }
+
+  $("kamera-fehler").hidden = true;
+  $("kamera-overlay").hidden = false;
+  try {
+    await starteKameraStrom();
+  } catch (e) {
+    // Kein Vorwurf, sondern der Ausweg: die System-Kamera tut es auch,
+    // nur ohne Hilfslinie.
+    schliesseKamera();
+    $("passbild-kamera").click();
+  }
+}
+
+async function starteKameraStrom() {
+  stoppeKameraStrom();
+
+  // ⚠️ facingMode als "ideal", nicht "exact": ein Geraet ohne die
+  // gewuenschte Kamera wirft bei exact einen OverconstrainedError und
+  // liefert gar kein Bild. Die Aufloesung ebenso nur als Wunsch --
+  // erzwungen scheitert sie auf aelteren Android-Geraeten.
+  kameraStream = await navigator.mediaDevices.getUserMedia({
+    video: {
+      facingMode: { ideal: kameraRichtung },
+      width: { ideal: 1280 },
+      height: { ideal: 1707 }
+    },
+    audio: false
+  });
+
+  const v = $("kamera-video");
+  v.srcObject = kameraStream;
+  $("kamera-buehne-halter").classList.toggle("gespiegelt", kameraRichtung === "user");
+
+  // ⚠️ autoplay allein genuegt nicht: manche Browser starten erst auf
+  // einen ausdruecklichen play(). Ein abgelehntes Versprechen ist hier
+  // harmlos -- das Bild laeuft trotzdem, sobald Daten da sind.
+  try { await v.play(); } catch {}
+}
+
+function stoppeKameraStrom() {
+  if (!kameraStream) return;
+  // ⚠️ Jede Spur einzeln stoppen. Ohne das leuchtet die Kamera-Anzeige
+  // des Geraets weiter, obwohl das Fenster zu ist -- der Fehler, den man
+  // dem Verein am ehesten uebelnimmt.
+  kameraStream.getTracks().forEach((s) => s.stop());
+  kameraStream = null;
+  const v = $("kamera-video");
+  if (v) v.srcObject = null;
+}
+
+function schliesseKamera() {
+  stoppeKameraStrom();
+  $("kamera-overlay").hidden = true;
+}
+
+async function wechsleKamera() {
+  kameraRichtung = kameraRichtung === "user" ? "environment" : "user";
+  try {
+    await starteKameraStrom();
+  } catch (e) {
+    $("kamera-fehler").hidden = false;
+    $("kamera-fehler").textContent =
+      "Diese Kamera lässt sich nicht öffnen. Bitte die andere verwenden.";
+    kameraRichtung = kameraRichtung === "user" ? "environment" : "user";
+    try { await starteKameraStrom(); } catch {}
+  }
+}
+
+// Der Schnappschuss entsteht aus dem VIDEO, nicht aus der Buehne -- das
+// Oval ist eine eigene Ebene darueber und wird nie mitfotografiert.
+function kameraAusloesen() {
+  const v = $("kamera-video");
+  if (!v.videoWidth) {
+    $("kamera-fehler").hidden = false;
+    $("kamera-fehler").textContent = "Das Bild ist noch nicht da. Bitte einen Moment warten.";
+    return;
+  }
+
+  const c = document.createElement("canvas");
+  c.width = v.videoWidth;
+  c.height = v.videoHeight;
+  const ctx = c.getContext("2d");
+
+  // ⚠️ Die Frontkamera wird in der Vorschau gespiegelt gezeigt, damit man
+  // beim Ausrichten nicht in die falsche Richtung greift. Der Schnappschuss
+  // muss ZURUECKgespiegelt werden -- ein spiegelverkehrtes Passbild ist
+  // falsch herum, und auf einem Trikot stuende die Schrift rueckwaerts.
+  if (kameraRichtung === "user") {
+    ctx.translate(c.width, 0);
+    ctx.scale(-1, 1);
+  }
+  ctx.drawImage(v, 0, 0, c.width, c.height);
+
+  const bild = new Image();
+  bild.onload = () => {
+    schliesseKamera();
+    // Direkt in den Zuschnitt: dort laesst sich der Ausschnitt noch
+    // korrigieren, und der Puffer hat das Passbild-Format.
+    oeffnePassbildDialog(bild);
+  };
+  bild.src = c.toDataURL("image/jpeg", 0.92);
+}
+
+// Rueckfallebene und Datei-Auswahl. Wird auch benutzt, wenn die eigene
+// Vorschau nicht geht.
 function passbildGewaehlt(feld) {
   const datei = feld.files && feld.files[0];
   feld.value = "";   // damit dieselbe Datei erneut gewaehlt werden kann
@@ -535,13 +655,30 @@ function verdrahtePassbild() {
   $("btn-passbild-abbrechen").addEventListener("click", schliessePassbildDialog);
   $("btn-passbild-uebernehmen").addEventListener("click", uebernehmePassbild);
 
-  $("btn-passbild-kamera").addEventListener("click", () => $("passbild-kamera").click());
+  // Der Knopf fuehrt in die EIGENE Vorschau, wenn das Geraet sie kann --
+  // sonst in die System-Kamera. Die Entscheidung faellt beim Klick, nicht
+  // beim Laden: die Erlaubnis kann sich dazwischen geaendert haben.
+  $("btn-passbild-kamera").addEventListener("click", oeffneKamera);
   $("btn-passbild-datei").addEventListener("click", () => $("passbild-datei").click());
   $("passbild-kamera").addEventListener("change", () => passbildGewaehlt($("passbild-kamera")));
   $("passbild-datei").addEventListener("change", () => passbildGewaehlt($("passbild-datei")));
 
+  $("btn-kamera-ausloesen").addEventListener("click", kameraAusloesen);
+  $("btn-kamera-wechseln").addEventListener("click", wechsleKamera);
+  $("btn-kamera-abbrechen").addEventListener("click", schliesseKamera);
+
+  // ⚠️ Der Strom muss auch dann enden, wenn niemand auf Abbrechen tippt:
+  // beim Wegschalten der Seite, beim Schliessen des Tabs. Sonst leuchtet
+  // die Kamera-Anzeige weiter.
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden && !$("kamera-overlay").hidden) schliesseKamera();
+  });
+  window.addEventListener("pagehide", stoppeKameraStrom);
+
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !$("passbild-overlay").hidden) schliessePassbildDialog();
+    if (e.key !== "Escape") return;
+    if (!$("kamera-overlay").hidden) { schliesseKamera(); return; }
+    if (!$("passbild-overlay").hidden) schliessePassbildDialog();
   });
 }
 

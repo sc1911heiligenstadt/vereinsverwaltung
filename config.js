@@ -48,7 +48,7 @@ const CHANGELOG = [
       "Die Nachweise, die der Verband als Anlage verlangt, lassen sich beim Antrag ansehen. Sie liegen bewusst nicht in dieser Datenbank, sondern getrennt und zugriffsbeschränkt in der Vereins-Nextcloud — Ausweiskopien gehören nicht neben Beiträge und Buchhaltung.",
       "Die Staatsangehörigkeit gehört jetzt zu den Stammdaten einer Person. Der Verband verlangt sie, und beim nächsten Antrag desselben Kindes steht sie schon da.",
       "Die Nachwuchs-Anmeldung hat einen eigenen Schalter in den Einstellungen. Sie lässt sich zudrehen, ohne den allgemeinen Aufnahmeantrag mitzuschließen.",
-      "Bei einer Erstausstellung und beim Vereinswechsel nimmt die Familie gleich ein Passbild auf. Nach der Aufnahme wählt sie den Ausschnitt selbst — eine ovale Hilfslinie zeigt, wo der Kopf sitzen soll. Der Verbandsbogen hat kein Bildfeld; das Bild ist für die Eingabe in DFBnet Pass-Online da.",
+      "Bei einer Erstausstellung und beim Vereinswechsel nimmt die Familie gleich ein Passbild auf. Die Kamera zeigt dabei ein Oval, in das der Kopf gehört — am Handy wie am Rechner, unter Android wie unter iOS. Danach lässt sich der Ausschnitt noch verschieben. Der Verbandsbogen hat kein Bildfeld; das Bild ist für die Eingabe in DFBnet Pass-Online da.",
       "Das erzeugte Verbandsformular wird zugleich beim Antrag in der Vereins-Nextcloud abgelegt, nicht nur heruntergeladen. Der Verband verlangt die Aufbewahrung für mindestens zwei Jahre. Liegt schon eines vor, sagt der Antrag das und bietet es zum Öffnen an."
     ]
   },

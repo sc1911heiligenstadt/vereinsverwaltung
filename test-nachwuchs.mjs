@@ -598,6 +598,55 @@ const dbJs = readFileSync(REPO + "/db.js", "utf8");
 pruefe("H20 base64-Umwandlung laeuft blockweise",
        /const block = 0x8000/.test(dbJs) && /subarray\(i, i \+ block\)/.test(dbJs));
 
+// --- Eigene Kameravorschau (Michel-Wunsch: Oval schon beim Auslösen) ---
+const nwHtml = readFileSync(REPO + "/nachwuchs.html", "utf8");
+const css = readFileSync(REPO + "/style.css", "utf8");
+
+pruefe("H21 Der Knopf fuehrt in die eigene Vorschau",
+       /"btn-passbild-kamera"\)\.addEventListener\("click", oeffneKamera\)/.test(nachwuchsJs));
+pruefe("H22 Rueckfall auf die System-Kamera ohne getUserMedia",
+       /if \(!kameraMoeglich\(\)\) \{ \$\("passbild-kamera"\)\.click\(\)/.test(nachwuchsJs));
+pruefe("H23 Auch ein Fehler faellt auf die System-Kamera zurueck",
+       /catch[\s\S]{0,180}schliesseKamera\(\);[\s\S]{0,80}passbild-kamera"\)\.click\(\)/.test(nachwuchsJs));
+
+// ⚠️ playsinline ist auf iOS Pflicht -- ohne das reisst Safari das Video
+// in den Vollbild-Player und die Hilfslinie ist weg.
+pruefe("H24 video traegt playsinline", /<video[^>]*playsinline/.test(nwHtml));
+pruefe("H25 video ist muted (sonst blockt autoplay)", /<video[^>]*muted/.test(nwHtml));
+
+// ⚠️ facingMode als ideal, nicht exact: exact wirft auf Geraeten ohne die
+// gewuenschte Kamera einen OverconstrainedError und liefert gar nichts.
+pruefe("H26 facingMode ist 'ideal', nicht 'exact'",
+       /facingMode: \{ ideal:/.test(nachwuchsJs) && !/facingMode: \{ exact:/.test(nachwuchsJs));
+pruefe("H27 Aufloesung nur als Wunsch",
+       /width: \{ ideal:/.test(nachwuchsJs) && /height: \{ ideal:/.test(nachwuchsJs));
+pruefe("H28 Kein Ton angefordert", /audio: false/.test(nachwuchsJs));
+
+// ⚠️ Der Strom MUSS enden -- sonst leuchtet die Kamera-Anzeige weiter.
+pruefe("H29 Jede Spur wird einzeln gestoppt",
+       /getTracks\(\)\.forEach\(\(s\) => s\.stop\(\)\)/.test(nachwuchsJs));
+pruefe("H30 Auch beim Wegschalten der Seite",
+       /visibilitychange[\s\S]{0,140}schliesseKamera\(\)/.test(nachwuchsJs));
+pruefe("H31 Auch beim Verlassen der Seite",
+       /pagehide", stoppeKameraStrom/.test(nachwuchsJs));
+
+// ⚠️ Die Frontkamera wird in der Vorschau gespiegelt, der Schnappschuss
+// aber ZURUECKgespiegelt -- ein spiegelverkehrtes Passbild ist falsch.
+pruefe("H32 Vorschau spiegelt nur die Frontkamera",
+       /\.gespiegelt video \{ transform: scaleX\(-1\)/.test(css));
+pruefe("H33 Schnappschuss spiegelt zurueck",
+       /kameraRichtung === "user"\)[\s\S]{0,120}ctx\.scale\(-1, 1\)/.test(nachwuchsJs));
+
+// Das Oval liegt UEBER dem Video und darf nie mitfotografiert werden --
+// gezeichnet wird aus dem <video>, nicht aus der Buehne.
+pruefe("H34 Schnappschuss kommt aus dem video-Element",
+       /ctx\.drawImage\(v, 0, 0/.test(nachwuchsJs));
+pruefe("H35 Das Oval faengt keine Klicks ab", /\.kamera-oval[\s\S]{0,300}pointer-events: none/.test(css));
+
+// Escape schliesst gestaffelt: erst die Kamera, dann der Zuschnitt.
+pruefe("H36 Escape schliesst zuerst die Kamera",
+       /kamera-overlay"\)\.hidden\) \{ schliesseKamera\(\); return; \}/.test(nachwuchsJs));
+
 // ======================================================================
 
 console.log("");

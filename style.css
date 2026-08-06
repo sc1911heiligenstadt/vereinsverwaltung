@@ -1092,3 +1092,50 @@ table.schmal { width: auto; max-width: 100%; }
   border-radius: 6px;
   border: 1px solid var(--line, #dfe3e8);
 }
+
+/* Eigene Kameravorschau mit Hilfslinie.
+   ⚠️ Fuer BEIDE Plattformen gebaut: iOS-Safari braucht playsinline am
+   <video> (sonst reisst es in den Vollbild-Player und die Hilfslinie ist
+   weg), Android-Chrome braucht nichts Besonderes -- aber beide brauchen
+   object-fit: cover, sonst zeigt die Buehne schwarze Balken, sobald das
+   Seitenverhaeltnis der Kamera nicht zum Rahmen passt. */
+.kamera-dialog { width: 460px; }
+.kamera-buehne {
+  position: relative;
+  width: 100%;
+  /* Kein aspect-ratio: das kennen die aelteren iOS-Geraete nicht. Das
+     Verhaeltnis 3:4 kommt ueber padding-top, der Klassiker. */
+  padding-top: 133.33%;
+  background: #10151d;
+  border-radius: 10px;
+  overflow: hidden;
+  margin: 12px 0;
+}
+.kamera-buehne video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+/* Das Oval liegt UEBER dem Video und wird nie mitfotografiert -- der
+   Schnappschuss entsteht aus dem Video-Element, nicht aus dieser Ebene. */
+.kamera-oval {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  width: 60%;
+  height: 68%;
+  transform: translate(-50%, -50%);
+  border: 3px dashed rgba(255, 255, 255, .92);
+  border-radius: 50%;
+  pointer-events: none;
+  /* Der Schatten nach aussen dunkelt alles ab, was NICHT im Oval liegt --
+     billiger als eine zweite Ebene mit Maske und auf jedem Geraet gleich. */
+  box-shadow: 0 0 0 2000px rgba(15, 23, 42, .45);
+}
+/* Die Frontkamera zeigt spiegelverkehrt, sonst greift man beim Ausrichten
+   in die falsche Richtung. Der Schnappschuss wird in nachwuchs.js
+   zurueckgespiegelt -- ein spiegelverkehrtes Passbild waere falsch. */
+.kamera-buehne.gespiegelt video { transform: scaleX(-1); }
