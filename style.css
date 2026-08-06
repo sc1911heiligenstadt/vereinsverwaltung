@@ -126,6 +126,23 @@ nav button.aktiv {
   font-weight: 600;
 }
 
+/* Antragsseite: „Antrag stellen“ bleibt links, „Eingegangene Anträge“ und
+   „Info“ stehen rechts (Michel-Vorgabe 2026-08-06). Bewusst auf
+   .antragseite begrenzt — die Leiste der Verwaltung bleibt, wie sie ist.
+
+   Der Schub sitzt am ERSTEN der beiden rechten Reiter. Ist der
+   Sicht-Reiter versteckt (kein Schreibrecht), übernimmt ihn „Info“ über
+   den Geschwister-Selektor; sonst klebte Info allein links.
+
+   ⚠️ Erst ab 460px: die drei Reiter brauchen zusammen 409px, darunter
+   bricht die Leiste um. In einer umgebrochenen Zeile schöbe ein
+   margin-left:auto den einzelnen Reiter dieser Zeile an den rechten Rand
+   — und dann stünden die drei treppenförmig untereinander. */
+@media (min-width: 460px) {
+  .antragseite nav #nav-eingang { margin-left: auto; }
+  .antragseite nav #nav-eingang[hidden] + button { margin-left: auto; }
+}
+
 /* ---------- Inhalt ---------- */
 
 main { padding: 20px; max-width: 1400px; margin: 0 auto; }
