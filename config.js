@@ -243,10 +243,10 @@ const CHANGELOG = [
     ]
   },
   {
-    version: "1.0",
+    version: "Mitgliederverwaltung",
     datum: "2026-07-29",
     punkte: [
-      "Erste Fassung: Mitgliederliste mit Suche, Filter nach Sparte und Status.",
+      "Mitgliederliste mit Suche, Filter nach Sparte und Status.",
       "Rechte werden serverseitig durchgesetzt: Abteilungsleiter sehen ausschliesslich Mitglieder ihrer eigenen Sparte, ohne Einblick in weitere Spartenzugehoerigkeiten.",
       "Bankdaten werden in der Liste grundsaetzlich nicht uebertragen.",
       "Datenhaltung in einer Cloudflare-D1-Datenbank statt einer JSON-Datei -- bei 2500 Mitgliedern traegt das bisherige Muster nicht mehr."

@@ -752,7 +752,7 @@ function zeichneChangelog() {
   const ziel = $("changelog-liste");
   ziel.innerHTML = CHANGELOG.map((block) =>
     '<div class="changelog-block">' +
-      "<h3>Version " + esc(block.version) + "</h3>" +
+      "<h3>" + esc(block.version) + "</h3>" +
       '<div class="changelog-datum">' + datumDe(block.datum) + "</div>" +
       "<ul>" + block.punkte.map((p) => "<li>" + esc(p) + "</li>").join("") + "</ul>" +
     "</div>"
