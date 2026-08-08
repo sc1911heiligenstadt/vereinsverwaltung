@@ -26,7 +26,13 @@ Die Rechte gelten in drei Stufen: **Sehen** (nur ansehen), **Bearbeiten** (Eintr
 
 ## Technik
 
-Vanilla JavaScript ohne Build-Schritt — die Dateien werden so ausgeliefert, wie sie im Repo liegen. Veröffentlicht über GitHub Pages. Die Daten liegen in der Vereins-Nextcloud; der Zugriff läuft ausschließlich über den Login-Worker der Tools-Übersicht, nie mit Zugangsdaten im Browser. Eigene Cloudflare-Worker in diesem Repo: `vereinsverwaltung-worker.js`. Die werden **nicht** über GitHub Pages ausgeliefert, sondern separat bei Cloudflare veröffentlicht.
+Vanilla JavaScript ohne Build-Schritt — die Dateien werden so ausgeliefert, wie sie im Repo liegen. Veröffentlicht über GitHub Pages.
+
+**Anders als die übrigen Werkzeuge liegen die Daten hier nicht in der Nextcloud**, sondern in einer Cloudflare-D1-Datenbank, angesprochen über den eigenen Worker `vereinsverwaltung-worker.js` (wird **nicht** über GitHub Pages ausgeliefert, sondern separat bei Cloudflare veröffentlicht). Grund sind die Größenordnung — 1200 bis 2500 Mitglieder — und die doppelte Buchführung, die einzelne, unteilbare Buchungen braucht. Beträge werden durchgehend in Cent geführt, nie als Kommazahl.
+
+Die Anmeldung kommt weiterhin von der Tools-Übersicht; welche Rolle jemand hier hat (Geschäftsstelle, Schatzmeister, Abteilungsleitung, Passstelle, Vorstand), steht in der Datenbank dieses Werkzeugs. Die Rolle **Passstelle** sieht ausschließlich die Nachwuchs-Anmeldungen samt Nachweisen und erzeugt daraus den Antrag auf Spielerlaubnis — Bankdaten und Mitgliederbestand bleiben ihr verschlossen.
+
+Jede Nacht wird die Datenbank nach Nextcloud gesichert, samt ihrem Aufbau; zum Zurückspielen genügt die Datei allein.
 
 ---
 
