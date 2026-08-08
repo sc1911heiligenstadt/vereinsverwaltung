@@ -39,6 +39,15 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Einstellungen und Info stehen rechts",
+    datum: "2026-08-08",
+    punkte: [
+      "„Info“ steht jetzt am rechten Rand der Reiterleiste — so wie in allen anderen Werkzeugen des Vereins. Links daneben liegt der neue Reiter „Einstellungen“.",
+      "Die Buchhaltung hat die Reiterleiste verlassen und liegt jetzt unter „Einstellungen“. Sie wird auf absehbare Zeit nicht gebraucht; gelöscht oder abgeschaltet ist an ihr nichts — wer sie öffnet, findet sie unverändert vor.",
+      "Am schmalen Bildschirm bricht die Leiste weiterhin um; die Rechtsbündigkeit greift erst, wenn alle Reiter in eine Zeile passen."
+    ]
+  },
+  {
     version: "Nachweise ansehen statt herunterladen",
     datum: "2026-08-06",
     punkte: [

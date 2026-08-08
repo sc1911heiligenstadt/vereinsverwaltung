@@ -147,10 +147,16 @@ async function start() {
   // dasselbe Recht wie das Anlegen von Hand.
   $("nav-antraege").hidden = !meineRechte.darfSchreiben;
 
-  // Verweise auf die beiden eigenen Seiten. Die Buchhaltung ist dem
-  // Schatzmeister vorbehalten; die Auswertungen stehen jeder hinterlegten
-  // Rolle offen — der Vorstand hat genau dafür eine.
-  $("nav-buchhaltung").hidden = !meineRechte.darfBuchen;
+  // Der Reiter „Einstellungen“ trägt derzeit nur den Zugang zur
+  // Buchhaltung und hängt deshalb an demselben Recht wie sie zuvor als
+  // eigener Leisten-Eintrag: darfBuchen. Wer nicht bucht, sähe hier einen
+  // leeren Reiter. Kommt ein zweiter Inhalt dazu, gehört die Bedingung
+  // erweitert — und der Buchhaltungs-Kasten dann einzeln versteckt.
+  $("nav-einstellungen").hidden = !meineRechte.darfBuchen;
+
+  // Die Auswertungen stehen jeder hinterlegten Rolle offen — der Vorstand
+  // hat genau dafür eine. Eigene Seite, weil sie keinen Code lädt, der
+  // etwas ändern kann.
   $("nav-auswertung").hidden = !(meineRechte.isAdmin
     || (meineRechte.rollen && meineRechte.rollen.length > 0));
 
