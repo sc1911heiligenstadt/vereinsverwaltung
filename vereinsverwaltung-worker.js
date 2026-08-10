@@ -489,7 +489,15 @@ async function handleSpartenListe(env, me, corsHeaders) {
   // Die Mitgliederzahl kommt additiv mit, in derselben Abfrage. Ohne sie
   // liesse sich eine Sparte stilllegen, ohne zu sehen, wie viele Leute
   // daran haengen.
+  // Die Sportartennummer wird nur benannt, wenn es sie gibt. Diese Aktion
+  // ruft auch der Abteilungsleiter, und der kommt an handleMigration
+  // heran, aber sie kann in einem ANDEREN Isolate gelaufen sein -- deshalb
+  // dieselbe Vorsicht wie bei den Antragsspalten. Gemerkt wird nur das Ja
+  // (siehe hatGesetzl2Spalte): ein gemerktes Nein wuerde ein Isolate
+  // dauerhaft auf dem alten Stand festhalten.
+  const nrDa = await hatSportartSpalte(env);
   const felder = "id, name, kurz, zuschlag_cent, aktiv, " +
+    (nrDa ? "dosb_sportart_nr, " : "NULL AS dosb_sportart_nr, ") +
     "(SELECT COUNT(*) FROM mitgliedschaft_sparte ms JOIN mitgliedschaft m ON m.id = ms.mitgliedschaft_id " +
     " WHERE ms.sparte_id = sparte.id AND ms.austritt IS NULL AND m.status IN ('aktiv','ruhend')) AS mitglieder";
   const sql = "SELECT " + felder + " FROM sparte"
@@ -1471,7 +1479,20 @@ async function handleMigration(env, me, corsHeaders) {
     antragFehlend.push("ALTER TABLE aufnahmeantrag ADD COLUMN nachweis_owner TEXT");
   }
 
-  fehlend.push(...personFehlend, ...mandatFehlend, ...antragFehlend);
+  // Die Sportartennummer des DOSB, fuer die Bestandsmeldung an den
+  // Landessportbund. Sie gehoert an die SPARTE und nicht in eine Tabelle
+  // im Code: welche Sportart eine Abteilung meldet, ist eine Entscheidung
+  // des Vereins (Turnen wird als Gymnastik gemeldet, weil es die Sportart
+  // "Turnen" in der Thueringer Liste gar nicht gibt) -- und sie aendert
+  // sich, ohne dass jemand deployen koennen muss.
+  const sparteSpalten = await env.VV_DB.prepare("PRAGMA table_info(sparte)").all();
+  const sparteDa = new Set((sparteSpalten.results || []).map((s) => s.name));
+  const sparteFehlend = [];
+  if (!sparteDa.has("dosb_sportart_nr")) {
+    sparteFehlend.push("ALTER TABLE sparte ADD COLUMN dosb_sportart_nr INTEGER");
+  }
+
+  fehlend.push(...personFehlend, ...mandatFehlend, ...antragFehlend, ...sparteFehlend);
   for (const sql of fehlend) await env.VV_DB.prepare(sql).run();
 
   // Vereinsstammdaten fuer die SEPA-Datei. Eigene Tabelle statt Konstanten
@@ -2830,6 +2851,101 @@ async function handleZahlungSammel(body, env, me, corsHeaders) {
   await protokolliere(env, me.username, "sepa-datei-gebucht", "sepa_datei", datei.id,
                       { anzahl: offen.length, summeCent: summe });
   return json({ ok: true, anzahl: offen.length, summeCent: summe, eingang }, 200, corsHeaders);
+}
+
+// Nimmt eine Sammelbuchung zurueck, die es nie gegeben hat. Anlass am
+// 10.08.2026: der Download der SEPA-Datei ging verloren, die Datei wurde
+// nie bei der Bank eingereicht -- gebucht war sie trotzdem. Damit stand
+// der ganze Lauf auf 'bezahlt', obwohl kein Cent geflossen war, und es
+// liess sich keine neue Datei erzeugen (kein Posten mehr offen).
+//
+// Storniert wird, nicht geloescht (GoBD, gleiche Regel wie bei der
+// Ruecklastschrift) -- der Vorgang bleibt mit Grund und Urheber sichtbar.
+// Der Forderungsstatus wird auch hier nur abgeleitet, nie gesetzt.
+async function handleSammelZurueck(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.istAdmin && !rolle.darfBuchen) {
+    return json({ error: "Nur der Schatzmeister kann eine Sammelbuchung zuruecknehmen" }, 403, corsHeaders);
+  }
+
+  const datei = await env.VV_DB.prepare("SELECT * FROM sepa_datei WHERE id = ?")
+    .bind(String(body.sepa_datei_id || "")).first();
+  if (!datei) return json({ error: "SEPA-Datei nicht gefunden" }, 404, corsHeaders);
+  if (!datei.gebucht_am) {
+    return json({ error: "Diese Datei ist gar nicht als eingegangen gebucht",
+                  code: "nicht_gebucht" }, 409, corsHeaders);
+  }
+
+  // Ist der Vorgang schon in der Buchhaltung, endet der Weg hier: dort
+  // wird storniert, sonst zeigt das Forderungskonto etwas anderes als die
+  // Beitragsverwaltung. ⚠️ `buchung` entsteht erst in handleBuchInit --
+  // in einer Datenbank ohne Buchhaltung gibt es die Tabelle nicht, und
+  // ein SELECT darauf wuerde die ganze Aktion werfen (gleiches Muster wie
+  // bei handleSparteLoeschen und der Sicherung).
+  const buchTab = await env.VV_DB
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'buchung'")
+    .first();
+  if (buchTab) {
+    const b = await env.VV_DB.prepare(
+      "SELECT belegnummer FROM buchung WHERE quelle_typ = 'sepa_datei' AND quelle_id = ? " +
+      "AND storniert_am IS NULL LIMIT 1").bind(datei.id).first();
+    if (b) {
+      return json({ error: "Dieser Einzug ist bereits in die Buchhaltung uebernommen (Beleg " +
+                           b.belegnummer + "). Dort zuerst stornieren, dann hier zuruecknehmen.",
+                    code: "in_buchhaltung" }, 409, corsHeaders);
+    }
+  }
+
+  const r = await env.VV_DB.prepare(
+    "SELECT id, forderung_id, haushalt_id, betrag_cent FROM zahlung " +
+    "WHERE sepa_datei_id = ? AND storniert_am IS NULL").bind(datei.id).all();
+  const zahlungen = r.results || [];
+  const summe = zahlungen.reduce((s, z) => s + z.betrag_cent, 0);
+
+  if (body.pruefen) {
+    return json({ ok: true, pruefung: true, anzahl: zahlungen.length, summeCent: summe,
+                  gebuchtAm: datei.gebucht_am, msgId: datei.msg_id }, 200, corsHeaders);
+  }
+  if (!zahlungen.length) {
+    return json({ error: "Zu dieser Datei steht keine Zahlung mehr, die zurueckgenommen werden " +
+                         "koennte -- alle sind bereits storniert. Einzelne Zahlungen werden unter " +
+                         "Zahlungen erfasst." }, 409, corsHeaders);
+  }
+
+  const jetzt = new Date().toISOString();
+  const grund = String(body.grund || "").trim().slice(0, 200) ||
+                "Sammelbuchung zurueckgenommen -- Einzug hat nicht stattgefunden";
+
+  // Ein UPDATE ueber die Dateikennung statt 441 Einzelanweisungen: keine
+  // Parametergrenze, kein Block, und es kann keine Zahlung uebersehen.
+  const anweisungen = [env.VV_DB.prepare(
+    "UPDATE zahlung SET storniert_am = ?, storniert_von = ?, storno_grund = ? " +
+    "WHERE sepa_datei_id = ? AND storniert_am IS NULL"
+  ).bind(jetzt, me.username, grund, datei.id)];
+
+  const fIds = Array.from(new Set(zahlungen.map((z) => z.forderung_id).filter(Boolean)));
+  for (let i = 0; i < fIds.length; i += 50) {
+    anweisungen.push(statusNeuBerechnen(env, fIds.slice(i, i + 50)));
+  }
+  anweisungen.push(env.VV_DB.prepare("UPDATE sepa_datei SET gebucht_am = NULL WHERE id = ?")
+    .bind(datei.id));
+
+  await env.VV_DB.batch(anweisungen);
+
+  // ⚠️ Erledigte Mahnungen werden NICHT wieder aufgemacht. Ob eine Mahnung
+  // wegen dieser Buchung geschlossen wurde oder von Hand, steht nirgends --
+  // und die Stufenzaehlung des § 5 Abs. 3 ist nichts, was eine Reparatur
+  // still umschreiben darf. Gemeldet wird sie, damit niemand sie uebersieht.
+  const m = await env.VV_DB.prepare(
+    "SELECT COUNT(*) AS n FROM mahnung WHERE erledigt_am IS NOT NULL AND haushalt_id IN " +
+    "(SELECT DISTINCT haushalt_id FROM zahlung WHERE sepa_datei_id = ?)"
+  ).bind(datei.id).first();
+
+  await protokolliere(env, me.username, "sepa-buchung-zurueckgenommen", "sepa_datei", datei.id,
+                      { anzahl: zahlungen.length, summeCent: summe, grund,
+                        warGebuchtAm: datei.gebucht_am });
+  return json({ ok: true, anzahl: zahlungen.length, summeCent: summe,
+                mahnungenErledigt: m ? m.n : 0, msgId: datei.msg_id }, 200, corsHeaders);
 }
 
 // Einzelzahlung. Ohne forderung_id wird auf die offenen Forderungen des
@@ -6475,6 +6591,7 @@ export default {
         case "vv-mandate-uebernommen": return handleMandateUebernommen(body, env, me, corsHeaders);
         case "vv-vorabankuendigung": return handleVorabankuendigung(body, env, me, corsHeaders);
         case "vv-zahlung-sammel":  return handleZahlungSammel(body, env, me, corsHeaders);
+        case "vv-sammel-zurueck":  return handleSammelZurueck(body, env, me, corsHeaders);
         case "vv-zahlung-erfassen": return handleZahlungErfassen(body, env, me, corsHeaders);
         case "vv-ruecklastschrift": return handleRuecklastschrift(body, env, me, corsHeaders);
         case "vv-forderung-stornieren": return handleForderungStornieren(body, env, me, corsHeaders);

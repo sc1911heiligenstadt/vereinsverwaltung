@@ -39,6 +39,16 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Sammelbuchung lässt sich zurücknehmen",
+    datum: "2026-08-10",
+    punkte: [
+      "Eine als eingegangen gebuchte SEPA-Datei lässt sich jetzt zurücknehmen — für den Fall, dass der Einzug in Wahrheit nie stattgefunden hat. Der Knopf steht in der Tabelle „SEPA-Dateien“ des Beitragslaufs, dort wo sonst „als eingegangen buchen“ steht.",
+      "Die Zahlungen werden dabei storniert, nicht gelöscht: sie bleiben mit Grund und Urheber sichtbar. Die Forderungen stehen danach wieder offen und lassen sich erneut einziehen.",
+      "Gesperrt ist der Weg, sobald der Einzug in die Buchhaltung übernommen wurde — dort wird zuerst storniert, sonst zeigt das Forderungskonto etwas anderes als die Beitragsverwaltung.",
+      "Bereits erledigte Mahnungen werden nicht wieder aufgemacht; gibt es welche, wird darauf hingewiesen."
+    ]
+  },
+  {
     version: "SEPA-Datei kommt jetzt wirklich an",
     datum: "2026-08-10",
     punkte: [

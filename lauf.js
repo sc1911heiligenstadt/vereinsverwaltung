@@ -271,7 +271,9 @@ async function oeffneLauf(id) {
       ? "<h3>SEPA-Dateien</h3>" +
         '<p class="fussnote">Wenn der Einzug durch ist: hier als eingegangen buchen. Das setzt alle ' +
         "Posten dieser Datei auf bezahlt — die wenigen Rückläufer werden danach einzeln unter " +
-        "<em>Zahlungen</em> erfasst. Andersherum, 441 Zahlungen von Hand, macht das niemand.</p>" +
+        "<em>Zahlungen</em> erfasst. Andersherum, 441 Zahlungen von Hand, macht das niemand. " +
+        "Hat der Einzug in Wahrheit nie stattgefunden, nimmt <em>Buchung zurücknehmen</em> die " +
+        "ganze Sammelbuchung zurück; storniert wird dabei, gelöscht nichts.</p>" +
         '<div class="tabelle-scroll"><table><thead><tr>' +
         "<th>Nachrichten-Kennung</th><th>Erstellt</th><th>Einzug am</th><th>Art</th>" +
         "<th class=\"betrag\">Posten</th><th class=\"betrag\">Summe</th><th>gebucht</th>" +
@@ -282,9 +284,11 @@ async function oeffneLauf(id) {
           lEur(f.summe_cent) + "</td><td>" +
           (f.gebucht_am ? lDatum(f.gebucht_am) : '<span class="fussnote">offen</span>') + "</td>" +
           (d.darfBuchen
-            ? "<td>" + (f.gebucht_am ? "" :
-                '<button class="btn klein" data-buchen="' + esc(f.id) + '" data-am="' +
-                esc(f.ausfuehrung_am) + '">als eingegangen buchen</button>') + "</td>"
+            ? "<td>" + (f.gebucht_am
+                ? '<button class="btn klein grau" data-zurueck="' + esc(f.id) +
+                  '">Buchung zurücknehmen</button>'
+                : '<button class="btn klein" data-buchen="' + esc(f.id) + '" data-am="' +
+                  esc(f.ausfuehrung_am) + '">als eingegangen buchen</button>') + "</td>"
             : "") +
           "</tr>").join("") +
         "</tbody></table></div>"
@@ -305,6 +309,9 @@ async function oeffneLauf(id) {
 
   $("l-detail").querySelectorAll("[data-buchen]").forEach((b) => {
     b.addEventListener("click", () => bucheSepaDatei(b.dataset.buchen, b.dataset.am, l.id));
+  });
+  $("l-detail").querySelectorAll("[data-zurueck]").forEach((b) => {
+    b.addEventListener("click", () => nimmSammelZurueck(b.dataset.zurueck, l.id));
   });
 
   if (!d.darfBuchen) return;
@@ -372,6 +379,48 @@ async function bucheSepaDatei(dateiId, ausfuehrung, laufId) {
       "<strong>" + r.anzahl + " Forderungen</strong> über <strong>" + lEur(r.summeCent) +
       "</strong> als bezahlt gebucht. Was offen bleibt, steht im Reiter " +
       "&bdquo;Zahlungen&ldquo;.");
+  } catch (e) {
+    lMeldung("l-detail-status", "fehler", esc(e.message));
+  }
+}
+
+// Nimmt eine Sammelbuchung zurueck, die es nie gegeben hat -- der Fall vom
+// 10.08.2026: die SEPA-Datei war nie bei der Bank, gebucht war sie trotzdem.
+// Bewusst zweistufig: erst zaehlen lassen, dann mit Zahlen fragen. Wer eine
+// Buchung ueber 36.876 Euro zurueckdreht, soll den Betrag vorher sehen.
+async function nimmSammelZurueck(dateiId, laufId) {
+  let probe;
+  try {
+    probe = await vvRequest("vv-sammel-zurueck", { sepa_datei_id: dateiId, pruefen: true });
+  } catch (e) {
+    lMeldung("l-detail-status", "fehler", esc(e.message));
+    return;
+  }
+  if (!probe.anzahl) {
+    lMeldung("l-detail-status", "info",
+      "Zu dieser Datei steht keine Zahlung, die zurückgenommen werden könnte.");
+    return;
+  }
+  if (!confirm(probe.anzahl + " Zahlungen über " + lEur(probe.summeCent) +
+               " werden storniert.\nDie Forderungen stehen danach wieder offen und lassen sich " +
+               "erneut einziehen.\n\nNur machen, wenn dieser Einzug wirklich nicht stattgefunden " +
+               "hat.\nGelöscht wird nichts: die Zahlungen bleiben mit Storno-Vermerk sichtbar.")) return;
+
+  const grund = prompt("Grund für die Rücknahme (steht im Storno-Vermerk):",
+                       "Einzug hat nicht stattgefunden");
+  if (grund === null) return;
+
+  try {
+    const r = await vvRequest("vv-sammel-zurueck", { sepa_datei_id: dateiId, grund: grund });
+    await oeffneLauf(laufId);
+    lMeldung("l-detail-status", "erfolg",
+      "<strong>" + r.anzahl + " Zahlungen</strong> über <strong>" + lEur(r.summeCent) +
+      "</strong> storniert. Die Forderungen stehen wieder offen." +
+      (r.mahnungenErledigt
+        ? " <strong>Achtung:</strong> zu diesen Haushalten sind " + r.mahnungenErledigt +
+          " Mahnungen als erledigt vermerkt. Die wurden <em>nicht</em> wieder aufgemacht — " +
+          "bitte im Reiter &bdquo;Zahlungen&ldquo; ansehen."
+        : ""));
   } catch (e) {
     lMeldung("l-detail-status", "fehler", esc(e.message));
   }
