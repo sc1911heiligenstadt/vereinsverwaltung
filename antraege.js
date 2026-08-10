@@ -325,6 +325,7 @@ function zeichneAntragsListe() {
     '<div class="tabelle-scroll"><table><thead><tr>' +
     "<th>Eingang</th><th>Name</th><th>Geboren</th><th>Ort</th>" +
     "<th>Art</th><th>Abt.</th>" + (anNurNachwuchs ? "" : "<th>Zahlung</th>") + "<th></th>" +
+    (anDarfLoeschen() ? "<th></th>" : "") +
     "</tr></thead><tbody>" +
     anListe.map((a) =>
       '<tr class="an-zeile" data-id="' + esc(a.id) + '">' +
@@ -338,12 +339,88 @@ function zeichneAntragsListe() {
         (anNurNachwuchs ? ""
           : "<td>" + esc(a.zahlungsart === "lastschrift" ? "Lastschrift" : "Überweisung") + "</td>") +
         '<td><button class="btn klein" type="button">Öffnen</button></td>' +
+        (anDarfLoeschen()
+          ? '<td><button class="btn klein warn" type="button" data-anloeschen="' + esc(a.id) +
+            '" title="Diesen Antrag endgültig löschen">Löschen</button></td>'
+          : "") +
       "</tr>").join("") +
     "</tbody></table></div>";
 
   ziel.querySelectorAll(".an-zeile").forEach((tr) => {
     tr.addEventListener("click", () => oeffneAntrag(tr.dataset.id));
   });
+  // ⚠️ Der Knopf sitzt IN der klickbaren Zeile. Ohne stopPropagation
+  // liefe der Zeilen-Handler mit und öffnete beim Abbrechen der
+  // Rückfrage trotzdem den Antrag — dieselbe Falle wie beim Löschknopf
+  // der Beitragsläufe.
+  ziel.querySelectorAll("[data-anloeschen]").forEach((b) => {
+    b.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      loescheAntrag(b.dataset.anloeschen);
+    });
+  });
+}
+
+// ⚠️ Zwei Bedingungen, beide serverseitig ohnehin durchgesetzt — hier
+// geht es nur darum, keinen Knopf zu zeigen, der sicher 403 oder 409
+// antwortet:
+//   * Die Passstelle löscht nicht. `nur_nachwuchs` heißt beim Server
+//     `!darfSchreiben`, und genau daran hängt vv-antrag-loeschen.
+//   * Ein angenommener Antrag bleibt stehen. An ihm hängen Mitgliedschaft
+//     und SEPA-Mandat; die Mitgliedschaft endet über den Austritt.
+function anDarfLoeschen() {
+  return !anNurNachwuchs && anStatus !== "angenommen";
+}
+
+// Zweistufig: erst zählen lassen, dann mit den Zahlen fragen. Wer einen
+// Antrag wegwirft, soll vorher sehen, was daran hängt — vor allem die
+// Nachweise, die woanders liegen.
+async function loescheAntrag(id) {
+  let p;
+  try {
+    p = await vvRequest("vv-antrag-loeschen", { id, pruefen: true });
+  } catch (e) {
+    alert("Der Antrag lässt sich nicht löschen: " + e.message);
+    return;
+  }
+
+  const anhang = [];
+  if (p.nachweis_owner) anhang.push("die hochgeladenen Nachweise");
+  if (p.unterschriften) {
+    anhang.push(p.unterschriften + " Unterschrift" + (p.unterschriften > 1 ? "en" : ""));
+  }
+
+  if (!confirm("Aufnahmeantrag von " + p.name + " (Eingang " + datumDe(p.eingang_am) +
+               ") endgültig löschen?\n\n" +
+               (anhang.length ? "Mitgelöscht werden: " + anhang.join(" und ") + ".\n\n" : "") +
+               "Das lässt sich nicht rückgängig machen. Der Vorgang steht danach nur noch " +
+               "im Protokoll.")) return;
+
+  // ⚠️ Reihenfolge bindend: erst die Nachweise, dann die Zeile. Der
+  // Schlüssel zu den Dateien steht NUR im Antrag — ist er weg, sind die
+  // Ausweiskopien unauffindbar. Scheitert das Löschen dort, wird auch
+  // der Antrag nicht angefasst, statt eine halbe Löschung zu hinterlassen.
+  if (p.nachweis_owner) {
+    try {
+      await loescheNachweise(p.nachweis_owner);
+    } catch (e) {
+      alert("Die Nachweise ließen sich nicht entfernen: " + e.message +
+            "\n\nDer Antrag bleibt deshalb stehen — sonst lägen die Dateien unauffindbar " +
+            "in der Ablage. Bitte noch einmal versuchen.");
+      return;
+    }
+  }
+
+  try {
+    await vvRequest("vv-antrag-loeschen", { id });
+  } catch (e) {
+    alert("Der Antrag ließ sich nicht löschen: " + e.message);
+    return;
+  }
+  // Die Rückmeldung ist die Liste selbst: die Zeile ist weg und der
+  // Zähler im Statusreiter zählt herunter. Eine zusätzliche Erfolgs-
+  // meldung bräuchte eine Fläche, die es in diesem Reiter nicht gibt.
+  await ladeAntraege(anStatus);
 }
 
 // ---------------------------------------------------------------------

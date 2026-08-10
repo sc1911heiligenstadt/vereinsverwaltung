@@ -4516,6 +4516,73 @@ async function handleAntragStatus(body, env, me, corsHeaders) {
   return json({ ok: true, status: neu }, 200, corsHeaders);
 }
 
+// Einen Antrag wirklich entfernen -- fuer Probelaeufe und fuer den Fall,
+// dass jemand die Loeschung seiner Unterlagen verlangt.
+//
+// ⚠️ Hier gilt NICHT die GoBD-Regel "stornieren statt loeschen". Ein
+// Aufnahmeantrag ist kein Buchungsbeleg: solange er nicht angenommen ist,
+// hat er nichts ausgeloest. Die DSGVO zieht sogar in die andere Richtung
+// -- die Bewerbungsunterlagen eines abgelehnten oder zurueckgezogenen
+// Antrags samt Ausweiskopie und Unterschrift dauerhaft aufzubewahren,
+// waere schwerer zu begruenden als sie zu entfernen.
+//
+// ⚠️ Ein ANGENOMMENER Antrag bleibt gesperrt. An ihm haengen Person,
+// Mitgliedschaft und SEPA-Mandat; er ist der Beleg dafuer, dass jemand
+// die Lastschrift erteilt hat. Ihn zu loeschen naehme dem Mandat seine
+// Grundlage.
+//
+// Zweistufig wie handleSparteLoeschen und handleLaufVerwerfen:
+// `pruefen: true` zaehlt nur und liefert den Bericht, aus dem der Client
+// die Rueckfrage baut.
+async function handleAntragLoeschen(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfSchreiben) {
+    return json({ error: "Nur die Geschaeftsstelle kann Aufnahmeantraege loeschen" }, 403, corsHeaders);
+  }
+
+  const zeile = await env.VV_DB
+    .prepare("SELECT * FROM aufnahmeantrag WHERE id = ?")
+    .bind(String(body.id || "")).first();
+  if (!zeile) return json({ error: "Antrag nicht gefunden" }, 404, corsHeaders);
+
+  if (zeile.status === "angenommen") {
+    return json({ error: "Ein angenommener Antrag kann nicht geloescht werden. An ihm haengen " +
+                         "Mitgliedschaft und SEPA-Mandat; die Mitgliedschaft endet ueber den " +
+                         "Austritt.", code: "angenommen" }, 409, corsHeaders);
+  }
+
+  let inhalt = {};
+  try { inhalt = JSON.parse(zeile.antrag_json || "{}"); } catch { inhalt = {}; }
+  const name = ((inhalt.vorname || "") + " " + (inhalt.nachname || "")).trim() || "ohne Namen";
+
+  // ⚠️ Der Nachweis-Schluessel geht in die ANTWORT, nicht nur ins
+  // Protokoll: die Dateien liegen im Gateway (dieser Worker hat kein
+  // Nextcloud-Binding), und nach dem Loeschen der Zeile kennt sie
+  // niemand mehr. Wer die Ausweiskopien nicht mit entfernt, laesst sie
+  // unauffindbar liegen -- das Gegenteil von dem, was hier gewollt ist.
+  const bericht = {
+    id: zeile.id,
+    name,
+    status: zeile.status,
+    eingang_am: zeile.eingang_am,
+    quelle: zeile.quelle || "antrag",
+    nachweis_owner: zeile.nachweis_owner || null,
+    unterschriften: ["unterschrift_datei", "unterschrift_gesetzl_datei",
+                     "unterschrift_gesetzl2_datei"].filter((s) => zeile[s]).length
+  };
+
+  if (body.pruefen) return json({ ok: true, pruefung: true, ...bericht }, 200, corsHeaders);
+
+  await env.VV_DB.prepare("DELETE FROM aufnahmeantrag WHERE id = ?").bind(zeile.id).run();
+
+  // Was geloescht wurde, steht danach nur noch hier -- deshalb mit Name,
+  // Eingang und Status, nicht bloss mit der Id.
+  await protokolliere(env, me.username, "antrag-geloescht", "aufnahmeantrag", zeile.id,
+                      { name, status: zeile.status, eingang_am: zeile.eingang_am,
+                        quelle: bericht.quelle, hatte_nachweise: !!zeile.nachweis_owner });
+  return json({ ok: true, ...bericht }, 200, corsHeaders);
+}
+
 // Die Annahme ist der Beschluss nach § 4 -- und der einzige Weg, auf dem
 // aus einem Antrag eine Mitgliedschaft wird.
 //
@@ -6688,6 +6755,7 @@ export default {
         case "vv-antraege":        return handleAntraegeListe(body, env, me, corsHeaders);
         case "vv-antrag":          return handleAntragDetail(body, env, me, corsHeaders);
         case "vv-antrag-status":   return handleAntragStatus(body, env, me, corsHeaders);
+        case "vv-antrag-loeschen": return handleAntragLoeschen(body, env, me, corsHeaders);
         case "vv-antrag-annehmen": return handleAntragAnnehmen(body, env, me, corsHeaders);
         case "vv-sparte-aktiv":    return handleSparteAktiv(body, env, me, corsHeaders);
         case "vv-sparte-loeschen": return handleSparteLoeschen(body, env, me, corsHeaders);

@@ -39,6 +39,17 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Anträge löschen, und ein Icon im Browser-Tab",
+    datum: "2026-08-10",
+    punkte: [
+      "Im Reiter „Anträge“ steht jetzt neben jedem Antrag ein Löschknopf. Bisher ließ sich nur der Status ändern — ein Probe- oder Fehleintrag blieb für immer stehen.",
+      "Die Rückfrage nennt Name, Eingangsdatum und was mit weggeht: die hochgeladenen Nachweise und die Unterschriften. Gelöscht heißt hier wirklich gelöscht; der Vorgang steht danach nur noch im Protokoll, mit Name und Status.",
+      "Die Nachweise werden zuerst entfernt, dann der Antrag. Schlägt das fehl, bleibt der Antrag stehen — der Schlüssel zu den Dateien steht nur dort, und ohne ihn läge eine Ausweiskopie unauffindbar in der Ablage.",
+      "Ein angenommener Antrag bleibt gesperrt. An ihm hängen Mitgliedschaft und SEPA-Mandat; die Mitgliedschaft endet über den Austritt, nicht über das Formular. Die Passstelle kann ebenfalls nicht löschen.",
+      "Alle fünf Seiten der Vereinsverwaltung zeigen jetzt das Vereinswappen als Icon im Browser-Tab."
+    ]
+  },
+  {
     version: "Beiträge auch halb- und vierteljährlich einziehen",
     datum: "2026-08-10",
     punkte: [

@@ -163,6 +163,17 @@ async function ladeNachweisListe(owner) {
   return daten;
 }
 
+// Ohne slot faellt der ganze Ordner des Antrags weg -- der Regelfall,
+// wenn ein Antrag entfernt wird. ⚠️ Die Dateien liegen im Gateway, der
+// Antrag in D1: wer nur die Zeile loescht, laesst Ausweiskopien liegen,
+// deren Schluessel danach niemand mehr kennt.
+async function loescheNachweise(owner) {
+  const res = await gatewayRequest("vv-nachweis-loeschen", { owner });
+  const daten = await res.json().catch(() => null);
+  if (!res.ok) throw new Error((daten && daten.error) || ("Fehler " + res.status));
+  return daten;
+}
+
 // Gibt einen Blob zurueck, keinen JSON-Satz: die Aktion liefert rohe
 // Bytes mit dem Content-Type aus Nextcloud.
 async function ladeNachweisDatei(owner, slot) {
