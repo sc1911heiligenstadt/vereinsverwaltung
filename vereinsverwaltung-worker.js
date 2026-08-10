@@ -2039,7 +2039,10 @@ const AUSSCHLUSS_TEXT = {
   kein_haushalt:  "keinem Haushalt zugeordnet",
   ehrenmitglied:  "Ehrenmitglied (beitragsfrei)",
   ruhend:         "Mitgliedschaft ruht",
-  ausserhalb:     "im Beitragsjahr nicht Mitglied"
+  // ⚠️ Nicht "im Beitragsjahr": bei einem Ratenlauf waere das falsch.
+  // Wer im August eintritt, IST im Beitragsjahr Mitglied -- nur im
+  // ersten Quartal eben nicht.
+  ausserhalb:     "im Zeitraum des Laufs nicht Mitglied"
 };
 
 // ---------------------------------------------------------------------

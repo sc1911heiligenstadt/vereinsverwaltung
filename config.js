@@ -39,6 +39,18 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Beiträge auch halb- und vierteljährlich einziehen",
+    datum: "2026-08-10",
+    punkte: [
+      "Im Fenster „Neuer Beitragslauf“ steht jetzt ein Zahlungsrhythmus: jährlich, halbjährlich oder vierteljährlich. Jährlich bleibt die Vorgabe und rechnet unverändert.",
+      "Ein Rhythmus legt einen eigenen Beitragslauf je Rate an — bei vierteljährlich also vier. Das ist Absicht: Das zweite Quartal wird im April eingereicht, nicht im Januar zusammen mit dem ersten. Jede Rate hat deshalb ihre eigene SEPA-Datei, ihren eigenen Zahlungseingang und ihre eigene Übernahme in die Buchhaltung.",
+      "Die Fälligkeitstermine stehen einzeln im Fenster. Vorbelegt sind sie im Abstand der Perioden, jeder lässt sich für sich ändern.",
+      "Der Jahresbeitrag wird geteilt, nicht vervielfacht: Die Summe aller Raten ist auf den Cent genau der Jahresbeitrag. Geht ein Betrag nicht glatt auf, liegt der Restcent auf der ersten Rate.",
+      "Jede Rate erfasst den Bestand ihres eigenen Zeitraums. Wer im August eintritt, bekommt keine Forderung für das erste Quartal — und taucht deswegen auch nicht als Ausschluss in der Vorschau auf.",
+      "Verwendungszweck, Vorabankündigung und die Kennungen der SEPA-Datei nennen die Rate mit. Bei vier Abbuchungen im Jahr muss auf dem Kontoauszug stehen, welche gemeint ist."
+    ]
+  },
+  {
     version: "Löschen heißt jetzt wirklich löschen",
     datum: "2026-08-10",
     punkte: [
