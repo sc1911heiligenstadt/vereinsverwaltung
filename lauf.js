@@ -192,38 +192,74 @@ async function ladeLaeufe() {
 // haengt -- und was der Server dabei mitloescht.
 async function loescheLauf(id) {
   let p;
+  let mitZahlungen = false;
   try {
     p = await vvRequest("vv-lauf-verwerfen", { lauf_id: id, pruefen: true });
   } catch (e) {
-    lMeldung("l-liste-status", "fehler", esc(e.message));
-    return;
+    // ⚠️ Verbuchte Zahlungen sind hier KEIN Endpunkt mehr. Der Server
+    // sperrt den ersten Aufruf und nennt die Zahlen; daraus wird die
+    // schärfere Rückfrage. Vorher endete der Weg an dieser Meldung — und
+    // sie verwies auf "Sammelbuchung zurücknehmen", das aber nur an einer
+    // als eingegangen gebuchten SEPA-Datei hängt. Steht die Datei auf
+    // offen, gibt es den Knopf gar nicht und der Lauf blieb für immer
+    // stehen (bei Michel am 10.08.2026 genau so eingetreten).
+    if (e.status === 409 && e.daten && e.daten.code === "zahlungen") {
+      mitZahlungen = true;
+      try {
+        p = await vvRequest("vv-lauf-verwerfen",
+          { lauf_id: id, pruefen: true, mit_zahlungen: true });
+      } catch (e2) {
+        lMeldung("l-liste-status", "fehler", esc(e2.message));
+        return;
+      }
+    } else {
+      lMeldung("l-liste-status", "fehler", esc(e.message));
+      return;
+    }
   }
 
   const anhang = [];
   if (p.forderungen) anhang.push(p.forderungen + " Forderungen über " + lEur(p.summeCent));
   if (p.sepaDateien) anhang.push(p.sepaDateien + " SEPA-Vermerk" + (p.sepaDateien > 1 ? "e" : ""));
+  if (p.zahlungenAktiv) {
+    anhang.push(p.zahlungenAktiv + " verbuchte Zahlungen über " + lEur(p.zahlungenAktivCent));
+  }
   if (p.zahlungenStorniert) anhang.push(p.zahlungenStorniert + " stornierte Zahlungen");
+  // Die Erinnerung, um die es geht: an diesem Lauf hängt Geld. Gelöscht
+  // heißt hier wirklich gelöscht, nicht storniert -- das ist nur richtig,
+  // wenn bei der Bank nie etwas eingereicht wurde.
+  const warnung = p.zahlungenAktiv
+    ? "\n\nACHTUNG: Die " + p.zahlungenAktiv + " verbuchten Zahlungen über " +
+      lEur(p.zahlungenAktivCent) + " werden dabei GELÖSCHT, nicht storniert — als hätte es " +
+      "diesen Einzug nie gegeben. Nur richtig, wenn bei der Bank wirklich nichts eingereicht " +
+      "wurde."
+    : "";
   // Nicht in dieselbe Zeile: diese Zahlungen gehören zu einem anderen
   // Lauf und bleiben stehen, sie verlieren nur den Verweis auf die Datei.
   const geloest = p.zahlungenGeloest
-    ? "\n\nUnberührt bleiben " + p.zahlungenGeloest + " stornierte Zahlungen anderer Läufe; " +
+    ? "\n\nUnberührt bleiben " + p.zahlungenGeloest + " Zahlungen anderer Läufe; " +
       "sie verlieren nur den Verweis auf die SEPA-Datei."
     : "";
 
   if (!confirm("Beitragslauf " + p.bezeichnung + " (" + p.jahr + ") endgültig löschen?\n\n" +
                (anhang.length ? "Mitgelöscht wird: " + anhang.join(", ") + ".\n\n" : "") +
                "Das lässt sich nicht rückgängig machen. Der Vorgang steht danach nur noch im " +
-               "Protokoll." + geloest)) return;
+               "Protokoll." + warnung + geloest)) return;
 
   try {
-    const r = await vvRequest("vv-lauf-verwerfen", { lauf_id: id });
+    const r = await vvRequest("vv-lauf-verwerfen",
+      mitZahlungen ? { lauf_id: id, mit_zahlungen: true } : { lauf_id: id });
     $("l-karte-detail").hidden = true;
     $("l-karte-ergebnis").hidden = true;
     laufAktuell = null;
     await ladeLaeufe();
     lMeldung("l-liste-status", "erfolg",
       "<strong>" + esc(r.bezeichnung) + "</strong> gelöscht, mitsamt " + r.forderungen +
-      " Forderungen.");
+      " Forderungen" +
+      (r.zahlungenAktivGeloescht
+        ? " und " + r.zahlungenAktivGeloescht + " verbuchten Zahlungen über " +
+          lEur(r.zahlungenAktivCent)
+        : "") + ".");
   } catch (e) {
     lMeldung("l-liste-status", "fehler", esc(e.message));
   }
@@ -233,16 +269,79 @@ async function loescheLauf(id) {
 // Neuen Lauf anlegen
 // ---------------------------------------------------------------------
 
+// Spiegel der RHYTHMEN aus dem Worker — hier nur so viel, wie die Maske
+// zum Beschriften und Vorbelegen braucht. ⚠️ Die Wahrheit steht im
+// Server: er leitet jeden Termin, den der Client nicht mitschickt,
+// selbst ab und entscheidet über Perioden und Beträge. Wer hier eine
+// Rate ergänzt, muss es dort auch tun.
+const RHYTHMUS_RATEN = {
+  jaehrlich:        [{ text: "Fällig am", vonMonat: 1 }],
+  halbjaehrlich:    [{ text: "1. Halbjahr — fällig am", vonMonat: 1 },
+                     { text: "2. Halbjahr — fällig am", vonMonat: 7 }],
+  vierteljaehrlich: [{ text: "1. Quartal — fällig am", vonMonat: 1 },
+                     { text: "2. Quartal — fällig am", vonMonat: 4 },
+                     { text: "3. Quartal — fällig am", vonMonat: 7 },
+                     { text: "4. Quartal — fällig am", vonMonat: 10 }]
+};
+
+// Datum um n Monate schieben, Tag auf das Monatsende begrenzt — dieselbe
+// Regel wie im Worker, damit die angezeigten Termine genau die sind, die
+// hinterher in der Datenbank stehen.
+function lPlusMonate(iso, n) {
+  const j = Number(iso.slice(0, 4)), m = Number(iso.slice(5, 7)), t = Number(iso.slice(8, 10));
+  if (!j || !m || !t) return iso;
+  const lfd = j * 12 + (m - 1) + n;
+  const jahr = Math.floor(lfd / 12), monat = (lfd % 12) + 1;
+  const letzter = new Date(Date.UTC(jahr, monat, 0)).getUTCDate();
+  const zz = (x) => (x < 10 ? "0" + x : String(x));
+  return jahr + "-" + zz(monat) + "-" + zz(Math.min(t, letzter));
+}
+
+// Die Terminfelder je Rate aufbauen. Bereits vom Nutzer gesetzte Werte
+// bleiben stehen — ein Rhythmuswechsel darf keinen eingetippten Termin
+// wegwerfen, nur die fehlenden ergänzen.
+function zeigeTermine() {
+  const rhythmus = $("nl-rhythmus").value;
+  const raten = RHYTHMUS_RATEN[rhythmus] || RHYTHMUS_RATEN.jaehrlich;
+  const erst = $("nl-faelligkeit").value;
+
+  $("nl-faellig-label").textContent = raten[0].text + " *";
+
+  // Nur die Felder ab der zweiten Rate werden neu gebaut; das erste ist
+  // fest im HTML und trägt den Wert, aus dem alle anderen folgen.
+  const ziel = $("nl-termine");
+  ziel.querySelectorAll("[data-rate]").forEach((el) => el.remove());
+  for (let i = 1; i < raten.length; i++) {
+    const div = document.createElement("div");
+    div.className = "feld";
+    div.dataset.rate = String(i);
+    div.innerHTML = '<label for="nl-faellig-' + i + '">' + esc(raten[i].text) + "</label>" +
+                    '<input type="date" id="nl-faellig-' + i + '">';
+    ziel.appendChild(div);
+    const feld = div.querySelector("input");
+    feld.value = erst ? lPlusMonate(erst, raten[i].vonMonat - raten[0].vonMonat) : "";
+  }
+
+  $("nl-rhythmus-hinweis").innerHTML = raten.length === 1
+    ? "Ein Lauf, eine Forderung je Mitglied, ein Einzug."
+    : "Es entstehen <strong>" + raten.length + " getrennte Beitragsläufe</strong> — je Rate einer, " +
+      "mit eigener SEPA-Datei und eigenem Zahlungseingang. So wird das zweite Quartal auch " +
+      "wirklich erst im zweiten Quartal eingereicht. Der Jahresbeitrag wird dabei geteilt, " +
+      "nicht vervielfacht: die Summe aller Raten ist auf den Cent genau der Jahresbeitrag.";
+}
+
 function oeffneNeuerLauf() {
   const jahr = new Date().getFullYear() + 1;
   $("nl-jahr").value = String(jahr);
   $("nl-faelligkeit").value = jahr + "-03-15";
   $("nl-stichtag").value = jahr + "-01-01";
   $("nl-bezeichnung").value = "";
+  $("nl-rhythmus").value = "jaehrlich";
   $("nl-anteilig").checked = false;
   $("nl-ehren").checked = false;
   $("nl-ruhend").checked = false;
   $("lauf-status").textContent = "";
+  zeigeTermine();
   $("lauf-overlay").hidden = false;
 }
 
@@ -251,11 +350,21 @@ async function speichereNeuerLauf(trotzdem) {
   knopf.disabled = true;
   $("lauf-status").textContent = "";
 
+  const rhythmus = $("nl-rhythmus").value;
+  const anzahl = (RHYTHMUS_RATEN[rhythmus] || RHYTHMUS_RATEN.jaehrlich).length;
+  const termine = [$("nl-faelligkeit").value];
+  for (let i = 1; i < anzahl; i++) {
+    const feld = document.getElementById("nl-faellig-" + i);
+    termine.push(feld ? feld.value : "");
+  }
+
   const daten = {
     jahr: parseInt($("nl-jahr").value, 10),
     faelligkeit: $("nl-faelligkeit").value,
     stichtag: $("nl-stichtag").value,
     bezeichnung: $("nl-bezeichnung").value,
+    rhythmus: rhythmus,
+    termine: termine,
     anteilig: $("nl-anteilig").checked,
     ehrenmitglieder: $("nl-ehren").checked,
     ruhende: $("nl-ruhend").checked,
@@ -266,6 +375,15 @@ async function speichereNeuerLauf(trotzdem) {
     const r = await vvRequest("vv-lauf-anlegen", daten);
     $("lauf-overlay").hidden = true;
     await ladeLaeufe();
+    // Bei einer Serie wird der erste Lauf geöffnet, aber die Liste
+    // darüber sagt, dass es mehr sind — sonst wirkt es, als hätte der
+    // Rhythmus nur einen Lauf erzeugt.
+    if (r.ids && r.ids.length > 1) {
+      lMeldung("l-liste-status", "erfolg",
+        "<strong>" + r.ids.length + " Beitragsläufe</strong> angelegt (" +
+        (r.angelegt || []).map((a) => esc(a.text) + ", fällig " + lDatum(a.faelligkeit)).join(" · ") +
+        "). Jeder wird einzeln vorgeschaut, ausgeführt und eingereicht.");
+    }
     await oeffneLauf(r.id);
   } catch (e) {
     // Ein zweiter Lauf für dasselbe Jahr ist erlaubt, aber fast immer ein
@@ -308,8 +426,14 @@ async function oeffneLauf(id) {
   $("l-detail-titel").textContent = l.bezeichnung;
 
   const opt = l.optionen || {};
+  // Ein Ratenlauf rechnet nicht den Jahresbeitrag, sondern den Anteil
+  // seines Zeitraums. Der Satz darf das nicht anders behaupten, als der
+  // Server es tut.
+  const teillauf = l.periode && l.periode !== "jahr";
   const regeln = [
-    opt.anteilig ? "anteilig bei unterjährigem Eintritt" : "voller Jahresbeitrag",
+    opt.anteilig
+      ? "anteilig bei unterjährigem Eintritt"
+      : (teillauf ? "voller Anteil des Zeitraums" : "voller Jahresbeitrag"),
     opt.ehrenmitglieder ? "Ehrenmitglieder zahlen mit" : "Ehrenmitglieder beitragsfrei",
     opt.ruhende ? "ruhende zahlen mit" : "ruhende zahlen nicht"
   ];
@@ -318,6 +442,7 @@ async function oeffneLauf(id) {
     '<dl class="kennzahlen">' +
       "<div><dt>Status</dt><dd>" + esc(LAUF_STATUS_TEXT[l.status] || l.status) + "</dd></div>" +
       "<div><dt>Beitragsjahr</dt><dd>" + esc(l.jahr) + "</dd></div>" +
+      (teillauf ? "<div><dt>Zeitraum</dt><dd>" + esc(l.periodeText || l.periode) + "</dd></div>" : "") +
       "<div><dt>Fällig am</dt><dd>" + lDatum(l.faelligkeit) + "</dd></div>" +
       "<div><dt>Forderungen</dt><dd>" + (l.anzahl_erzeugt || 0) + "</dd></div>" +
       "<div><dt>Summe</dt><dd>" + lEur(l.summe_cent) + "</dd></div>" +
@@ -721,11 +846,17 @@ async function zeigeVorab(id) {
   }
   $("l-detail-status").hidden = true;
 
+  // ⚠️ Bei vier Einzügen im Jahr sagt „Beitrag 2027" nichts mehr. Die
+  // Rate gehört in die Ankündigung UND in den Dateinamen, sonst liegen
+  // vier gleich benannte Listen nebeneinander und der Serienbrief nennt
+  // einen Zeitraum, den der Kontoauszug nicht bestätigt.
+  const wofuer = String(v.jahr) + (v.periodeText ? " " + v.periodeText : "");
   const kopf = ["Empfaenger", "EMail", "Strasse", "PLZ", "Ort", "Mitglieder",
-                "Betrag", "Faellig", "Mandatsreferenz", "GlaeubigerID"];
+                "Beitrag fuer", "Betrag", "Faellig", "Mandatsreferenz", "GlaeubigerID"];
   const zeilen = v.empfaenger.map((e) => [
     e.empfaenger, e.email, e.strasse, e.plz, e.ort,
     e.mitglieder.map((m) => m.name + " (" + m.nr + ")").join(" / "),
+    wofuer,
     (e.betrag_cent / 100).toFixed(2).replace(".", ","),
     lDatum(v.faellig), e.mandat, v.glaeubiger_id
   ]);
@@ -736,10 +867,13 @@ async function zeigeVorab(id) {
 
   ergebnis("Vorabankündigung",
     "<p><strong>" + v.anzahl + " Empfänger</strong> über zusammen <strong>" +
-    lEur(v.summeCent) + "</strong>, Einzug am " + lDatum(v.faellig) + ".<br>" +
+    lEur(v.summeCent) + "</strong> für <strong>" + esc(wofuer) + "</strong>, Einzug am " +
+    lDatum(v.faellig) + ".<br>" +
     '<span class="fussnote">' + v.mitEmail + " haben eine E-Mail-Adresse hinterlegt, " +
     (v.anzahl - v.mitEmail) + " brauchen einen Brief.</span></p>" +
-    '<p><a class="btn" download="Vorabankuendigung-' + esc(v.jahr) + '.csv" href="' + url + '">' +
+    '<p><a class="btn" download="Vorabankuendigung-' + esc(v.jahr) +
+    (v.periode && v.periode !== "jahr" ? "-" + esc(v.periode.toUpperCase()) : "") +
+    '.csv" href="' + url + '">' +
     "Liste als CSV herunterladen</a></p>" +
     '<div class="hinweis warn">Diese App <strong>verschickt nichts</strong>. Eine ' +
     "Vorabankündigung ist juristisch nur erfüllt, wenn sie ankommt — und solange für " +
@@ -818,5 +952,11 @@ function laufVerdrahten() {
   $("btn-lauf-zu").addEventListener("click", () => { $("lauf-overlay").hidden = true; });
   $("btn-lauf-abbrechen").addEventListener("click", () => { $("lauf-overlay").hidden = true; });
   $("btn-lauf-speichern").addEventListener("click", () => speichereNeuerLauf(false));
+  $("nl-rhythmus").addEventListener("change", zeigeTermine);
+  // Der erste Termin ist der Anker: ändert er sich, rücken die übrigen
+  // mit. Wer danach einen einzelnen Termin von Hand setzt, behält ihn —
+  // bis er den ersten wieder anfasst, und das ist die verständlichere
+  // Regel als ein Feld, das sich nie mehr bewegt.
+  $("nl-faelligkeit").addEventListener("change", zeigeTermine);
   $("btn-l-mandate").addEventListener("click", kennzeichneMandate);
 }

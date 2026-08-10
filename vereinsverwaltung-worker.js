@@ -1587,7 +1587,11 @@ const EINSTELLUNGEN = {
   verein_iban:      { gruppe: "sepa", label: "IBAN des Vereinskontos", max: 34, pflicht: true, iban: true },
   verein_bic:       { gruppe: "sepa", label: "BIC des Vereinskontos", max: 11 },
   glaeubiger_id:    { gruppe: "sepa", label: "Glaeubiger-Identifikationsnummer", max: 35, pflicht: true },
-  verwendungszweck: { gruppe: "sepa", label: "Verwendungszweck", max: 140 },
+  // {jahr} und {periode} werden beim Erzeugen der SEPA-Datei ersetzt.
+  // Steht {periode} nicht im Muster, haengt die Rate hinten an -- ein
+  // Jahreslauf setzt gar nichts ein und sieht aus wie bisher.
+  verwendungszweck: { gruppe: "sepa", label: "Verwendungszweck (Platzhalter {jahr} und {periode})",
+                      max: 140 },
 
   // Vereinsnummer beim Landesverband, fuer den Spielerlaubnisantrag.
   // ⚠️ LEER LASSEN, solange der Bogen sie vorgedruckt traegt -- ein
@@ -2038,28 +2042,132 @@ const AUSSCHLUSS_TEXT = {
   ausserhalb:     "im Beitragsjahr nicht Mitglied"
 };
 
-// Aus Eintritt, Austritt und Beitragsjahr den Betrag. Bewusst ohne
+// ---------------------------------------------------------------------
+// Zahlungsrhythmus: jaehrlich, halbjaehrlich, vierteljaehrlich
+// ---------------------------------------------------------------------
+//
+// ⚠️ Ein Rhythmus erzeugt EINEN LAUF JE RATE, nicht einen Lauf mit
+// mehreren Raten. Zwei Gruende, beide hart:
+//
+// 1. Der eindeutige Index idx_ford_lauf_eindeutig laesst je Lauf und
+//    Mitgliedschaft genau EINE Forderung derselben Art zu. Er ist die
+//    einzige Klammer gegen doppelte Abbuchungen, die es hier gibt (D1
+//    kennt kein BEGIN) -- er wird nicht aufgeweicht, um vier Raten in
+//    einen Lauf zu pressen.
+// 2. Es entspricht dem echten Ablauf. Das zweite Quartal wird im April
+//    eingereicht, nicht im Januar zusammen mit dem ersten. Jede Rate
+//    braucht ihre eigene SEPA-Datei, ihre eigene Sammelbuchung und ihre
+//    eigene Uebernahme in die Buchhaltung -- als eigener Lauf hat sie das
+//    alles, ohne dass an einer dieser Stellen etwas geaendert werden muss.
+//
+// Die Spalte beitragslauf.periode gab es von Anfang an, sie stand bisher
+// nur fest auf "jaehrlich". Deshalb kostet das hier KEINE Schemaaenderung.
+// ⚠️ Altbestand: bereits angelegte Laeufe tragen "jaehrlich", das Schema
+// nennt "jahr" -- periodeInfo() nimmt beides.
+
+const RHYTHMEN = {
+  jaehrlich: [
+    { periode: "jahr", text: "Jahresbeitrag", kurz: "",   vonMonat: 1,  bisMonat: 12 }
+  ],
+  halbjaehrlich: [
+    { periode: "h1",   text: "1. Halbjahr",   kurz: "H1", vonMonat: 1,  bisMonat: 6 },
+    { periode: "h2",   text: "2. Halbjahr",   kurz: "H2", vonMonat: 7,  bisMonat: 12 }
+  ],
+  vierteljaehrlich: [
+    { periode: "q1",   text: "1. Quartal",    kurz: "Q1", vonMonat: 1,  bisMonat: 3 },
+    { periode: "q2",   text: "2. Quartal",    kurz: "Q2", vonMonat: 4,  bisMonat: 6 },
+    { periode: "q3",   text: "3. Quartal",    kurz: "Q3", vonMonat: 7,  bisMonat: 9 },
+    { periode: "q4",   text: "4. Quartal",    kurz: "Q4", vonMonat: 10, bisMonat: 12 }
+  ]
+};
+
+function periodeInfo(periode) {
+  const p = String(periode || "").toLowerCase();
+  for (const raten of Object.values(RHYTHMEN)) {
+    for (const r of raten) if (r.periode === p) return r;
+  }
+  // Alles Unbekannte -- darunter der Altbestand mit "jaehrlich" -- ist ein
+  // Jahreslauf. Fail-safe in die Richtung, die schon immer galt.
+  return RHYTHMEN.jaehrlich[0];
+}
+
+function zweiStellig(n) { return n < 10 ? "0" + n : String(n); }
+
+// Tag 0 des Folgemonats = letzter Tag dieses Monats. Ueber UTC gerechnet,
+// damit die Sommerzeitfalle von toISOString() gar nicht erst auftritt.
+function monatsEnde(jahr, monat) {
+  return new Date(Date.UTC(jahr, monat, 0)).getUTCDate();
+}
+
+function periodeGrenzen(jahr, periode) {
+  const p = periodeInfo(periode);
+  return {
+    von: jahr + "-" + zweiStellig(p.vonMonat) + "-01",
+    bis: jahr + "-" + zweiStellig(p.bisMonat) + "-" + zweiStellig(monatsEnde(jahr, p.bisMonat)),
+    monate: p.bisMonat - p.vonMonat + 1,
+    text: p.text,
+    periode: p.periode
+  };
+}
+
+// Ein Datum um n Monate schieben, der Tag wird auf das Monatsende
+// begrenzt. Ohne die Begrenzung wuerde aus dem 31.01. plus einem Monat
+// der 03.03. -- ein Faelligkeitsdatum, das niemand eingegeben hat.
+function verschiebeMonate(iso, n) {
+  const j = Number(iso.slice(0, 4));
+  const m = Number(iso.slice(5, 7));
+  const t = Number(iso.slice(8, 10));
+  const lfd = (j * 12 + (m - 1)) + n;
+  const jahr = Math.floor(lfd / 12);
+  const monat = (lfd % 12) + 1;
+  return jahr + "-" + zweiStellig(monat) + "-" + zweiStellig(Math.min(t, monatsEnde(jahr, monat)));
+}
+
+// ⚠️ Der Jahressatz wird auf die Raten VERTEILT, nicht je Rate neu
+// festgesetzt: die Summe aller Raten muss auf den Cent genau der
+// Jahresbeitrag sein, sonst weicht die Kontrollzahl 39.972 EUR ab,
+// sobald jemand von jaehrlich auf vierteljaehrlich umstellt. Ein
+// Restcent geht auf die ERSTE Rate -- so steht die krumme Zahl am
+// Jahresanfang und nicht im vierten Quartal, wo sie beim Abgleich mit
+// der Beitragsordnung als Rechenfehler gelesen wuerde.
+function rateAusJahressatz(satzCent, periode) {
+  const p = periodeInfo(periode);
+  const monate = p.bisMonat - p.vonMonat + 1;
+  const raten = Math.round(12 / monate);
+  if (raten <= 1) return satzCent;
+  const grund = Math.floor(satzCent / raten);
+  const rest = satzCent - grund * raten;
+  return p.vonMonat === 1 ? grund + rest : grund;
+}
+
+// Aus Eintritt, Austritt und Periode den Betrag. Bewusst ohne
 // Datenbankzugriff, damit die Regel einzeln nachrechenbar bleibt.
 //
-// Vorgabe ist der VOLLE Jahresbeitrag, auch bei unterjaehrigem Eintritt --
-// so rechnet der Vereinsmeister, und die Kontrollzahl 39.972 EUR haengt
-// daran. Anteilig ist eine bewusste Entscheidung je Lauf, keine
-// stillschweigende Voreinstellung.
-function berechneBetrag(satzCent, jahr, eintritt, austritt, anteilig) {
-  const jahresBeginn = jahr + "-01-01";
-  const jahresEnde = jahr + "-12-31";
+// Vorgabe ist der VOLLE Beitrag der Periode, auch bei unterjaehrigem
+// Eintritt -- so rechnet der Vereinsmeister, und die Kontrollzahl
+// 39.972 EUR haengt daran. Anteilig ist eine bewusste Entscheidung je
+// Lauf, keine stillschweigende Voreinstellung.
+//
+// ⚠️ Bei einem Jahreslauf ist das Ergebnis bitgleich mit dem Stand vor
+// dem Rhythmus: Grenzen = Jahresgrenzen, Rate = ganzer Satz, 12 Monate.
+function berechneBetrag(satzCent, jahr, periode, eintritt, austritt, anteilig) {
+  const g = periodeGrenzen(jahr, periode);
   const ein = String(eintritt || "").slice(0, 10);
   const aus = String(austritt || "").slice(0, 10);
 
-  if (ein && ein > jahresEnde) return null;
-  if (aus && aus < jahresBeginn) return null;
+  if (ein && ein > g.bis) return null;
+  if (aus && aus < g.von) return null;
 
-  const von = ein && ein > jahresBeginn ? ein : jahresBeginn;
-  const bis = aus && aus < jahresEnde ? aus : jahresEnde;
+  const von = ein && ein > g.von ? ein : g.von;
+  const bis = aus && aus < g.bis ? aus : g.bis;
   if (von > bis) return null;
 
+  const rateCent = rateAusJahressatz(satzCent, periode);
+
   if (!anteilig) {
-    return { betrag_cent: satzCent, monate: 12, von: jahresBeginn, bis: jahresEnde, anteilig: false };
+    return { betrag_cent: rateCent, monate: g.monate, von: g.von, bis: g.bis,
+             anteilig: false, periode: g.periode, periodeText: g.text,
+             satz_jahr_cent: satzCent };
   }
 
   // Angefangene Monate zaehlen voll. Wer am 20.03. eintritt, zahlt ab
@@ -2068,8 +2176,9 @@ function berechneBetrag(satzCent, jahr, eintritt, austritt, anteilig) {
   const monate = (Number(bis.slice(5, 7)) - Number(von.slice(5, 7))) + 1;
   if (monate <= 0) return null;
   return {
-    betrag_cent: Math.round(satzCent * monate / 12),
-    monate, von, bis, anteilig: true
+    betrag_cent: Math.round(rateCent * monate / g.monate),
+    monate, von, bis, anteilig: true, periode: g.periode, periodeText: g.text,
+    satz_jahr_cent: satzCent
   };
 }
 
@@ -2089,15 +2198,19 @@ function laufOptionen(lauf) {
 // N+1-Muster = 21,7 Sekunden und Absturz bei 500).
 async function sammleLaufZeilen(env, lauf, klassen, abId, grenze) {
   const opt = laufOptionen(lauf);
-  const jahresBeginn = lauf.jahr + "-01-01";
-  const jahresEnde = lauf.jahr + "-12-31";
+  // ⚠️ Der Bestandsfilter richtet sich nach der PERIODE, nicht nach dem
+  // Kalenderjahr. Ein Lauf fuer das dritte Quartal erfasst, wer im
+  // dritten Quartal Mitglied war -- sonst bekaeme ein Eintritt im
+  // Oktober rueckwirkend eine Forderung fuer Juli bis September, und die
+  // Rate haette einen Zeitraum berechnet, den es beim Mitglied nie gab.
+  const g = periodeGrenzen(lauf.jahr, lauf.periode);
 
   const bedingungen = [
     "m.status <> 'antrag'",
     "m.eintritt <= ?",
     "(m.austritt IS NULL OR m.austritt >= ?)"
   ];
-  const werte = [jahresEnde, jahresBeginn];
+  const werte = [g.bis, g.von];
   if (abId) { bedingungen.push("m.id > ?"); werte.push(abId); }
 
   let sql =
@@ -2132,7 +2245,8 @@ async function sammleLaufZeilen(env, lauf, klassen, abId, grenze) {
       raus("kein_satz"); continue;
     }
 
-    const rechnung = berechneBetrag(klasse.betrag_cent, lauf.jahr, z.eintritt, z.austritt, opt.anteilig);
+    const rechnung = berechneBetrag(klasse.betrag_cent, lauf.jahr, lauf.periode,
+                                    z.eintritt, z.austritt, opt.anteilig);
     if (!rechnung) { raus("ausserhalb"); continue; }
 
     zeilen.push({
@@ -2185,9 +2299,28 @@ async function handleLaufAnlegen(body, env, me, corsHeaders) {
   }
   const stichtag = istIsoDatum(body.stichtag) ? body.stichtag : (jahr + "-01-01");
 
+  // Unbekannter Rhythmus faellt auf jaehrlich zurueck, statt 400 zu
+  // werfen: das ist der Stand von vor dieser Aenderung und damit die
+  // Richtung, in der niemand ueberrascht wird.
+  const rhythmus = RHYTHMEN[String(body.rhythmus || "")] ? String(body.rhythmus) : "jaehrlich";
+  const raten = RHYTHMEN[rhythmus];
+
+  // Je Rate ein Faelligkeitsdatum. Der Client schickt sie mit -- fehlt
+  // eines, wird es aus dem ersten um den Abstand der Perioden
+  // verschoben. ⚠️ Abgeleitet wird nur, was nicht dasteht: ein vom
+  // Nutzer bewusst gesetzter Termin darf nie ueberschrieben werden.
+  const rohTermine = Array.isArray(body.termine) ? body.termine : [];
+  const termine = raten.map((r, i) => {
+    const t = String(rohTermine[i] || "").slice(0, 10);
+    if (istIsoDatum(t)) return t;
+    return verschiebeMonate(faelligkeit, r.vonMonat - raten[0].vonMonat);
+  });
+
   // Ein zweiter Lauf fuer dasselbe Jahr ist kein Fehler (Nachzuegler,
   // Umlage), aber fast immer ein Versehen -- deshalb muss er ausdruecklich
-  // gewollt sein.
+  // gewollt sein. ⚠️ Die Pruefung laeuft EINMAL fuer die ganze Serie:
+  // sonst legte der Rhythmus den ersten Lauf an und stolperte danach
+  // ueber seinen eigenen.
   const schon = await env.VV_DB.prepare(
     "SELECT COUNT(*) AS n FROM beitragslauf WHERE jahr = ? AND status <> 'verworfen'"
   ).bind(jahr).first();
@@ -2203,17 +2336,35 @@ async function handleLaufAnlegen(body, env, me, corsHeaders) {
     ehrenmitglieder: !!body.ehrenmitglieder,
     ruhende: !!body.ruhende
   };
-  const id = uuid();
   const jetzt = new Date().toISOString();
+  const eigene = sauber(body.bezeichnung, 100);
 
-  await env.VV_DB.prepare(
-    "INSERT INTO beitragslauf (id, bezeichnung, jahr, periode, stichtag, faelligkeit, status, " +
-    "optionen_json, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?,'entwurf',?,?,?)"
-  ).bind(id, sauber(body.bezeichnung, 120) || ("Jahresbeitrag " + jahr), jahr,
-         "jaehrlich", stichtag, faelligkeit, JSON.stringify(optionen), jetzt, me.username).run();
+  // Alle Raten in EINEM batch: entweder steht die ganze Serie oder
+  // keine. Ein halb angelegter Rhythmus waere das Schlimmste -- er sieht
+  // vollstaendig aus, und die fehlende Rate faellt erst im Herbst auf.
+  const anweisungen = [];
+  const angelegt = [];
+  for (let i = 0; i < raten.length; i++) {
+    const r = raten[i];
+    const id = uuid();
+    const bezeichnung = raten.length === 1
+      ? (eigene || ("Jahresbeitrag " + jahr))
+      : ((eigene || ("Mitgliedsbeitrag " + jahr)) + " - " + r.text);
+    angelegt.push({ id, periode: r.periode, text: r.text, bezeichnung, faelligkeit: termine[i] });
+    anweisungen.push(env.VV_DB.prepare(
+      "INSERT INTO beitragslauf (id, bezeichnung, jahr, periode, stichtag, faelligkeit, status, " +
+      "optionen_json, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?,'entwurf',?,?,?)"
+    ).bind(id, bezeichnung, jahr, r.periode, stichtag, termine[i],
+           JSON.stringify(optionen), jetzt, me.username));
+  }
+  await env.VV_DB.batch(anweisungen);
 
-  await protokolliere(env, me.username, "beitragslauf-angelegt", "beitragslauf", id, { jahr, faelligkeit });
-  return json({ ok: true, id }, 200, corsHeaders);
+  for (const a of angelegt) {
+    await protokolliere(env, me.username, "beitragslauf-angelegt", "beitragslauf", a.id,
+                        { jahr, periode: a.periode, faelligkeit: a.faelligkeit, rhythmus });
+  }
+  return json({ ok: true, id: angelegt[0].id, ids: angelegt.map((a) => a.id),
+                rhythmus, angelegt }, 200, corsHeaders);
 }
 
 async function ladeLauf(env, id) {
@@ -2257,7 +2408,9 @@ async function handleLaufVorschau(body, env, me, corsHeaders) {
   return json({
     ok: true,
     lauf: { id: lauf.id, bezeichnung: lauf.bezeichnung, jahr: lauf.jahr, stichtag: lauf.stichtag,
-            faelligkeit: lauf.faelligkeit, status: lauf.status, optionen: laufOptionen(lauf) },
+            faelligkeit: lauf.faelligkeit, status: lauf.status, optionen: laufOptionen(lauf),
+            periode: periodeInfo(lauf.periode).periode,
+            periodeText: periodeInfo(lauf.periode).text },
     anzahl: zeilen.length,
     summeCent,
     verteilung: Array.from(nachKlasse.values()).sort((a, b) => b.anzahl - a.anzahl),
@@ -2294,10 +2447,14 @@ async function handleLaufAusfuehren(body, env, me, corsHeaders) {
   // schlimmer als keiner.
   let erwartet = lauf.anzahl_erwartet;
   if (!lauf.fortschritt_ab && !erwartet) {
+    // Dieselben Grenzen wie in sammleLaufZeilen -- ein Balken, der eine
+    // andere Menge misst als der Lauf verarbeitet, zaehlt nicht, er
+    // wackelt.
+    const gz = periodeGrenzen(lauf.jahr, lauf.periode);
     const z = await env.VV_DB.prepare(
       "SELECT COUNT(*) AS n FROM mitgliedschaft m WHERE m.status <> 'antrag' " +
       "AND m.eintritt <= ? AND (m.austritt IS NULL OR m.austritt >= ?)"
-    ).bind(lauf.jahr + "-12-31", lauf.jahr + "-01-01").first();
+    ).bind(gz.bis, gz.von).first();
     erwartet = z ? z.n : null;
   }
 
@@ -2314,8 +2471,10 @@ async function handleLaufAusfuehren(body, env, me, corsHeaders) {
       "bezeichnung, jahr, periode, betrag_cent, faellig_am, berechnung_json, status, erstellt_am, erstellt_von) " +
       "VALUES (?,?,?,?,'beitrag',?,?,?,?,?,?,'offen',?,?)"
     ).bind(uuid(), lauf.id, z.mitgliedschaft_id, z.haushalt_id,
-           lauf.bezeichnung, lauf.jahr, "jaehrlich", z.betrag_cent, lauf.faelligkeit,
+           lauf.bezeichnung, lauf.jahr, z.rechnung.periode, z.betrag_cent, lauf.faelligkeit,
            JSON.stringify({ klasse: z.klasse, satz_cent: z.rechnung.betrag_cent,
+                            satz_jahr_cent: z.rechnung.satz_jahr_cent,
+                            periode: z.rechnung.periode, periodeText: z.rechnung.periodeText,
                             monate: z.rechnung.monate, von: z.rechnung.von, bis: z.rechnung.bis,
                             anteilig: z.rechnung.anteilig, stichtag: lauf.stichtag }),
            jetzt, me.username));
@@ -2383,7 +2542,9 @@ async function handleLaufDetail(body, env, me, corsHeaders) {
 
   return json({
     ok: true,
-    lauf: Object.assign({}, lauf, { optionen: laufOptionen(lauf) }),
+    lauf: Object.assign({}, lauf, { optionen: laufOptionen(lauf),
+                                    periode: periodeInfo(lauf.periode).periode,
+                                    periodeText: periodeInfo(lauf.periode).text }),
     nachStatus: nachStatus.results || [],
     dateien: dateien.results || [],
     proben: (proben.results || []).map((p) => {
@@ -2433,6 +2594,17 @@ async function handleLaufFestschreiben(body, env, me, corsHeaders) {
 // abgelehnt, damit der Weg dorthin erkennbar bleibt.
 //
 // Zweistufig wie handleSparteLoeschen: `pruefen: true` zaehlt nur.
+//
+// ⚠️ Die Zahlungssperre allein war eine SACKGASSE -- am 10.08.2026 bei
+// Michel eingetreten. Sie verweist auf `vv-sammel-zurueck`, und der
+// greift ausschliesslich ueber eine als eingegangen gebuchte SEPA-Datei.
+// Haengt eine Zahlung an keiner (mehr) -- weil die Datei nie gebucht,
+// die Zahlung von Hand erfasst oder ein frueherer Lauf samt seiner Datei
+// geloescht wurde --, gibt es den Knopf gar nicht, und der Lauf waere
+// fuer immer unloeschbar. Deshalb `mit_zahlungen: true`: derselbe zweite,
+// ausdrueckliche Aufruf wie `mit_zuordnungen` bei handleSparteLoeschen.
+// Der erste Aufruf sperrt weiterhin und nennt die Zahlen -- niemand
+// loescht 36.876 Euro Zahlungseingaenge aus Versehen.
 async function handleLaufVerwerfen(body, env, me, corsHeaders) {
   const rolle = await ladeRolle(env, me);
   if (!rolle.istAdmin && !rolle.darfBuchen) {
@@ -2467,47 +2639,65 @@ async function handleLaufVerwerfen(body, env, me, corsHeaders) {
     }
   }
 
-  // Beide Wege zaehlen: ueber die Forderung UND ueber die SEPA-Datei. Ein
-  // Ruecklastschriftentgelt haengt an einer eigenen Forderung ohne
-  // beitragslauf_id, gehoert aber zum Einzug dieses Laufs.
-  const zSql = "FROM zahlung WHERE (" +
-    "  forderung_id IN (SELECT id FROM forderung WHERE beitragslauf_id = ?) OR " +
-    "  sepa_datei_id IN (SELECT id FROM sepa_datei WHERE beitragslauf_id = ?))";
-  const offen = await env.VV_DB.prepare(
-    "SELECT COUNT(*) AS n, COALESCE(SUM(betrag_cent),0) AS s " + zSql +
-    " AND storniert_am IS NULL").bind(lauf.id, lauf.id).first();
-  if (offen && offen.n > 0) {
-    return json({ error: offen.n + " Zahlungen ueber " + (offen.s / 100).toFixed(2) +
-                         " EUR sind zu diesem Lauf verbucht. Erst die Sammelbuchung " +
-                         "zuruecknehmen, dann laesst sich der Lauf loeschen.",
-                  code: "zahlungen", anzahl: offen.n, summeCent: offen.s }, 409, corsHeaders);
-  }
-  // Zwei getrennte Zahlen, weil zwei verschiedene Dinge passieren:
-  // stornierte Zahlungen AN einer Forderung dieses Laufs gehen mit,
-  // stornierte Zahlungen an einer FREMDEN Forderung werden nur von der
-  // Datei geloest und bleiben stehen. Eine Summe daraus zu melden waere
-  // die Ankuendigung, mehr zu loeschen als geloescht wird -- vom
-  // Pruefstand gefunden (G12).
-  const storniert = await env.VV_DB.prepare(
-    "SELECT COUNT(*) AS n FROM zahlung WHERE storniert_am IS NOT NULL AND " +
-    "forderung_id IN (SELECT id FROM forderung WHERE beitragslauf_id = ?)")
-    .bind(lauf.id).first();
-  const geloest = await env.VV_DB.prepare(
-    "SELECT COUNT(*) AS n FROM zahlung WHERE storniert_am IS NOT NULL AND " +
-    "sepa_datei_id IN (SELECT id FROM sepa_datei WHERE beitragslauf_id = ?) AND " +
+  // Zwei getrennte Zaehlungen, weil zwei verschiedene Dinge passieren:
+  // Zahlungen AN einer Forderung dieses Laufs gehen mit, Zahlungen an
+  // einer FREMDEN Forderung werden nur von der Datei geloest und bleiben
+  // stehen. Eine Summe daraus zu melden waere die Ankuendigung, mehr zu
+  // loeschen als geloescht wird -- vom Pruefstand gefunden (G12).
+  //
+  // Beide Wege muessen gezaehlt werden: ueber die Forderung UND ueber die
+  // SEPA-Datei. Ein Ruecklastschriftentgelt haengt an einer eigenen
+  // Forderung ohne beitragslauf_id, gehoert aber zum Einzug dieses Laufs.
+  const zSpalten =
+    "SELECT COUNT(*) AS n, " +
+    "  SUM(CASE WHEN storniert_am IS NULL THEN 1 ELSE 0 END) AS aktiv, " +
+    "  COALESCE(SUM(CASE WHEN storniert_am IS NULL THEN betrag_cent ELSE 0 END),0) AS aktiv_cent, " +
+    "  SUM(CASE WHEN storniert_am IS NOT NULL THEN 1 ELSE 0 END) AS storniert ";
+  const eigen = await env.VV_DB.prepare(
+    zSpalten + "FROM zahlung WHERE forderung_id IN " +
+    "(SELECT id FROM forderung WHERE beitragslauf_id = ?)").bind(lauf.id).first();
+  const fremd = await env.VV_DB.prepare(
+    zSpalten + "FROM zahlung WHERE sepa_datei_id IN " +
+    "  (SELECT id FROM sepa_datei WHERE beitragslauf_id = ?) AND " +
     "(forderung_id IS NULL OR forderung_id NOT IN " +
     "  (SELECT id FROM forderung WHERE beitragslauf_id = ?))")
     .bind(lauf.id, lauf.id).first();
   const dateien = await env.VV_DB.prepare(
     "SELECT COUNT(*) AS n FROM sepa_datei WHERE beitragslauf_id = ?").bind(lauf.id).first();
 
+  const aktivEigen = (eigen && eigen.aktiv) || 0;
+  const aktivEigenCent = (eigen && eigen.aktiv_cent) || 0;
+  const aktivFremd = (fremd && fremd.aktiv) || 0;
+  const aktivFremdCent = (fremd && fremd.aktiv_cent) || 0;
+  const aktivGesamt = aktivEigen + aktivFremd;
+  const aktivCent = aktivEigenCent + aktivFremdCent;
+
+  // Ohne die ausdrueckliche Flagge bleibt es bei der Sperre -- der erste
+  // Aufruf soll die Zahlen nennen, nicht loeschen. Mit ihr geht der Lauf
+  // samt Zahlungen weg; die Entscheidung faellt beim Menschen, nicht hier.
+  const mitZahlungen = body.mit_zahlungen === true;
+  if (!mitZahlungen && aktivGesamt > 0) {
+    return json({ error: aktivGesamt + " Zahlungen ueber " + (aktivCent / 100).toFixed(2) +
+                         " EUR sind zu diesem Lauf verbucht. Entweder die Sammelbuchung " +
+                         "zuruecknehmen -- oder den Lauf ausdruecklich mitsamt den Zahlungen " +
+                         "loeschen.",
+                  code: "zahlungen", anzahl: aktivGesamt, summeCent: aktivCent }, 409, corsHeaders);
+  }
+
   if (body.pruefen) {
     return json({ ok: true, pruefung: true,
                   bezeichnung: lauf.bezeichnung, jahr: lauf.jahr, status: lauf.status,
                   forderungen: lauf.anzahl_erzeugt || 0, summeCent: lauf.summe_cent || 0,
                   sepaDateien: (dateien && dateien.n) || 0,
-                  zahlungenStorniert: (storniert && storniert.n) || 0,
-                  zahlungenGeloest: (geloest && geloest.n) || 0 }, 200, corsHeaders);
+                  mitZahlungen: mitZahlungen,
+                  // Was wirklich geloescht wird: alles an eigenen Forderungen.
+                  // Aktive und Summe eigens, denn nur die bedeuten Geld.
+                  zahlungenAktiv: aktivEigen,
+                  zahlungenAktivCent: aktivEigenCent,
+                  zahlungenStorniert: (eigen && eigen.storniert) || 0,
+                  // Was nur den Verweis auf die Datei verliert und stehen bleibt.
+                  zahlungenGeloest: (fremd && fremd.n) || 0,
+                  zahlungenGeloestAktiv: aktivFremd }, 200, corsHeaders);
   }
 
   // Reihenfolge wegen der Fremdschluessel: zahlung -> forderung ->
@@ -2524,15 +2714,25 @@ async function handleLaufVerwerfen(body, env, me, corsHeaders) {
     env.VV_DB.prepare("DELETE FROM sepa_datei WHERE beitragslauf_id = ?").bind(lauf.id),
     env.VV_DB.prepare("DELETE FROM beitragslauf WHERE id = ?").bind(lauf.id)
   ]);
+  // ⚠️ Geloescht wird ALLES an eigenen Forderungen, nicht nur das
+  // Stornierte -- seit `mit_zahlungen` koennen aktive dabei sein. Stuende
+  // hier weiter nur die Zahl der stornierten, wuerde das Protokoll den
+  // Vorgang kleiner ausweisen, als er war.
   await protokolliere(env, me.username, "beitragslauf-geloescht", "beitragslauf", lauf.id,
                       { jahr: lauf.jahr, bezeichnung: lauf.bezeichnung, status: lauf.status,
                         anzahl: lauf.anzahl_erzeugt, summeCent: lauf.summe_cent,
                         sepaDateien: (dateien && dateien.n) || 0,
-                        zahlungenGeloescht: (storniert && storniert.n) || 0,
-                        zahlungenGeloest: (geloest && geloest.n) || 0 });
+                        mitZahlungen: mitZahlungen,
+                        zahlungenGeloescht: (eigen && eigen.n) || 0,
+                        zahlungenAktivGeloescht: aktivEigen,
+                        zahlungenAktivCent: aktivEigenCent,
+                        zahlungenGeloest: (fremd && fremd.n) || 0 });
   return json({ ok: true, bezeichnung: lauf.bezeichnung,
                 forderungen: lauf.anzahl_erzeugt || 0,
-                sepaDateien: (dateien && dateien.n) || 0 }, 200, corsHeaders);
+                sepaDateien: (dateien && dateien.n) || 0,
+                zahlungenGeloescht: (eigen && eigen.n) || 0,
+                zahlungenAktivGeloescht: aktivEigen,
+                zahlungenAktivCent: aktivEigenCent }, 200, corsHeaders);
 }
 
 // ---------------------------------------------------------------------
@@ -2716,8 +2916,26 @@ async function handleSepaErzeugen(body, env, me, corsHeaders) {
     return json({ error: "Kein einziger Posten einziehbar -- siehe Probelauf" }, 400, corsHeaders);
   }
 
-  const msgId = sepaText("VV" + lauf.jahr + "-" + heute.getTime().toString(36).toUpperCase(), 35);
+  // ⚠️ Bei einem Rhythmus stehen vier Dateien desselben Jahres beim
+  // Mitglied auf dem Kontoauszug. Ohne die Rate im Verwendungszweck
+  // waeren sie nicht auseinanderzuhalten -- und genau daran haengt die
+  // Rueckfrage "wofuer war die zweite Abbuchung?". Die Kennungen tragen
+  // sie aus demselben Grund mit.
+  const pInfo = periodeInfo(lauf.periode);
+  const pTeil = pInfo.kurz ? pInfo.kurz : "";
+  const pText = pInfo.periode === "jahr" ? "" : pInfo.text;
+
+  const msgId = sepaText("VV" + lauf.jahr + pTeil + "-" + heute.getTime().toString(36).toUpperCase(), 35);
   const zweckMuster = cfg.verwendungszweck || "Mitgliedsbeitrag {jahr}";
+  // Wer {periode} selbst ins Muster setzt, bestimmt die Stelle; sonst
+  // haengt sie hinten an. Ein Jahreslauf setzt an beiden Wegen nichts
+  // ein und sieht damit aus wie bisher.
+  let zweckBasis = zweckMuster.replace(/\{jahr\}/g, String(lauf.jahr));
+  if (/\{periode\}/.test(zweckMuster)) {
+    zweckBasis = zweckBasis.replace(/\{periode\}/g, pText).replace(/\s{2,}/g, " ").trim();
+  } else if (pText) {
+    zweckBasis += " " + pText;
+  }
 
   // FRST und RCUR duerfen nicht im selben Zahlungsblock stehen. Getrennte
   // PmtInf-Bloecke, aber EINE Datei -- so erwartet es das Regelwerk.
@@ -2731,9 +2949,8 @@ async function handleSepaErzeugen(body, env, me, corsHeaders) {
     const gSumme = g.liste.reduce((s, p) => s + p.betrag_cent, 0);
     const txe = g.liste.map((p) => {
       lfd++;
-      const zweck = sepaText(
-        zweckMuster.replace(/\{jahr\}/g, String(lauf.jahr)) + " Nr. " + p.nummern.join(", "), 140);
-      const e2e = sepaText("B" + lauf.jahr + "-" + p.nummern[0] + "-" + lfd, 35);
+      const zweck = sepaText(zweckBasis + " Nr. " + p.nummern.join(", "), 140);
+      const e2e = sepaText("B" + lauf.jahr + pTeil + "-" + p.nummern[0] + "-" + lfd, 35);
       const bic = sepaText(p.bic, 11).replace(/[^A-Z0-9]/gi, "").toUpperCase();
       const agent = bic
         ? "<FinInstnId><BIC>" + xmlEsc(bic) + "</BIC></FinInstnId>"
@@ -3371,9 +3588,15 @@ async function handleVorabankuendigung(body, env, me, corsHeaders) {
   }
 
   const liste = Array.from(nach.values()).filter((e) => e.mandat);
+  // Die Rate gehoert in die Ankuendigung: bei vier Einzuegen im Jahr muss
+  // das Mitglied dem Schreiben entnehmen koennen, welcher davon gemeint ist.
+  const pInfo = periodeInfo(lauf.periode);
   return json({
     ok: true,
     faellig, jahr: lauf.jahr,
+    periode: pInfo.periode,
+    periodeText: pInfo.periode === "jahr" ? "" : pInfo.text,
+    bezeichnung: lauf.bezeichnung,
     glaeubiger_id: cfg.glaeubiger_id || "",
     verein_name: cfg.verein_name || "",
     anzahl: liste.length,

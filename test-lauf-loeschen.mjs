@@ -18,6 +18,7 @@
 //   G  Das Loeschen selbst -- mit SEPA-Vermerk, der frueher hart sperrte
 //   H  Der zweite Lauf und alles Fremde bleiben unangetastet
 //   I  Fail-safe ohne Buchhaltungstabelle (der Live-Zustand)
+//   J  Loeschen MIT verbuchten Zahlungen -- der Ausweg aus der Sackgasse
 
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
@@ -458,6 +459,152 @@ pruefe("I4  und seine Forderung mit ihm",
 pruefe("I5  keine Zahlung zeigt ins Leere", zaehle("SELECT COUNT(*) AS n FROM zahlung") === 0);
 pruefe("I6  PRAGMA foreign_key_check bleibt leer",
        db.prepare("PRAGMA foreign_key_check").all().length === 0);
+
+// =====================================================================
+// J  Loeschen MIT verbuchten Zahlungen
+// =====================================================================
+//
+// ⚠️ Der Anlass: die Zahlungssperre war eine Sackgasse. Sie verweist auf
+// `vv-sammel-zurueck`, und der greift ausschliesslich ueber eine als
+// eingegangen gebuchte SEPA-Datei. Eine Zahlung, die an keiner Datei
+// haengt -- von Hand erfasst, oder ihre Datei ist weg --, ist damit nicht
+// erreichbar, und der Lauf waere fuer immer unloeschbar. Genau dieser
+// Zustand wird hier hergestellt und dann aufgeloest.
+//
+// Die Buchhaltungstabelle ist seit Abschnitt I weg: das ist der
+// Live-Zustand, in dem der Fall aufgetreten ist.
+
+const LAUF3 = "lauf-3";
+const LAUF4 = "lauf-4";
+legeLaufAn(LAUF3, "Jahresbeitrag 2027 (dritter Versuch)", "fertig");
+legeLaufAn(LAUF4, "Jahresbeitrag 2028", "fertig");
+
+for (const h of HAUSHALTE) {
+  db.prepare("INSERT INTO forderung (id, beitragslauf_id, mitgliedschaft_id, haushalt_id, art, " +
+             "bezeichnung, jahr, betrag_cent, faellig_am, status, erstellt_am, erstellt_von) " +
+             "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
+    .run("f3-" + h.id, LAUF3, "m-" + h.id, h.id, "beitrag", "Mitgliedsbeitrag 2027", 2027,
+         h.betrag, "2027-03-15", "offen", "2026-08-10", "test");
+}
+db.prepare("UPDATE beitragslauf SET anzahl_erzeugt = 4, summe_cent = 33600 WHERE id = ?")
+  .run(LAUF3);
+
+const sepa3 = await ruf(W.handleSepaErzeugen,
+  { lauf_id: LAUF3, ausfuehrung_am: "2027-03-15" }, env, SCHATZ, cors);
+pruefe("J0a SEPA-Datei fuer den dritten Lauf", sepa3.status === 200, "Status " + sepa3.status);
+const DATEI3 = db.prepare("SELECT * FROM sepa_datei WHERE beitragslauf_id = ?").get(LAUF3);
+const gebucht3 = await ruf(W.handleZahlungSammel,
+  { sepa_datei_id: DATEI3.id, eingang_am: "2027-03-15" }, env, SCHATZ, cors);
+pruefe("J0b Sammelbuchung ueber drei Posten", gebucht3.daten.anzahl === 3,
+       "anzahl " + gebucht3.daten.anzahl);
+
+// Der Barzahler ohne Mandat: seine Zahlung kommt von Hand und haengt an
+// KEINER SEPA-Datei. Sie ist der Grund, warum die Ruecknahme allein nicht
+// reicht.
+db.prepare("INSERT INTO zahlung (id, forderung_id, haushalt_id, betrag_cent, eingang_am, art, " +
+           "erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?,?,?)")
+  .run("z-hand", "f3-hh-4", "hh-4", 7200, "2027-03-16", "ueberweisung", "2026-08-10", "test");
+
+const j1 = await ruf(W.handleLaufVerwerfen, { lauf_id: LAUF3 }, env, SCHATZ, cors);
+pruefe("J1  ohne die Flagge sperrt es weiterhin", j1.status === 409, "Status " + j1.status);
+pruefe("J2  und zaehlt alle vier Zahlungen", j1.daten.anzahl === 4 &&
+       j1.daten.summeCent === 33600,
+       JSON.stringify({ a: j1.daten.anzahl, s: j1.daten.summeCent }));
+pruefe("J3  der Text nennt beide Wege",
+       /Sammelbuchung/.test(j1.daten.error || "") &&
+       /mitsamt den Zahlungen/.test(j1.daten.error || ""), j1.daten.error);
+
+const j4 = await ruf(W.handleLaufVerwerfen,
+  { lauf_id: LAUF3, pruefen: true, mit_zahlungen: true }, env, SCHATZ, cors);
+pruefe("J4  die Probe MIT Flagge laeuft durch", j4.status === 200, "Status " + j4.status);
+pruefe("J5  sie meldet vier verbuchte Zahlungen", j4.daten.zahlungenAktiv === 4,
+       "" + j4.daten.zahlungenAktiv);
+pruefe("J6  mit der Summe, um die es geht", j4.daten.zahlungenAktivCent === 33600,
+       "" + j4.daten.zahlungenAktivCent);
+pruefe("J7  und stellt die Flagge fest", j4.daten.mitZahlungen === true);
+// Gegenprobe: die Probe zaehlt, sie loescht nicht. Ohne diese Zeile waere
+// J auch dann gruen, wenn die Flagge schon in der Probe wirkte.
+pruefe("J8  die Probe mit Flagge schreibt nichts",
+       zaehle("SELECT COUNT(*) AS n FROM zahlung WHERE forderung_id IN " +
+              "(SELECT id FROM forderung WHERE beitragslauf_id = ?)", LAUF3) === 4 &&
+       zaehle("SELECT COUNT(*) AS n FROM beitragslauf WHERE id = ?", LAUF3) === 1);
+
+// ⚠️ Der Beleg fuer die Sackgasse: die Ruecknahme raeumt die drei
+// Lastschriften ab -- die Handzahlung erreicht sie nicht, und ohne die
+// Flagge bliebe der Lauf deshalb fuer immer stehen.
+const zurueck3 = await ruf(W.handleSammelZurueck,
+  { sepa_datei_id: DATEI3.id, grund: "Einzug hat nicht stattgefunden" }, env, SCHATZ, cors);
+pruefe("J9  die Ruecknahme laeuft", zurueck3.status === 200, "Status " + zurueck3.status);
+const j10 = await ruf(W.handleLaufVerwerfen, { lauf_id: LAUF3 }, env, SCHATZ, cors);
+pruefe("J10 danach sperrt immer noch die Handzahlung", j10.status === 409 &&
+       j10.daten.anzahl === 1, "Status " + j10.status + " anzahl " + j10.daten.anzahl);
+pruefe("J11 sie haengt an keiner SEPA-Datei -- die Ruecknahme kommt nicht an sie heran",
+       !db.prepare("SELECT sepa_datei_id FROM zahlung WHERE id = 'z-hand'").get().sepa_datei_id);
+
+// Eine FREMDE, nicht stornierte Zahlung, die nur ueber die Datei an
+// diesem Lauf haengt: sie gehoert dem vierten Lauf und muss stehen
+// bleiben -- auch beim Loeschen mit Flagge.
+db.prepare("INSERT INTO forderung (id, beitragslauf_id, mitgliedschaft_id, haushalt_id, art, " +
+           "bezeichnung, jahr, betrag_cent, faellig_am, status, erstellt_am, erstellt_von) " +
+           "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
+  .run("f4-hh-2", LAUF4, "m-hh-2", "hh-2", "beitrag", "Mitgliedsbeitrag 2028", 2028,
+       9600, "2028-03-15", "bezahlt", "2026-08-10", "test");
+db.prepare("INSERT INTO zahlung (id, forderung_id, haushalt_id, sepa_datei_id, betrag_cent, " +
+           "eingang_am, art, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?,?,?,?)")
+  .run("z-fremd-aktiv", "f4-hh-2", "hh-2", DATEI3.id, 9600, "2028-03-15", "lastschrift",
+       "2026-08-10", "test");
+
+const j12 = await ruf(W.handleLaufVerwerfen,
+  { lauf_id: LAUF3, pruefen: true, mit_zahlungen: true }, env, SCHATZ, cors);
+pruefe("J12 die Probe trennt weiter: eine eigene aktive Zahlung",
+       j12.daten.zahlungenAktiv === 1 && j12.daten.zahlungenAktivCent === 7200,
+       JSON.stringify({ a: j12.daten.zahlungenAktiv, c: j12.daten.zahlungenAktivCent }));
+pruefe("J13 drei stornierte gehen mit", j12.daten.zahlungenStorniert === 3,
+       "" + j12.daten.zahlungenStorniert);
+pruefe("J14 die fremde wird nur geloest, nicht geloescht",
+       j12.daten.zahlungenGeloest === 1 && j12.daten.zahlungenGeloestAktiv === 1,
+       JSON.stringify({ g: j12.daten.zahlungenGeloest, a: j12.daten.zahlungenGeloestAktiv }));
+
+const j15 = await ruf(W.handleLaufVerwerfen,
+  { lauf_id: LAUF3, mit_zahlungen: true }, env, SCHATZ, cors);
+pruefe("J15 das Loeschen mit Flagge laeuft", j15.status === 200,
+       "Status " + j15.status + " " + (j15.daten.error || ""));
+pruefe("J16 es meldet alle vier geloeschten Zahlungen", j15.daten.zahlungenGeloescht === 4,
+       "" + j15.daten.zahlungenGeloescht);
+pruefe("J17 und davon die eine verbuchte mit Betrag",
+       j15.daten.zahlungenAktivGeloescht === 1 && j15.daten.zahlungenAktivCent === 7200,
+       JSON.stringify({ a: j15.daten.zahlungenAktivGeloescht, c: j15.daten.zahlungenAktivCent }));
+pruefe("J18 der Lauf ist weg",
+       zaehle("SELECT COUNT(*) AS n FROM beitragslauf WHERE id = ?", LAUF3) === 0);
+pruefe("J19 seine Forderungen sind weg",
+       zaehle("SELECT COUNT(*) AS n FROM forderung WHERE beitragslauf_id = ?", LAUF3) === 0);
+pruefe("J20 die Handzahlung ist weg",
+       zaehle("SELECT COUNT(*) AS n FROM zahlung WHERE id = 'z-hand'") === 0);
+pruefe("J21 die SEPA-Datei ist weg",
+       zaehle("SELECT COUNT(*) AS n FROM sepa_datei WHERE beitragslauf_id = ?", LAUF3) === 0);
+
+const fremdAktiv = db.prepare("SELECT * FROM zahlung WHERE id = 'z-fremd-aktiv'").get();
+pruefe("J22 die fremde Zahlung steht unangetastet da", !!fremdAktiv &&
+       fremdAktiv.betrag_cent === 9600 && !fremdAktiv.storniert_am);
+pruefe("J23 sie zeigt nicht mehr auf die geloeschte Datei",
+       fremdAktiv && !fremdAktiv.sepa_datei_id, fremdAktiv && fremdAktiv.sepa_datei_id);
+pruefe("J24 und ihre Forderung lebt weiter",
+       zaehle("SELECT COUNT(*) AS n FROM forderung WHERE beitragslauf_id = ?", LAUF4) === 1);
+pruefe("J25 PRAGMA foreign_key_check bleibt leer",
+       db.prepare("PRAGMA foreign_key_check").all().length === 0,
+       JSON.stringify(db.prepare("PRAGMA foreign_key_check").all()));
+
+const protJ = db.prepare("SELECT * FROM protokoll WHERE aktion = 'beitragslauf-geloescht' " +
+                         "ORDER BY rowid DESC").all();
+if (protJ.length) {
+  const dJ = JSON.parse(protJ[0].detail_json || "{}");
+  pruefe("J26 das Protokoll haelt die Flagge fest", dJ.mitZahlungen === true,
+         JSON.stringify(dJ.mitZahlungen));
+  pruefe("J27 und die Zahl der wirklich geloeschten Zahlungen", dJ.zahlungenGeloescht === 4,
+         "" + dJ.zahlungenGeloescht);
+  pruefe("J28 samt der verbuchten Summe", dJ.zahlungenAktivCent === 7200,
+         "" + dJ.zahlungenAktivCent);
+}
 
 // =====================================================================
 

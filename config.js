@@ -39,6 +39,17 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Löschen heißt jetzt wirklich löschen",
+    datum: "2026-08-10",
+    punkte: [
+      "Sind zu einem Beitragslauf bereits Zahlungen verbucht, ist das Löschen keine Sackgasse mehr. Die Rückfrage nennt Anzahl und Summe der verbuchten Zahlungen und löscht sie auf Bestätigung mit.",
+      "Vorher verwies die Meldung darauf, zuerst die Sammelbuchung zurückzunehmen — und genau das war nicht immer möglich. „Buchung zurücknehmen“ hängt an einer als eingegangen gebuchten SEPA-Datei; Zahlungen, die von Hand erfasst wurden oder deren Datei auf „offen“ steht, erreicht sie nicht. Der Lauf ließ sich dann überhaupt nicht mehr entfernen.",
+      "Die Warnung in der Rückfrage ist entsprechend deutlich: Die Zahlungen werden gelöscht, nicht storniert. Das ist nur dann richtig, wenn bei der Bank wirklich nichts eingereicht wurde.",
+      "Zahlungen, die zu einem anderen Lauf gehören und nur über die SEPA-Datei mit dranhängen, bleiben unangetastet — sie verlieren lediglich den Verweis auf die gelöschte Datei.",
+      "Unverändert gesperrt bleiben ein festgeschriebener Lauf und einer, der in die Buchhaltung übernommen ist: dort wird storniert, nicht gelöscht. Was gelöscht wurde, steht mit Zahl und Summe im Protokoll."
+    ]
+  },
+  {
     version: "Die Sicherung meldet sich, wenn sie ausbleibt",
     datum: "2026-08-10",
     punkte: [
@@ -66,7 +77,7 @@ const CHANGELOG = [
       "Jede Zeile in der Liste der Beitragsläufe hat jetzt einen Löschen-Knopf — für Probeläufe und für den Fall, dass beim Anlegen etwas schiefgegangen ist (etwa zwei Läufe für dasselbe Jahr nebeneinander).",
       "Vor dem Löschen wird gezeigt, was daran hängt: Zahl und Summe der Forderungen, vermerkte SEPA-Dateien und stornierte Zahlungen. Erst danach kommt die Rückfrage.",
       "Ein Vermerk über eine erzeugte SEPA-Datei blockiert das Löschen nicht mehr. Die Datei selbst wird nirgends gespeichert — ein Vermerk allein ist kein Beleg dafür, dass etwas bei der Bank liegt.",
-      "Gesperrt bleibt, wo wirklich Geld im Spiel ist: Sind Zahlungen zu dem Lauf verbucht, muss zuerst die Sammelbuchung zurückgenommen werden. Ist der Lauf in die Buchhaltung übernommen, nennt die Meldung die Belegnummer, unter der dort zu stornieren ist.",
+      "Sind Zahlungen zu dem Lauf verbucht, wird ausdrücklich nachgefragt, bevor sie mitgelöscht werden (siehe den Eintrag ganz oben). Ist der Lauf in die Buchhaltung übernommen, nennt die Meldung die Belegnummer, unter der dort zu stornieren ist — dann bleibt er gesperrt.",
       "Ein festgeschriebener Lauf lässt sich weiterhin nicht löschen. Das ist der Sinn des Festschreibens; einzelne Forderungen lassen sich dort nach wie vor stornieren."
     ]
   },

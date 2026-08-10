@@ -765,13 +765,27 @@
       <div class="formraster">
         <div class="feld"><label for="nl-jahr">Beitragsjahr *</label>
           <input id="nl-jahr" inputmode="numeric" placeholder="2027"></div>
-        <div class="feld"><label for="nl-faelligkeit">Fällig am *</label>
-          <input type="date" id="nl-faelligkeit"></div>
+        <div class="feld"><label for="nl-rhythmus">Zahlungsrhythmus</label>
+          <select id="nl-rhythmus">
+            <option value="jaehrlich">Jährlich — eine Abbuchung</option>
+            <option value="halbjaehrlich">Halbjährlich — zwei Abbuchungen</option>
+            <option value="vierteljaehrlich">Vierteljährlich — vier Abbuchungen</option>
+          </select></div>
         <div class="feld breit"><label for="nl-bezeichnung">Bezeichnung</label>
           <input id="nl-bezeichnung" placeholder="leer lassen = Jahresbeitrag &lt;Jahr&gt;"></div>
         <div class="feld"><label for="nl-stichtag">Stichtag für Bestand und Sätze</label>
           <input type="date" id="nl-stichtag"></div>
       </div>
+
+      <h3>Wann eingezogen wird</h3>
+      <!-- Bei mehreren Raten hängt hier je Rate ein eigenes Datumsfeld.
+           Das erste ist immer `nl-faelligkeit` — es trägt den Wert, aus
+           dem der Server die übrigen ableitet, wenn eines leer bleibt. -->
+      <div class="formraster" id="nl-termine">
+        <div class="feld"><label for="nl-faelligkeit" id="nl-faellig-label">Fällig am *</label>
+          <input type="date" id="nl-faelligkeit"></div>
+      </div>
+      <p class="fussnote" id="nl-rhythmus-hinweis"></p>
 
       <h3>Wie gerechnet wird</h3>
       <div class="ankreuz-raster">
@@ -782,10 +796,11 @@
         <label><input type="checkbox" id="nl-ruhend">
           Ruhende Mitgliedschaften mit einbeziehen</label>
       </div>
-      <p class="fussnote">Ohne Häkchen zahlt jedes Mitglied den <strong>vollen Jahresbeitrag</strong>,
-      auch bei Eintritt im Dezember — so rechnet der Vereinsmeister, und daran hängt die Kontrollzahl
-      des Altbestands. Ehrenmitglieder sind beitragsfrei, ruhende Mitgliedschaften zahlen nicht.
-      Diese drei Festlegungen werden beim Lauf gespeichert und lassen sich später nachlesen.</p>
+      <p class="fussnote">Ohne Häkchen zahlt jedes Mitglied den <strong>vollen Beitrag des
+      Zeitraums</strong>, auch bei Eintritt im letzten Monat davon — so rechnet der Vereinsmeister,
+      und daran hängt die Kontrollzahl des Altbestands. Ehrenmitglieder sind beitragsfrei, ruhende
+      Mitgliedschaften zahlen nicht. Diese drei Festlegungen werden beim Lauf gespeichert und lassen
+      sich später nachlesen.</p>
     </div>
     <div class="dialog-fuss">
       <span id="lauf-status"></span>
@@ -832,12 +847,12 @@
 
 <footer>1. SC 1911 Heiligenstadt &mdash; interne Vereinsverwaltung</footer>
 
-<script src="config.js?v=3.8"></script>
+<script src="config.js?v=3.9"></script>
 <script src="db.js?v=1.5"></script>
 <script src="import.js?v=1.2"></script>
 <script src="rollen.js?v=1.4"></script>
 <script src="beitraege.js?v=1.1"></script>
-<script src="lauf.js?v=1.9"></script>
+<script src="lauf.js?v=2.0"></script>
 <script src="zahlungen.js?v=1.2"></script>
 <script src="antrag-druck.js?v=1.0"></script>
 <!-- Fuellt das Verbandsformular AO21. Muss VOR antraege.js stehen: der
