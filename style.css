@@ -562,11 +562,6 @@ input[type="file"] {
 }
 .sparte-nr.gespeichert { border-color: var(--green); background: #f1f8f2; }
 
-/* Das Aufteil-Werkzeug ist eingeklappt: es wird einmal im Jahr
-   gebraucht, steht aber dort, wo die Meldung entsteht. */
-.lsb-teilen { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 14px; }
-.lsb-teilen > summary { cursor: pointer; font-weight: 600; color: var(--blue); }
-
 #imp-zuordnung select { width: 100%; min-width: 190px; font-size: 14px; }
 #imp-zuordnung td { vertical-align: middle; }
 

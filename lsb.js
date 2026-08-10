@@ -11,7 +11,6 @@
 // anzeigen kann.
 
 let letzterLsbLauf = null;
-let lsbSparten = [];
 
 // Genau die Kopfzeile der Vorlage des LSB (Mitgliederliste.csv, 164
 // Byte). Die beiden leeren Felder am Ende gehoeren dazu -- die Vorlage
@@ -32,34 +31,6 @@ function lsbKarteZeigen() {
   if (!$("lsb-stichtag").value) $("lsb-stichtag").value = lsbStichtagVorgabe();
   $("btn-lsb-liste").addEventListener("click", ladeLsbListe);
   $("btn-lsb-csv").addEventListener("click", lsbCsvHerunterladen);
-  $("btn-lsb-vorschau").addEventListener("click", () => teileSparte(false));
-  $("btn-lsb-aufteilen").addEventListener("click", () => teileSparte(true));
-  ladeLsbSparten();
-}
-
-// Die Auswahllisten des Aufteil-Werkzeugs. Eigener Aufruf statt der
-// Liste aus app.js: die dortige spartenListe enthaelt nur die AKTIVEN,
-// und aufgeteilt wird gerade ein Sammelposten, der oft schon stillgelegt
-// ist.
-async function ladeLsbSparten() {
-  let antwort;
-  try {
-    antwort = await vvRequest("vv-sparten", {});
-  } catch (e) {
-    $("lsb-teilen-ergebnis").innerHTML = '<div class="hinweis fehler">' + esc(e.message) + "</div>";
-    return;
-  }
-  lsbSparten = antwort.sparten || [];
-
-  const optionen = (nurMitNummer) => '<option value="">— bitte wählen —</option>' +
-    lsbSparten.filter((s) => !nurMitNummer || s.dosb_sportart_nr)
-      .map((s) => '<option value="' + esc(s.id) + '">' + esc(s.name) +
-        (s.dosb_sportart_nr ? " (Nr. " + s.dosb_sportart_nr + ")" : " — ohne Nummer") +
-        " · " + (s.mitglieder || 0) + "</option>").join("");
-
-  $("lsb-quelle").innerHTML = optionen(false);
-  $("lsb-ziel-ab").innerHTML = optionen(false);
-  $("lsb-ziel-unter").innerHTML = optionen(false);
 }
 
 async function ladeLsbListe() {
@@ -160,66 +131,4 @@ function lsbCsvHerunterladen() {
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-}
-
-// Sammelposten aufteilen. Vorschau und Ausführen rufen dieselbe Aktion;
-// erst „ausfuehren“ schreibt. Ohne den Zwischenschritt hinge an einem
-// Klick die Abteilungszugehörigkeit von 85 Personen.
-async function teileSparte(ausfuehren) {
-  const ziel = $("lsb-teilen-ergebnis");
-  const daten = {
-    quelle_id: $("lsb-quelle").value,
-    ziel_ab_id: $("lsb-ziel-ab").value,
-    ziel_unter_id: $("lsb-ziel-unter").value,
-    grenze: Number($("lsb-grenze").value),
-    stichtag: $("lsb-stichtag").value,
-    ausfuehren: !!ausfuehren
-  };
-  if (!daten.quelle_id || !daten.ziel_ab_id || !daten.ziel_unter_id) {
-    ziel.innerHTML = '<div class="hinweis warn">Bitte den Sammelposten und beide Ziel-Abteilungen wählen.</div>';
-    return;
-  }
-
-  if (ausfuehren && !confirm("Die Zuordnungen werden jetzt umgehängt.\n\n" +
-      "Das ändert die Abteilung der betroffenen Mitglieder dauerhaft — Eintrittsdatum und " +
-      "Beitrag bleiben unberührt. Einzelne Personen lassen sich danach im Mitglieder-Reiter " +
-      "korrigieren.")) {
-    return;
-  }
-
-  ziel.innerHTML = '<p class="fussnote">Wird gezählt …</p>';
-  let a;
-  try {
-    a = await vvRequest("vv-sparte-aufteilen", daten);
-  } catch (e) {
-    ziel.innerHTML = '<div class="hinweis fehler">' + esc(e.message) + "</div>";
-    return;
-  }
-
-  ziel.innerHTML =
-    '<div class="hinweis ' + (a.vorschau ? "info" : "erfolg") + '">' +
-      (a.vorschau ? "Vorschau: aus " : "Umgehängt: aus ") + "<strong>" + esc(a.quelle) +
-      "</strong> " + (a.vorschau ? "gingen" : "gingen") + " <strong>" + a.ab.anzahl +
-      "</strong> Mitglieder ab " + a.grenze + " Jahren nach <strong>" + esc(a.ab.name) +
-      "</strong> und <strong>" + a.unter.anzahl + "</strong> jüngere nach <strong>" +
-      esc(a.unter.name) + "</strong>." +
-    "</div>" +
-    ((a.bleibt || []).length
-      ? '<div class="hinweis warn"><strong>' + a.bleibt.length +
-        " bleiben stehen</strong> — sie sind bereits in einer der beiden Ziel-Abteilungen " +
-        "oder haben kein Geburtsdatum: " +
-        a.bleibt.map((b) => esc(b.vorname + " " + b.nachname) + " (Nr. " + esc(b.mitgliedsnummer) +
-          ")").join(", ") +
-        ". Diese Zuordnungen im Mitglieder-Reiter von Hand bereinigen.</div>"
-      : "");
-
-  if (!a.vorschau) {
-    ladeLsbSparten();
-    if (typeof ladeSpartenAuswahl === "function") ladeSpartenAuswahl();
-    if (typeof ladeAntragSparten === "function") ladeAntragSparten();
-    letzterLsbLauf = null;
-    $("btn-lsb-csv").hidden = true;
-    $("lsb-ergebnis").innerHTML =
-      '<p class="fussnote">Die Zuordnungen haben sich geändert — Liste neu erzeugen.</p>';
-  }
 }

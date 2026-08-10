@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vereinsverwaltung &mdash; 1. SC 1911 Heiligenstadt</title>
-<link rel="stylesheet" href="style.css?v=3.7">
+<link rel="stylesheet" href="style.css?v=3.8">
 </head>
 <body>
 
@@ -135,40 +135,6 @@
         </div>
 
         <div id="lsb-ergebnis"></div>
-
-        <details class="lsb-teilen">
-          <summary>Sammelposten auf zwei Abteilungen aufteilen</summary>
-          <p class="fussnote">Für Abteilungen, die keiner Sportart entsprechen — im Bestand ist
-          das <strong>Breitensport</strong>. Solange die Mitglieder dort stehen, sind sie keinem
-          Fachverband zuzuordnen. Die Zuordnungen werden <strong>umgehängt</strong>, nicht neu
-          angelegt: Eintrittsdatum und Beitragsgeschichte bleiben. Wer bereits in einer der
-          beiden Ziel-Abteilungen ist, bleibt unangetastet und wird namentlich genannt.</p>
-
-          <div class="filterleiste">
-            <div class="feld">
-              <label for="lsb-quelle">Sammelposten</label>
-              <select id="lsb-quelle"></select>
-            </div>
-            <div class="feld">
-              <label for="lsb-grenze">Altersgrenze</label>
-              <input type="number" id="lsb-grenze" min="1" max="120" step="1" value="50">
-            </div>
-            <div class="feld">
-              <label for="lsb-ziel-ab">ab dieser Grenze nach</label>
-              <select id="lsb-ziel-ab"></select>
-            </div>
-            <div class="feld">
-              <label for="lsb-ziel-unter">darunter nach</label>
-              <select id="lsb-ziel-unter"></select>
-            </div>
-          </div>
-          <div class="knopfreihe">
-            <button class="btn grau" id="btn-lsb-vorschau">Vorschau</button>
-            <button class="btn warn" id="btn-lsb-aufteilen">Jetzt aufteilen</button>
-          </div>
-
-          <div id="lsb-teilen-ergebnis"></div>
-        </details>
       </div>
     </section>
 
@@ -866,7 +832,7 @@
 
 <footer>1. SC 1911 Heiligenstadt &mdash; interne Vereinsverwaltung</footer>
 
-<script src="config.js?v=3.7"></script>
+<script src="config.js?v=3.8"></script>
 <script src="db.js?v=1.5"></script>
 <script src="import.js?v=1.2"></script>
 <script src="rollen.js?v=1.4"></script>
@@ -882,7 +848,7 @@
 <!-- Die Datei für den Landessportbund. Steht vor app.js wie die übrigen
      Reiter-Skripte; app.js macht die Karte sichtbar, sobald die Rechte da
      sind. -->
-<script src="lsb.js?v=1.0"></script>
+<script src="lsb.js?v=1.1"></script>
 <script src="app.js?v=2.9"></script>
 </body>
 </html>

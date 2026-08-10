@@ -87,8 +87,7 @@ const CHANGELOG = [
       "Neuer Kasten unter der Mitgliederliste: „Bestandsmeldung an den Landessportbund“. Er erzeugt die CSV-Datei im Format des LSB Thüringen — eine Zeile je Person mit Name, Vorname, Geschlecht, Geburtsdatum und Sportartennummer. Genau die liest das Portal unser-sportverein.net in Schritt 3 der Bestandserhebung ein und rechnet daraus selbst die Jahrgangs- und Fachverbandsmeldung.",
       "Die Zahlen je Altersgruppe in den Auswertungen bleiben, wo sie sind — sie sind zum Gegenrechnen da, hochladen lassen sie sich nicht.",
       "Jede Abteilung bekommt dafür im Reiter „Anträge“ ein Feld für ihre Sportartennummer aus der Sportartenliste des LSB. Ohne Nummer laufen ihre Mitglieder beim Verband unter „ohne Landesfachverband“: 2026 kostet das 5 € je Kind und 10 € je Erwachsenem, ab 2027 ist es gar nicht mehr möglich.",
-      "Was der Meldung fehlt, wird namentlich genannt statt gezählt: Mitglieder ohne Abteilung, ohne Geburtsdatum, und jede Abteilung ohne Nummer samt der Zahl der Betroffenen.",
-      "Dazu ein Werkzeug, das einen Sammelposten wie „Breitensport“ nach Alter auf zwei echte Abteilungen verteilt — mit Vorschau vor dem Schreiben. Die Zuordnungen werden umgehängt, nicht neu angelegt: Eintrittsdatum und Beitragsgeschichte bleiben unberührt, und wer schon in der Zielabteilung steht, wird nicht angefasst, sondern gemeldet."
+      "Was der Meldung fehlt, wird namentlich genannt statt gezählt: Mitglieder ohne Abteilung, ohne Geburtsdatum, und jede Abteilung ohne Nummer samt der Zahl der Betroffenen."
     ]
   },
   {
