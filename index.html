@@ -6,7 +6,7 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=1">
 <link rel="icon" href="/favicon.png?v=1" type="image/png">
 <title>Vereinsverwaltung &mdash; 1. SC 1911 Heiligenstadt</title>
-<link rel="stylesheet" href="style.css?v=3.8">
+<link rel="stylesheet" href="style.css?v=3.9">
 </head>
 <body>
 
@@ -120,6 +120,15 @@
         Portal rechnet daraus selbst die Jahrgangs- und Fachverbandsmeldung. Meldezeitraum ist
         der 1. Januar bis Mitte Februar. <strong>Die Zahlen je Altersgruppe zum Gegenrechnen
         stehen in den Auswertungen.</strong></p>
+
+        <!-- Der Rehasport wird außerhalb dieser App geführt; einmal im Jahr
+             kommt von dort die ausgefüllte Bestandserhebung des Behinderten-
+             und Rehabilitationssportverbandes. Sie enthält nur Zählwerte je
+             Jahrgang, deshalb entstehen daraus Platzhalter-Zeilen — das
+             Portal nimmt ausschließlich Einzelpersonen entgegen. Dieselbe
+             Karte steht auf vorstand.html, der geladene Stand gilt für
+             beide. -->
+        <div id="lsb-reha"></div>
 
         <div class="filterleiste">
           <div class="feld">
@@ -849,7 +858,7 @@
 
 <footer>1. SC 1911 Heiligenstadt &mdash; interne Vereinsverwaltung</footer>
 
-<script src="config.js?v=4.1"></script>
+<script src="config.js?v=4.2"></script>
 <script src="db.js?v=1.6"></script>
 <script src="import.js?v=1.2"></script>
 <script src="rollen.js?v=1.4"></script>
@@ -864,8 +873,12 @@
 <script src="antraege.js?v=2.0"></script>
 <!-- Die Datei für den Landessportbund. Steht vor app.js wie die übrigen
      Reiter-Skripte; app.js macht die Karte sichtbar, sobald die Rechte da
-     sind. -->
-<script src="lsb.js?v=1.1"></script>
+     sind. reha.js muss VOR lsb.js stehen: lsbKarteZeigen() baut die
+     Rehasport-Karte über rehaKarteHtml(). Dieselbe Datei lädt auch
+     vorstand.html — eine Kopie wäre nach der ersten Änderung eine zweite,
+     andere Umrechnung. -->
+<script src="reha.js?v=1.0"></script>
+<script src="lsb.js?v=1.2"></script>
 <script src="app.js?v=2.9"></script>
 </body>
 </html>

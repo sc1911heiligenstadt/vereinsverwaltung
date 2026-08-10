@@ -21,6 +21,7 @@ function eur(cent) {
 }
 
 let letzteMeldung = null;
+let rehaKarte = null;
 
 function kachel(zahl, text, hinweis) {
   return '<div class="kennzahl"><div class="kennzahl-zahl">' + esc(zahl) + "</div>" +
@@ -64,7 +65,26 @@ async function start() {
   $("btn-laden").addEventListener("click", laden);
   $("btn-meldung").addEventListener("click", ladeMeldung);
   $("btn-meldung-csv").addEventListener("click", meldungHerunterladen);
+
+  // Der Rehasport wird nicht in dieser App gefuehrt; seine Zahlen kommen
+  // einmal im Jahr als Verbandsdatei dazu. Die Karte steht deshalb hier,
+  // wo die Meldung entsteht -- eingelesen wird ausschliesslich im
+  // Browser, die Antwort des Servers bleibt unberuehrt.
+  $("reha-karte").innerHTML = rehaKarteHtml("reha-aus");
+  rehaKarte = rehaKarteVerdrahten("reha-aus", () => { if (letzteMeldung) zeichneMeldung(); });
+
   laden();
+}
+
+// Die Zeilen der Meldung: Vereinsbestand aus dem Server, Rehasport aus
+// der geladenen Verbandsdatei. Beide im selben Raster, damit sich die
+// Tabelle und die CSV nicht unterscheiden koennen.
+function meldeZeilen() {
+  if (!letzteMeldung) return [];
+  const stand = rehaLaden();
+  const reha = stand
+    ? rehaMeldeZeilen(stand.daten, letzteMeldung.stichtag, stand.optionen) : [];
+  return letzteMeldung.zeilen.concat(reha);
 }
 
 async function laden() {
@@ -159,6 +179,10 @@ async function laden() {
 
 async function ladeMeldung() {
   $("k-meldung").innerHTML = '<p class="fussnote">Wird gezählt …</p>';
+  // Der Stichtag kann sich seit dem Einlesen geändert haben. Zeichnet
+  // die Karte hier nicht neu, stünde eine Meldung für 2028 neben
+  // Rehazahlen von 2025, ohne dass es jemand sagt.
+  if (rehaKarte) rehaKarte.zeichne();
   let m;
   try {
     m = await vvRequest("vv-bestandsmeldung", { stichtag: $("f-stichtag").value });
@@ -168,19 +192,33 @@ async function ladeMeldung() {
   }
   letzteMeldung = m;
   $("btn-meldung-csv").hidden = false;
+  zeichneMeldung();
+}
+
+function zeichneMeldung() {
+  const m = letzteMeldung;
+  const zeilen = meldeZeilen();
+  const rehaZeilen = zeilen.filter((z) => z.reha);
+  const rehaSumme = rehaZeilen.reduce((s, z) => s + z.gesamt, 0);
 
   $("k-meldung").innerHTML =
     '<div class="hinweis info">' + esc(m.hinweis) + "</div>" +
+    (rehaSumme
+      ? '<div class="hinweis info">Davon <strong>' + rehaSumme + "</strong> aus der " +
+        "Bestandserhebung des Behinderten- und Rehabilitationssportverbandes. Diese Zeilen " +
+        "stehen unten und sind hervorgehoben; sie stammen nicht aus der Vereinsverwaltung.</div>"
+      : "") +
     '<div class="tabelle-scroll"><table class="schmal"><thead><tr><th>Abteilung</th><th>Alter</th>' +
     '<th class="betrag">weiblich</th><th class="betrag">männlich</th>' +
     '<th class="betrag">divers</th><th class="betrag">ohne Angabe</th>' +
     '<th class="betrag">gesamt</th></tr></thead><tbody>' +
-    m.zeilen.map((z) => "<tr><td>" + esc(z.sparte) + "</td><td>" + esc(z.altersgruppe) + "</td>" +
+    zeilen.map((z) => '<tr' + (z.reha ? ' class="reha-zeile"' : "") + "><td>" +
+      esc(z.sparte) + "</td><td>" + esc(z.altersgruppe) + "</td>" +
       '<td class="betrag">' + z.w + '</td><td class="betrag">' + z.m + "</td>" +
       '<td class="betrag">' + z.d + '</td><td class="betrag">' + z.ohne + "</td>" +
       '<td class="betrag"><strong>' + z.gesamt + "</strong></td></tr>").join("") +
     '<tr class="summenzeile"><td>Gesamt</td><td></td><td></td><td></td><td></td><td></td>' +
-    '<td class="betrag">' + m.gesamt + "</td></tr>" +
+    '<td class="betrag">' + zeilen.reduce((s, z) => s + z.gesamt, 0) + "</td></tr>" +
     "</tbody></table></div>";
 }
 
@@ -189,9 +227,10 @@ function meldungHerunterladen() {
   // Semikolon und BOM, damit Excel die Datei ohne Nachfragen richtig
   // oeffnet -- dieselbe Regel wie bei den uebrigen Ausgaben der Flotte.
   const zeilen = [["Abteilung", "Altersgruppe", "weiblich", "maennlich", "divers",
-                   "ohne Angabe", "gesamt"]];
-  for (const z of letzteMeldung.zeilen) {
-    zeilen.push([z.sparte, z.altersgruppe, z.w, z.m, z.d, z.ohne, z.gesamt]);
+                   "ohne Angabe", "gesamt", "Quelle"]];
+  for (const z of meldeZeilen()) {
+    zeilen.push([z.sparte, z.altersgruppe, z.w, z.m, z.d, z.ohne, z.gesamt,
+                 z.reha ? "Rehasport-Erhebung" : "Vereinsverwaltung"]);
   }
   const csv = "﻿" + zeilen.map((z) => z.map((w) => {
     const t = String(w === null || w === undefined ? "" : w);

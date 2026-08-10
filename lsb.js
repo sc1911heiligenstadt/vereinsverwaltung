@@ -11,6 +11,7 @@
 // anzeigen kann.
 
 let letzterLsbLauf = null;
+let lsbRehaKarte = null;
 
 // Genau die Kopfzeile der Vorlage des LSB (Mitgliederliste.csv, 164
 // Byte). Die beiden leeren Felder am Ende gehoeren dazu -- die Vorlage
@@ -31,12 +32,32 @@ function lsbKarteZeigen() {
   if (!$("lsb-stichtag").value) $("lsb-stichtag").value = lsbStichtagVorgabe();
   $("btn-lsb-liste").addEventListener("click", ladeLsbListe);
   $("btn-lsb-csv").addEventListener("click", lsbCsvHerunterladen);
+
+  // Der Rehasport liegt ausserhalb dieser App. Dieselbe Karte steht auf
+  // vorstand.html; der geladene Stand gilt fuer beide, damit die
+  // Verbandsdatei nur EINMAL eingelesen werden muss.
+  $("lsb-reha").innerHTML = rehaKarteHtml("reha-lsb");
+  lsbRehaKarte = rehaKarteVerdrahten("reha-lsb", () => { if (letzterLsbLauf) zeigeLsbErgebnis(); });
+}
+
+// Die Platzhalter-Zeilen des Rehasports zum Stichtag des Laufs.
+//
+// ⚠️ Sie kommen ans ENDE der Datei, hinter den echten Mitgliedern. Wer
+// die CSV oeffnet, soll die erfundenen Namen als geschlossenen Block
+// sehen und nicht zwischen den echten verstreut.
+function lsbRehaZeilen() {
+  const stand = rehaLaden();
+  if (!stand) return [];
+  return rehaPortalZeilen(stand.daten, stand.optionen);
 }
 
 async function ladeLsbListe() {
   const ziel = $("lsb-ergebnis");
   ziel.innerHTML = '<p class="fussnote">Wird zusammengestellt …</p>';
   $("btn-lsb-csv").hidden = true;
+  // Der Stichtag kann sich seit dem Einlesen geändert haben — die
+  // Jahreswarnung wird deshalb hier noch einmal geprüft.
+  if (lsbRehaKarte) lsbRehaKarte.zeichne();
 
   let m;
   try {
@@ -47,6 +68,14 @@ async function ladeLsbListe() {
   }
   letzterLsbLauf = m;
   $("btn-lsb-csv").hidden = false;
+  zeigeLsbErgebnis();
+}
+
+function zeigeLsbErgebnis() {
+  const m = letzterLsbLauf;
+  const ziel = $("lsb-ergebnis");
+  const reha = lsbRehaZeilen();
+  const rehaStand = rehaLaden();
 
   // Wer in der Datei fehlt oder ohne Fachverband ankommt, steht NAMENTLICH
   // da. "Drei ohne Geburtsdatum" ist nichts, womit die Geschäftsstelle
@@ -78,13 +107,29 @@ async function ladeLsbListe() {
       "dafür eine eigene Spalte.</div>";
   }
 
+  if (reha.length) {
+    const ohneNr = reha.filter((z) => !z.nummern.length).length;
+    warnungen += '<div class="hinweis info"><strong>' + reha.length + " Zeilen aus der " +
+      "Rehasport-Erhebung</strong> kommen ans Ende der Datei. Sie tragen <strong>erfundene " +
+      "Namen</strong> („Rehasport, Nr. 0001“) und als Geburtstag den 1. Juli ihres Jahrgangs — " +
+      "die Verbandsdatei kennt nur Jahrgänge, und das Portal rechnet daraus ohnehin nur die " +
+      "Jahrgangsmeldung." +
+      (ohneNr ? " <strong>Ohne Sportartennummer</strong> laufen sie beim Verband unter „ohne " +
+                "Landesfachverband“ — die Nummer steht im Kasten oben." : "") + "</div>";
+  }
+
   const mehrfach = (m.zeilen || []).filter((z) => z.nummern.length > LSB_SPALTEN_FUER_NUMMERN);
 
   ziel.innerHTML =
     '<div class="hinweis erfolg"><strong>' + m.mitglieder + " Mitglieder</strong> zum " +
       datumDe(m.stichtag) + ", daraus <strong>" + m.meldungen +
       " Meldungen an Fachverbände</strong>. Die zweite Zahl ist höher, sobald jemand zwei " +
-      "Sportarten betreibt — das ist so gewollt.</div>" +
+      "Sportarten betreibt — das ist so gewollt." +
+      (reha.length ? " Dazu <strong>" + reha.length + " Personen</strong> aus der " +
+        "Rehasport-Erhebung" +
+        (rehaStand && rehaStand.daten.erhebungsjahr ? " " + rehaStand.daten.erhebungsjahr : "") +
+        " — zusammen <strong>" + (m.zeilen.length + reha.length) +
+        " Zeilen</strong> in der Datei." : "") + "</div>" +
     warnungen +
     (mehrfach.length ? '<div class="hinweis warn">' + mehrfach.length +
       " Mitglieder sind in mehr als " + LSB_SPALTEN_FUER_NUMMERN +
@@ -103,9 +148,13 @@ async function ladeLsbListe() {
 
 // Reine Zeichenkette, ohne DOM — damit der Prüfstand genau den Code
 // misst, der die Datei erzeugt, statt ihn nachzubauen.
-function lsbCsvText(lauf) {
+//
+// Der zweite Parameter ist die Rehasport-Ergänzung und bleibt optional:
+// ohne sie erzeugt die Funktion Zeile für Zeile dieselbe Datei wie zuvor.
+function lsbCsvText(lauf, rehaZeilen) {
   const zeilen = [LSB_KOPF.slice()];
-  for (const z of (lauf.zeilen || [])) {
+  const alle = (lauf.zeilen || []).concat(rehaZeilen || []);
+  for (const z of alle) {
     const felder = [z.nachname, z.vorname, z.geschlecht, z.geburtsdatum];
     for (let i = 0; i < LSB_SPALTEN_FUER_NUMMERN; i++) felder.push(z.nummern[i] || "");
     zeilen.push(felder);
@@ -122,7 +171,7 @@ function lsbCsvText(lauf) {
 
 function lsbCsvHerunterladen() {
   if (!letzterLsbLauf) return;
-  const csv = lsbCsvText(letzterLsbLauf);
+  const csv = lsbCsvText(letzterLsbLauf, lsbRehaZeilen());
 
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));

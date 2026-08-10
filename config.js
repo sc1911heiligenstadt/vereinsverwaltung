@@ -39,6 +39,18 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Rehasport in der Bestandsmeldung",
+    datum: "2026-08-10",
+    punkte: [
+      "Der Rehasport wird außerhalb dieser App geführt, gehört aber in die Meldung an den Landessportbund. Neuer Knopf „Rehasportdaten einlesen“ — in den Auswertungen bei der Bestandsmeldung und in der Vereinsverwaltung unter „Mitglieder“. Eingelesen wird die ausgefüllte Bestandserhebung des Behinderten- und Rehabilitationssportverbandes, so wie sie einmal im Jahr von dort kommt.",
+      "Danach steht der Rehasport in beiden Ausgaben: in der Altersgruppen-Tabelle der Auswertungen als eigene, hervorgehobene Zeile mit Angabe der Quelle, und in der Datei für das Portal unser-sportverein.net.",
+      "Die Verbandsdatei enthält keine Personen, sondern Zahlen je Jahrgang. Für das Portal, das nur Einzelpersonen einliest, entstehen daraus Platzhalter-Zeilen mit erkennbar erfundenen Namen („Rehasport, Nr. 0001“) und dem 1. Juli des Jahrgangs als Geburtstag. Gemeldet wird davon nur, was der Verband auswertet: Jahrgang, Geschlecht und Sportart.",
+      "Nichtmitglieder des Rehasports und der Behindertensport lassen sich einzeln ab- und zuschalten. Dazu ein Feld für die Sportartennummer — ohne sie laufen diese Personen beim Verband unter „ohne Landesfachverband“.",
+      "Die Datei wird gegengerechnet: stimmt die Kontrollspalte „Gesamtmitglieder im Verein“ nicht mit den Sportblöcken überein oder weicht die Summenzeile ab, steht das als Warnung da. Und sind die geladenen Zahlen aus einem anderen Jahr als der Stichtag, sagt die Karte das, statt sie stillschweigend mitzumelden.",
+      "Die eingelesenen Zahlen bleiben im Browser und gehen nicht an den Server. Nach einem Wechsel des Geräts oder des Browsers ist die Datei erneut einzulesen."
+    ]
+  },
+  {
     version: "Anträge löschen, und ein Icon im Browser-Tab",
     datum: "2026-08-10",
     punkte: [
