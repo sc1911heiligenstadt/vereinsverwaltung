@@ -506,6 +506,8 @@ for (const [datei, eigenes] of [["antrag.html", "antrag.js"],
 // den ECHTEN Dateien gezogen, nicht nachgebaut. Laufen sie auseinander,
 // meldet das Formular eine IBAN als gut, die der Server ablehnt.
 const K = new Function(kern + "\nreturn {ibanPruefziffer, alterHeute};")();
+// ⚠️ Nur neutrale Standard-Testkonten. Dieses Repo ist oeffentlich; eine
+// echte Vereins- oder Mitglieder-IBAN gehoert hier nicht hinein.
 const IBANS = ["DE02100500000054540402", "DE02120300000000202051", "DE89370400440532013000",
                "AT611904300234573201", "CH9300762011623852957",
                "DE02100500000054540403", "DE0212030000000020205", "XX02100500000054540402",

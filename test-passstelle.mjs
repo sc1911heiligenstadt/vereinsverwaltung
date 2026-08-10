@@ -90,6 +90,9 @@ db.exec("CREATE TABLE IF NOT EXISTS einstellung (schluessel TEXT PRIMARY KEY, we
 db.exec("INSERT OR REPLACE INTO einstellung (schluessel, wert) VALUES ('nachwuchs_offen','1')");
 db.exec("INSERT OR REPLACE INTO einstellung (schluessel, wert) VALUES ('antrag_offen','1')");
 db.exec("INSERT OR REPLACE INTO einstellung (schluessel, wert) VALUES ('verein_name','1. SC 1911 Heilbad Heiligenstadt')");
+// ⚠️ Neutrales Standard-Testkonto, NICHT die Vereins-IBAN. Dieses Repo ist
+// oeffentlich -- deshalb steht die echte Vereins-IBAN in der Datenbank
+// (Tabelle einstellung) und nirgends im Code.
 db.exec("INSERT OR REPLACE INTO einstellung (schluessel, wert) VALUES ('verein_iban','DE02100500000054540402')");
 db.exec("INSERT OR REPLACE INTO einstellung (schluessel, wert) VALUES ('glaeubiger_id','DE98ZZZ09999999999')");
 db.exec("INSERT INTO sparte (id, name, aktiv, erstellt_am, erstellt_von) " +
