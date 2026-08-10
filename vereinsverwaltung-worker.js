@@ -5941,23 +5941,6 @@ async function handleBestandsmeldung(body, env, me, corsHeaders) {
   }, 200, corsHeaders);
 }
 
-// ---------------------------------------------------------------------
-// Belastungstest (Stufe 0) -- misst, ob der kostenlose Cloudflare-Tarif
-// den Beitragslauf traegt. Kann nach der Tarifentscheidung raus.
-//
-// Free:  50 D1-Abfragen und 10 ms CPU je Aufruf
-// Paid:  1000 D1-Abfragen und 30 s CPU je Aufruf
-//
-// Ohne Messung waere die Entscheidung geraten. Deshalb arbeiten beide
-// Aktionen mit ECHTEN Abfragen gegen das echte Schema, nicht mit einer
-// Schaetzung.
-// ---------------------------------------------------------------------
-
-const VORNAMEN = ["Lukas","Marie","Jonas","Emma","Felix","Lena","Paul","Mia","Tim","Sophie",
-                  "Jan","Hannah","Nico","Lea","Ben","Emily","Max","Anna","Leon","Clara"];
-const NACHNAMEN = ["Mueller","Schmidt","Schneider","Fischer","Weber","Meyer","Wagner","Becker",
-                   "Hoffmann","Koch","Bauer","Richter","Klein","Wolf","Schroeder","Neumann"];
-
 function uuid() {
   return crypto.randomUUID();
 }
@@ -5986,219 +5969,6 @@ async function handleSpartenInit(env, me, corsHeaders) {
 
   await env.VV_DB.batch(anweisungen);
   return json({ ok: true, angelegt: namen.length }, 200, corsHeaders);
-}
-
-async function handleSeed(body, env, me, corsHeaders) {
-  if (!me.isAdmin) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
-
-  const anzahl = Math.min(Math.max(parseInt(body.anzahl, 10) || 5, 1), 100);
-  const jetzt = new Date().toISOString();
-
-  const s = await env.VV_DB.prepare("SELECT id FROM sparte").all();
-  const spartenIds = (s.results || []).map((z) => z.id);
-  if (!spartenIds.length) {
-    return json({ error: "Keine Sparten vorhanden - zuerst vv-sparten-init aufrufen" }, 400, corsHeaders);
-  }
-
-  const anweisungen = [];
-  for (let i = 0; i < anzahl; i++) {
-    const haushaltId = uuid();
-    const personId = uuid();
-    const mgsId = uuid();
-    const lfd = Math.floor(Math.random() * 1e9);
-    const vorname = VORNAMEN[i % VORNAMEN.length];
-    const nachname = NACHNAMEN[(i * 7) % NACHNAMEN.length];
-    const jahr = 1950 + (i % 70);
-
-    // Reihenfolge ist zwingend: person.haushalt_id und haushalt.zahler_person_id
-    // zeigen aufeinander. Der Haushalt entsteht deshalb OHNE Zahler, die Person
-    // danach, und der Zahler wird per UPDATE nachgetragen. Andersherum schlaegt
-    // die Fremdschluesselpruefung zu (D1 hat sie standardmaessig an) -- genau
-    // daran ist der erste Seed-Versuch gescheitert.
-    anweisungen.push(env.VV_DB.prepare(
-      "INSERT INTO haushalt (id, zahlungsweise, zahlungsart, erstellt_am, erstellt_von) VALUES (?,?,?,?,?)"
-    ).bind(haushaltId, "jaehrlich", "lastschrift", jetzt, me.username));
-
-    anweisungen.push(env.VV_DB.prepare(
-      "INSERT INTO person (id, haushalt_id, vorname, nachname, geburtsdatum, strasse, plz, ort, email, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
-    ).bind(personId, haushaltId, vorname, nachname + "-" + lfd,
-           jahr + "-06-15", "Teststrasse " + (i % 200), "37308", "Heilbad Heiligenstadt",
-           "test" + lfd + "@example.invalid", jetzt, me.username));
-
-    anweisungen.push(env.VV_DB.prepare(
-      "UPDATE haushalt SET zahler_person_id = ? WHERE id = ?"
-    ).bind(personId, haushaltId));
-
-    anweisungen.push(env.VV_DB.prepare(
-      "INSERT INTO mitgliedschaft (id, person_id, mitgliedsnummer, art, eintritt, status, ermaessigt, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?,0,?,?)"
-    ).bind(mgsId, personId, "T" + lfd, "ordentlich",
-           "2020-01-01", "aktiv", jetzt, me.username));
-
-    // Ein bis drei Sparten je Mitglied -- der Fall, den der Vereinsmeister
-    // nicht kann und der den Beitrag treibt.
-    const anzSparten = (i % 3) + 1;
-    for (let k = 0; k < anzSparten; k++) {
-      anweisungen.push(env.VV_DB.prepare(
-        "INSERT INTO mitgliedschaft_sparte (id, mitgliedschaft_id, sparte_id, eintritt, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?)"
-      ).bind(uuid(), mgsId, spartenIds[(i + k) % spartenIds.length],
-             "2020-01-01", jetzt, me.username));
-    }
-
-    anweisungen.push(env.VV_DB.prepare(
-      "INSERT INTO sepa_mandat (id, haushalt_id, referenz, kontoinhaber, iban, erteilt_am, quelle, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?,?,?,?)"
-    ).bind(uuid(), haushaltId, "TEST-" + lfd,
-           vorname + " " + nachname, "DE02120300000000202051",
-           "2020-01-01", "import", jetzt, me.username));
-  }
-
-  const start = Date.now();
-  await env.VV_DB.batch(anweisungen);
-  return json({
-    ok: true,
-    angelegt: anzahl,
-    anweisungen: anweisungen.length,
-    dauerMs: Date.now() - start
-  }, 200, corsHeaders);
-}
-
-// Simuliert einen Beitragslauf auf ECHTEN Abfragen und meldet, wie weit
-// er in einem einzigen Aufruf kommt. Der Client ruft mit steigendem
-// limit auf, bis der Worker abbricht -- die letzte erfolgreiche Zahl ist
-// die Antwort auf die Tarifentscheidung.
-async function handleMesslauf(body, env, me, corsHeaders) {
-  if (!me.isAdmin) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
-
-  const limit = Math.min(Math.max(parseInt(body.limit, 10) || 10, 1), 2500);
-  const start = Date.now();
-  let abfragen = 0;
-
-  const mgs = await env.VV_DB.prepare(
-    "SELECT id FROM mitgliedschaft WHERE status = 'aktiv' ORDER BY id LIMIT ?"
-  ).bind(limit).all();
-  abfragen++;
-  const liste = mgs.results || [];
-
-  const forderungen = [];
-  for (const m of liste) {
-    // Genau die Abfragen, die der echte Lauf je Mitglied braucht.
-    const sparten = await env.VV_DB.prepare(
-      "SELECT s.zuschlag_cent, ms.zuschlag_cent AS abweichend FROM mitgliedschaft_sparte ms JOIN sparte s ON s.id = ms.sparte_id WHERE ms.mitgliedschaft_id = ? AND ms.austritt IS NULL"
-    ).bind(m.id).all();
-    abfragen++;
-
-    const haushalt = await env.VV_DB.prepare(
-      "SELECT h.id, h.zahlungsweise FROM haushalt h JOIN person p ON p.haushalt_id = h.id JOIN mitgliedschaft mg ON mg.person_id = p.id WHERE mg.id = ?"
-    ).bind(m.id).first();
-    abfragen++;
-
-    let betrag = 9600; // Grundbeitrag 8 EUR/Monat als Platzhalter
-    for (const s of sparten.results || []) {
-      betrag += (s.abweichend !== null && s.abweichend !== undefined)
-        ? s.abweichend
-        : s.zuschlag_cent;
-    }
-    forderungen.push({ mgsId: m.id, haushaltId: haushalt ? haushalt.id : null, betrag });
-  }
-
-  return json({
-    ok: true,
-    verarbeitet: liste.length,
-    abfragen,
-    abfragenJeMitglied: liste.length ? +(abfragen / liste.length).toFixed(2) : 0,
-    summeCent: forderungen.reduce((s, f) => s + f.betrag, 0),
-    dauerMs: Date.now() - start,
-    hinweis: "Free-Tarif: 50 Abfragen und 10 ms CPU je Aufruf. Paid: 1000 Abfragen und 30 s."
-  }, 200, corsHeaders);
-}
-
-// Dasselbe fachliche Ergebnis wie handleMesslauf, aber mengenbasiert:
-// EINE Abfrage fuer beliebig viele Mitglieder statt zwei je Mitglied.
-// Der Vergleich der beiden Aktionen beantwortet die Tariffrage ehrlich --
-// sonst bezahlt man einen hoeheren Tarif fuer einen Konstruktionsfehler.
-async function handleMesslaufSchnell(body, env, me, corsHeaders) {
-  if (!me.isAdmin) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
-
-  const limit = Math.min(Math.max(parseInt(body.limit, 10) || 100, 1), 5000);
-  const start = Date.now();
-
-  // Grundbeitrag und Spartenzuschlaege in einem Zug. COALESCE bildet die
-  // Regel ab: ein am Einzelfall hinterlegter Zuschlag schlaegt den der
-  // Sparte. LEFT JOIN, damit ein Mitglied ohne Sparte nicht herausfaellt.
-  const zeilen = await env.VV_DB.prepare(
-    "SELECT m.id AS mgs_id, h.id AS haushalt_id, " +
-    "       COALESCE(SUM(COALESCE(ms.zuschlag_cent, s.zuschlag_cent)), 0) AS zuschlaege " +
-    "FROM mitgliedschaft m " +
-    "JOIN person p ON p.id = m.person_id " +
-    "JOIN haushalt h ON h.id = p.haushalt_id " +
-    "LEFT JOIN mitgliedschaft_sparte ms ON ms.mitgliedschaft_id = m.id AND ms.austritt IS NULL " +
-    "LEFT JOIN sparte s ON s.id = ms.sparte_id " +
-    "WHERE m.status = 'aktiv' " +
-    "GROUP BY m.id, h.id ORDER BY m.id LIMIT ?"
-  ).bind(limit).all();
-
-  const liste = zeilen.results || [];
-  const GRUNDBEITRAG_CENT = 9600;
-  let summe = 0;
-  for (const z of liste) summe += GRUNDBEITRAG_CENT + (z.zuschlaege || 0);
-
-  return json({
-    ok: true,
-    verarbeitet: liste.length,
-    abfragen: 1,
-    summeCent: summe,
-    dauerMs: Date.now() - start
-  }, 200, corsHeaders);
-}
-
-// Raeumt AUSSCHLIESSLICH Testdaten weg. Erkennungsmerkmal ist die
-// E-Mail-Domain example.invalid -- die ist per RFC 2606 fuer genau
-// diesen Zweck reserviert und kann in echten Mitgliederdaten nicht
-// vorkommen. Kein Loeschen ueber Datum, Zeitraum oder "alles".
-async function handleTestdatenLoeschen(env, me, corsHeaders) {
-  if (!me.isAdmin) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
-
-  const treffer = await env.VV_DB.prepare(
-    "SELECT id, haushalt_id FROM person WHERE email LIKE '%@example.invalid'"
-  ).all();
-  const personen = treffer.results || [];
-  if (!personen.length) {
-    return json({ ok: true, geloescht: 0, hinweis: "Keine Testdaten gefunden" }, 200, corsHeaders);
-  }
-
-  const haushaltIds = [...new Set(personen.map((p) => p.haushalt_id).filter(Boolean))];
-
-  // Die Loeschungen laufen ohne gebundene Parameter ueber Unterabfragen --
-  // D1 begrenzt die Parameter je Abfrage, mit 2500 IDs in einem IN(...)
-  // liefe man dagegen. Die Reihenfolge ist zwingend, sonst greift die
-  // Fremdschluesselpruefung: erst den Zirkel haushalt <-> person aufloesen,
-  // dann von den Blaettern nach innen.
-  const T = "SELECT id FROM person WHERE email LIKE '%@example.invalid'";
-  const M = "SELECT id FROM mitgliedschaft WHERE person_id IN (" + T + ")";
-  await env.VV_DB.batch([
-    env.VV_DB.prepare("UPDATE haushalt SET zahler_person_id = NULL WHERE zahler_person_id IN (" + T + ")"),
-    env.VV_DB.prepare("DELETE FROM mitgliedschaft_sparte WHERE mitgliedschaft_id IN (" + M + ")"),
-    env.VV_DB.prepare("DELETE FROM forderung WHERE mitgliedschaft_id IN (" + M + ")"),
-    env.VV_DB.prepare("DELETE FROM mitgliedschaft WHERE person_id IN (" + T + ")"),
-    env.VV_DB.prepare("DELETE FROM sepa_mandat WHERE haushalt_id IN (SELECT haushalt_id FROM person WHERE email LIKE '%@example.invalid')"),
-    env.VV_DB.prepare("DELETE FROM person WHERE email LIKE '%@example.invalid'")
-  ]);
-
-  // Haushalte zuletzt und in Bloecken: sie sind ueber die geloeschten
-  // Personen nicht mehr auffindbar, deshalb die vorher gemerkten IDs.
-  // Bloecke zu 50, damit die Parametergrenze sicher eingehalten wird.
-  for (let i = 0; i < haushaltIds.length; i += 50) {
-    const block = haushaltIds.slice(i, i + 50);
-    await env.VV_DB.prepare(
-      "DELETE FROM haushalt WHERE id IN (" + block.map(() => "?").join(",") + ")"
-    ).bind(...block).run();
-  }
-
-  return json({
-    ok: true,
-    geloescht: personen.length,
-    haushalte: haushaltIds.length,
-    hinweis: "Sparten bleiben stehen - die sind echte Stammdaten"
-  }, 200, corsHeaders);
 }
 
 // Zaehlt, was tatsaechlich in der Datenbank steht. Sichtbar fuer die
@@ -6632,7 +6402,6 @@ export default {
         case "vv-austritt":        return handleAustritt(body, env, me, corsHeaders);
         case "vv-austritt-vorschau": return handleAustrittVorschau(body, env, me, corsHeaders);
         case "vv-status":          return handleStatus(env, me, corsHeaders);
-        case "vv-testdaten-loeschen": return handleTestdatenLoeschen(env, me, corsHeaders);
         case "vv-rollen":          return handleRollenListe(env, me, request.headers.get("Authorization"), corsHeaders);
         case "vv-rolle-setzen":    return handleRolleSetzen(body, env, me, corsHeaders);
         case "vv-rolle-loeschen":  return handleRolleLoeschen(body, env, me, corsHeaders);
@@ -6688,9 +6457,6 @@ export default {
         case "vv-sicherung":       return handleSicherung(env, me, corsHeaders);
         case "vv-sicherung-jetzt": return handleSicherungJetzt(env, me, corsHeaders);
         case "vv-sparten-init":    return handleSpartenInit(env, me, corsHeaders);
-        case "vv-seed":            return handleSeed(body, env, me, corsHeaders);
-        case "vv-messlauf":        return handleMesslauf(body, env, me, corsHeaders);
-        case "vv-messlauf-schnell": return handleMesslaufSchnell(body, env, me, corsHeaders);
         default:
           return json({ error: "Unbekannte Aktion" }, 400, corsHeaders);
       }
