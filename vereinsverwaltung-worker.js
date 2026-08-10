@@ -6036,6 +6036,33 @@ const SICHERUNG_SECRETS = ["NEXTCLOUD_BACKUP_URL", "NEXTCLOUD_USERNAME", "NEXTCL
 const SICHERUNG_MAX_ZEILEN = 60000;
 const SICHERUNG_BLOCK = 5000;
 
+// Die Zeilengrenze allein traegt nicht: eine Antragszeile mit drei
+// Unterschriften wiegt gemessen 452.595 Byte, 190 davon toeten das Isolate
+// (128 MB) -- und zwar am try/catch vorbei, also ohne Datei und ohne
+// Fehlerzeile. 60.000 Zeilen sind als Grenze damit wirkungslos.
+//
+// Deshalb ein Byte-Budget ueber den GANZEN Lauf, nicht je Tabelle: die
+// Sicherung baut am Ende ein einziges JSON ueber alles. 25 MB Nutzlast
+// liegen bei gemessenem Faktor 2,08 (Nutzlast -> Spitzenspeicher) bei
+// ~52 MB und damit weit unter der Grenze; der echte Bestand braucht
+// derzeit wenige MB, also Faktor 10 Luft.
+const SICHERUNG_MAX_BYTES = 25 * 1024 * 1024;
+
+// Der Block wird VOR der Pruefung vollstaendig in den Speicher geladen --
+// eine Byte-Pruefung hinter dem Block kaeme also zu spaet. Der erste Block
+// je Tabelle ist deshalb klein (Tastblock), danach richtet sich die
+// Blockgroesse nach der gemessenen Zeilengroesse. Bei normalen Daten ist
+// das genau eine zusaetzliche Abfrage, bei aufgeblaehten Zeilen bleibt
+// jeder Block unter SICHERUNG_BLOCK_BYTES.
+//
+// Tastblock 10, weil D1 eine einzelne Zeile bis 2 MB zulaesst: der erste
+// Griff einer noch unbekannten Tabelle kostet damit hoechstens ~20 MB.
+// Die tatsaechliche Obergrenze des Laufs ist SICHERUNG_MAX_BYTES plus
+// einen angefangenen Block, also ~29 MB -- die Pruefung greift zwangs-
+// laeufig erst, wenn der Block gelesen ist.
+const SICHERUNG_TASTBLOCK = 10;
+const SICHERUNG_BLOCK_BYTES = 4 * 1024 * 1024;
+
 const WOCHENTAGE = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
 
 function fehlendeSicherungSecrets(env) {
@@ -6098,17 +6125,34 @@ async function davOrdner(collUrl, auth, tiefe) {
 // OFFSET ohne feste Sortierung in SQLite nicht garantiert ueberschneidungs-
 // frei ist. Ohne das koennte eine Sicherung Zeilen doppeln und andere
 // auslassen, ohne dass es jemand merkt.
-async function tabelleLesen(env, name) {
+async function tabelleLesen(env, name, budgetBytes) {
   const daten = [];
+  let bytes = 0;
+  let grenze = SICHERUNG_TASTBLOCK;
   for (;;) {
     const block = await env.VV_DB
       .prepare('SELECT * FROM "' + name + '" ORDER BY rowid LIMIT ? OFFSET ?')
-      .bind(SICHERUNG_BLOCK, daten.length)
+      .bind(grenze, daten.length)
       .all();
     const zeilen = block.results || [];
-    for (const z of zeilen) daten.push(z);
-    if (zeilen.length < SICHERUNG_BLOCK) return { daten, abgeschnitten: false };
-    if (daten.length >= SICHERUNG_MAX_ZEILEN) return { daten, abgeschnitten: true };
+    let blockBytes = 0;
+    for (const z of zeilen) {
+      daten.push(z);
+      for (const w of Object.values(z)) {
+        if (typeof w === "string") blockBytes += w.length;
+      }
+    }
+    bytes += blockBytes;
+
+    if (bytes >= budgetBytes) return { daten, abgeschnitten: true, bytes };
+    if (zeilen.length < grenze) return { daten, abgeschnitten: false, bytes };
+    if (daten.length >= SICHERUNG_MAX_ZEILEN) return { daten, abgeschnitten: true, bytes };
+
+    // Naechste Blockgroesse aus der gemessenen Zeilengroesse. Aufgeblaehte
+    // Zeilen druecken sie bis auf 1 herunter, normale Daten heben sie sofort
+    // auf SICHERUNG_BLOCK -- der Tastblock kostet dann eine Abfrage extra.
+    const jeZeile = Math.max(1, Math.ceil(blockBytes / zeilen.length));
+    grenze = Math.min(SICHERUNG_BLOCK, Math.max(1, Math.floor(SICHERUNG_BLOCK_BYTES / jeZeile)));
   }
 }
 
@@ -6178,12 +6222,19 @@ async function sicherungErstellen(env, ausloeser, wer) {
   const inhalt = {};
   const warnungen = [];
   let zeilenGesamt = 0;
+  // Das Byte-Budget laeuft ueber alle Tabellen, nicht je Tabelle -- sonst
+  // koennten zwanzig Tabellen einzeln unter der Grenze bleiben und die
+  // Datei zusammen trotzdem das Isolate sprengen.
+  let bytesGesamt = 0;
   for (const t of tabellen) {
-    const gelesen = await tabelleLesen(env, t.name);
+    const gelesen = await tabelleLesen(env, t.name, SICHERUNG_MAX_BYTES - bytesGesamt);
     inhalt[t.name] = gelesen.daten;
     zeilenGesamt += gelesen.daten.length;
+    bytesGesamt += gelesen.bytes;
     if (gelesen.abgeschnitten) {
-      warnungen.push("Tabelle " + t.name + " bei " + gelesen.daten.length + " Zeilen abgeschnitten");
+      warnungen.push("Tabelle " + t.name + " bei " + gelesen.daten.length + " Zeilen abgeschnitten (" +
+                     Math.round(gelesen.bytes / 1024) + " KB, Budget " +
+                     Math.round(SICHERUNG_MAX_BYTES / 1024 / 1024) + " MB fuer den ganzen Lauf)");
     }
   }
 
@@ -6198,6 +6249,7 @@ async function sicherungErstellen(env, ausloeser, wer) {
     warnungen,
     tabellenAnzahl: tabellen.length,
     zeilenGesamt,
+    bytesGesamt,
     // Reihenfolge ist die Wiederherstellungsreihenfolge: erst Tabellen,
     // dann Sichten, dann Indizes.
     schema: objekte.map((o) => ({ type: o.type, name: o.name, sql: o.sql })),
