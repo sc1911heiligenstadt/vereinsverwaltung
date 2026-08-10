@@ -14,18 +14,28 @@ gemeldet werden, in dem der Verein Mitglied ist.
 
 ## Die acht aktiven Abteilungen
 
-| Abteilung (Mitglieder) | Vorschlag | Nr. | ohne LFV | Zuständiger Verband | Status |
-|---|---|---:|---:|---|---|
-| Fussball (375) | Fußball | 81 | 1081 | Thüringer Fußball-Verband | eindeutig |
-| Wandern (42) | Wandern | 291 | 1291 | Thür. Gebirgs- und Wanderverein | eindeutig |
-| Radsport-Mountainbike (38) | Mountainbike | 155 | 1155 | Thüringer Radsport-Verband | **Alternative prüfen** |
-| Volleyball (27) | Volleyball | 287 | 1287 | Thüringer Volleyball-Verband | eindeutig |
-| Turnen (25) | Gymnastik | 95 | 1095 | Thüringer Turnverband | **Alternative prüfen** |
-| Darts (20) | Dart (Steel) | 256 | 1256 | Thüringer Dartverband | **Steel oder Elektronik?** |
-| Tischtennis (8) | Tischtennis | 275 | 1275 | Thür. Tischtennis-Verband | eindeutig |
-| Breitensport (85) | — | — | — | — | **muss aufgeteilt werden** |
+**Stand 10.08.2026: von Michel entschieden.** Diese sieben Nummern
+werden in der App bei den Abteilungen eingetragen (Reiter „Anträge“).
 
-### Alternativen, wo es nicht eindeutig ist
+| Abteilung (Mitglieder) | Sportart | Nr. | ohne LFV | Zuständiger Verband |
+|---|---|---:|---:|---|
+| Fussball (375) | Fußball | **81** | 1081 | Thüringer Fußball-Verband |
+| Wandern (42) | Wandern | **291** | 1291 | Thür. Gebirgs- und Wanderverein |
+| Radsport-Mountainbike (38) | Mountainbike | **155** | 1155 | Thüringer Radsport-Verband |
+| Volleyball (27) | Volleyball | **287** | 1287 | Thüringer Volleyball-Verband |
+| Turnen (25) | Gymnastik | **95** | 1095 | Thüringer Turnverband |
+| Darts (20) | Dart (Steel) | **256** | 1256 | Thüringer Dartverband |
+| Tischtennis (8) | Tischtennis | **275** | 1275 | Thür. Tischtennis-Verband |
+| Breitensport (85) | — | — | — | **wird aufgeteilt, siehe unten** |
+
+**Mitgliedschaft im Fachverband bestätigt** für Fußball-Verband,
+Turnverband und Gebirgs- und Wanderverein (Michel, 10.08.2026) — dort
+gilt die normale Nummer. Für Volleyball, Tischtennis, Dart und Radsport
+ist sie **nicht** bestätigt; steht der Verein dort nicht als Mitglied,
+gehört die +1000-Variante eingetragen, sonst weist der Verband die
+Meldung zurück.
+
+### Die Alternativen, gegen die entschieden wurde
 
 **Radsport-Mountainbike** — Radsport-Verband führt mehrere:
 Mountainbike 155 · Radsport 180 · Radwandern 183 · Radball 177 ·
