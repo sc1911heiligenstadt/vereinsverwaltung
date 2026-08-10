@@ -1510,7 +1510,35 @@ async function handleMigration(env, me, corsHeaders) {
   // und schema-kompakt.sql nachziehen.
   for (const sql of BUCHHALTUNG_SCHEMA) await env.VV_DB.prepare(sql).run();
 
-  return json({ ok: true, ergaenzt: fehlend.length, spalten: Array.from(da) }, 200, corsHeaders);
+  // ⚠️ Die Klammer gegen die doppelte Sammelbuchung. Zwei gleichzeitig
+  // laufende Buchungen derselben SEPA-Datei erzeugen sonst zwei Zahlungen
+  // ueber dieselbe Forderung -- und nach einer Ruecklastschrift auf eine
+  // der beiden steht die Forderung auf 'bezahlt', obwohl nie Geld
+  // eingegangen ist. Sie faellt damit aus den offenen Posten heraus.
+  // D1 kennt kein BEGIN; die Pruefung im Code ist nicht Teil der
+  // Schreibeinheit, also muss die Datenbank es entscheiden.
+  //
+  // ⚠️ "storniert_am IS NULL" ist zwingend, nicht Beiwerk. Ohne die
+  // Bedingung blockierte der Index den legitimen Weg, eine Zahlung zu
+  // stornieren und neu zu buchen -- vv-sammel-zurueck storniert, statt zu
+  // loeschen (GoBD), und die stornierte Zeile bleibt stehen.
+  //
+  // Eigenes try/catch: stehen in einer Datenbank schon Dubletten, wirft
+  // das CREATE. Ohne die Klammer risse es die ganze Migration mit -- und
+  // die wird beim Oeffnen der App angestossen, die App kaeme nicht hoch.
+  let zahlungIndex = "angelegt";
+  try {
+    await env.VV_DB.prepare(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_zahlung_sepa_eindeutig " +
+      "ON zahlung(sepa_datei_id, forderung_id) " +
+      "WHERE sepa_datei_id IS NOT NULL AND storniert_am IS NULL"
+    ).run();
+  } catch (e) {
+    zahlungIndex = "nicht angelegt (vorhandene Dubletten?): " + String(e && e.message || e);
+  }
+
+  return json({ ok: true, ergaenzt: fehlend.length, zahlungIndex,
+                spalten: Array.from(da) }, 200, corsHeaders);
 }
 
 const BUCHHALTUNG_SCHEMA = [
@@ -2392,36 +2420,119 @@ async function handleLaufFestschreiben(body, env, me, corsHeaders) {
 // Nur ein Entwurf darf verschwinden. Sobald etwas festgeschrieben oder
 // eine SEPA-Datei erzeugt ist, bleibt der Lauf stehen -- dann geht nur
 // noch Stornieren, nie Loeschen.
+// Einen Lauf samt allem, was an ihm haengt, wieder entfernen -- fuer
+// Probelaeufe und fuer den Fall, dass beim Anlegen etwas schiefgegangen
+// ist (am 10.08.2026 standen zwei Laeufe fuer 2027 nebeneinander).
+//
+// ⚠️ Ein Vermerk in `sepa_datei` sperrt das seit dem 10.08.2026 NICHT
+// mehr hart. Die Datei selbst wird nirgends gespeichert -- ein Vermerk
+// ist kein Beleg dafuer, dass etwas bei der Bank liegt; genau daran ist
+// der erste echte Lauf haengengeblieben. Gesperrt wird stattdessen an
+// dem, was wirklich Geld bedeutet: einer nicht stornierten Zahlung und
+// einer nicht stornierten Buchung. Beides wird benannt statt nur
+// abgelehnt, damit der Weg dorthin erkennbar bleibt.
+//
+// Zweistufig wie handleSparteLoeschen: `pruefen: true` zaehlt nur.
 async function handleLaufVerwerfen(body, env, me, corsHeaders) {
   const rolle = await ladeRolle(env, me);
   if (!rolle.istAdmin && !rolle.darfBuchen) {
-    return json({ error: "Nur der Schatzmeister kann einen Lauf verwerfen" }, 403, corsHeaders);
+    return json({ error: "Nur der Schatzmeister kann einen Lauf loeschen" }, 403, corsHeaders);
   }
   const lauf = await ladeLauf(env, body.lauf_id);
   if (!lauf) return json({ error: "Beitragslauf nicht gefunden" }, 404, corsHeaders);
   if (lauf.status === "festgeschrieben") {
-    return json({ error: "Ein festgeschriebener Lauf kann nicht verworfen werden" }, 409, corsHeaders);
+    return json({ error: "Ein festgeschriebener Lauf kann nicht geloescht werden. Das ist der " +
+                         "Sinn des Festschreibens -- einzelne Forderungen lassen sich noch " +
+                         "stornieren.", code: "festgeschrieben" }, 409, corsHeaders);
   }
 
-  const datei = await env.VV_DB.prepare(
+  // ⚠️ `buchung` entsteht erst in handleBuchInit -- in einer Datenbank
+  // ohne eingerichtete Buchhaltung gibt es die Tabelle nicht, und ein
+  // SELECT darauf wuerde die ganze Aktion werfen (gleiches Muster wie in
+  // handleSammelZurueck, handleSparteLoeschen und der Sicherung).
+  const buchTab = await env.VV_DB
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'buchung'")
+    .first();
+  if (buchTab) {
+    const b = await env.VV_DB.prepare(
+      "SELECT belegnummer FROM buchung WHERE storniert_am IS NULL AND (" +
+      "  (quelle_typ = 'beitragslauf' AND quelle_id = ?) OR " +
+      "  (quelle_typ = 'sepa_datei' AND quelle_id IN " +
+      "     (SELECT id FROM sepa_datei WHERE beitragslauf_id = ?))" +
+      ") LIMIT 1").bind(lauf.id, lauf.id).first();
+    if (b) {
+      return json({ error: "Dieser Lauf ist bereits in die Buchhaltung uebernommen (Beleg " +
+                           b.belegnummer + "). Dort zuerst stornieren, dann hier loeschen.",
+                    code: "in_buchhaltung" }, 409, corsHeaders);
+    }
+  }
+
+  // Beide Wege zaehlen: ueber die Forderung UND ueber die SEPA-Datei. Ein
+  // Ruecklastschriftentgelt haengt an einer eigenen Forderung ohne
+  // beitragslauf_id, gehoert aber zum Einzug dieses Laufs.
+  const zSql = "FROM zahlung WHERE (" +
+    "  forderung_id IN (SELECT id FROM forderung WHERE beitragslauf_id = ?) OR " +
+    "  sepa_datei_id IN (SELECT id FROM sepa_datei WHERE beitragslauf_id = ?))";
+  const offen = await env.VV_DB.prepare(
+    "SELECT COUNT(*) AS n, COALESCE(SUM(betrag_cent),0) AS s " + zSql +
+    " AND storniert_am IS NULL").bind(lauf.id, lauf.id).first();
+  if (offen && offen.n > 0) {
+    return json({ error: offen.n + " Zahlungen ueber " + (offen.s / 100).toFixed(2) +
+                         " EUR sind zu diesem Lauf verbucht. Erst die Sammelbuchung " +
+                         "zuruecknehmen, dann laesst sich der Lauf loeschen.",
+                  code: "zahlungen", anzahl: offen.n, summeCent: offen.s }, 409, corsHeaders);
+  }
+  // Zwei getrennte Zahlen, weil zwei verschiedene Dinge passieren:
+  // stornierte Zahlungen AN einer Forderung dieses Laufs gehen mit,
+  // stornierte Zahlungen an einer FREMDEN Forderung werden nur von der
+  // Datei geloest und bleiben stehen. Eine Summe daraus zu melden waere
+  // die Ankuendigung, mehr zu loeschen als geloescht wird -- vom
+  // Pruefstand gefunden (G12).
+  const storniert = await env.VV_DB.prepare(
+    "SELECT COUNT(*) AS n FROM zahlung WHERE storniert_am IS NOT NULL AND " +
+    "forderung_id IN (SELECT id FROM forderung WHERE beitragslauf_id = ?)")
+    .bind(lauf.id).first();
+  const geloest = await env.VV_DB.prepare(
+    "SELECT COUNT(*) AS n FROM zahlung WHERE storniert_am IS NOT NULL AND " +
+    "sepa_datei_id IN (SELECT id FROM sepa_datei WHERE beitragslauf_id = ?) AND " +
+    "(forderung_id IS NULL OR forderung_id NOT IN " +
+    "  (SELECT id FROM forderung WHERE beitragslauf_id = ?))")
+    .bind(lauf.id, lauf.id).first();
+  const dateien = await env.VV_DB.prepare(
     "SELECT COUNT(*) AS n FROM sepa_datei WHERE beitragslauf_id = ?").bind(lauf.id).first();
-  if (datei && datei.n > 0) {
-    return json({ error: "Zu diesem Lauf gibt es bereits eine SEPA-Datei" }, 409, corsHeaders);
-  }
-  const bezahlt = await env.VV_DB.prepare(
-    "SELECT COUNT(*) AS n FROM zahlung z JOIN forderung f ON f.id = z.forderung_id " +
-    "WHERE f.beitragslauf_id = ?").bind(lauf.id).first();
-  if (bezahlt && bezahlt.n > 0) {
-    return json({ error: "Zu diesem Lauf sind bereits Zahlungen verbucht" }, 409, corsHeaders);
+
+  if (body.pruefen) {
+    return json({ ok: true, pruefung: true,
+                  bezeichnung: lauf.bezeichnung, jahr: lauf.jahr, status: lauf.status,
+                  forderungen: lauf.anzahl_erzeugt || 0, summeCent: lauf.summe_cent || 0,
+                  sepaDateien: (dateien && dateien.n) || 0,
+                  zahlungenStorniert: (storniert && storniert.n) || 0,
+                  zahlungenGeloest: (geloest && geloest.n) || 0 }, 200, corsHeaders);
   }
 
+  // Reihenfolge wegen der Fremdschluessel: zahlung -> forderung ->
+  // sepa_datei -> beitragslauf. Der UPDATE dazwischen entkoppelt die
+  // stornierten Zahlungen fremder Forderungen, die nur ueber die Datei
+  // an diesem Lauf haengen -- die bleiben stehen, sie gehoeren woanders
+  // hin.
   await env.VV_DB.batch([
+    env.VV_DB.prepare("DELETE FROM zahlung WHERE forderung_id IN " +
+      "(SELECT id FROM forderung WHERE beitragslauf_id = ?)").bind(lauf.id),
+    env.VV_DB.prepare("UPDATE zahlung SET sepa_datei_id = NULL WHERE sepa_datei_id IN " +
+      "(SELECT id FROM sepa_datei WHERE beitragslauf_id = ?)").bind(lauf.id),
     env.VV_DB.prepare("DELETE FROM forderung WHERE beitragslauf_id = ?").bind(lauf.id),
+    env.VV_DB.prepare("DELETE FROM sepa_datei WHERE beitragslauf_id = ?").bind(lauf.id),
     env.VV_DB.prepare("DELETE FROM beitragslauf WHERE id = ?").bind(lauf.id)
   ]);
-  await protokolliere(env, me.username, "beitragslauf-verworfen", "beitragslauf", lauf.id,
-                      { jahr: lauf.jahr, anzahl: lauf.anzahl_erzeugt });
-  return json({ ok: true }, 200, corsHeaders);
+  await protokolliere(env, me.username, "beitragslauf-geloescht", "beitragslauf", lauf.id,
+                      { jahr: lauf.jahr, bezeichnung: lauf.bezeichnung, status: lauf.status,
+                        anzahl: lauf.anzahl_erzeugt, summeCent: lauf.summe_cent,
+                        sepaDateien: (dateien && dateien.n) || 0,
+                        zahlungenGeloescht: (storniert && storniert.n) || 0,
+                        zahlungenGeloest: (geloest && geloest.n) || 0 });
+  return json({ ok: true, bezeichnung: lauf.bezeichnung,
+                forderungen: lauf.anzahl_erzeugt || 0,
+                sepaDateien: (dateien && dateien.n) || 0 }, 200, corsHeaders);
 }
 
 // ---------------------------------------------------------------------

@@ -149,16 +149,18 @@ nav button.aktiv {
    ist „Einstellungen“ versteckt und „Info“ übernimmt ihn über den
    Geschwister-Selektor — sonst klebte Info allein links.
 
-   ⚠️ Erst ab 1060px, und die Zahl ist gemessen, nicht geschätzt: die volle
-   Leiste (10 Einträge, Administrator MIT Schatzmeister-Rolle) braucht
-   1027px in einer Zeile. Darunter bricht sie um, und in einer
+   ⚠️ Erst ab 880px, und die Zahl ist gemessen, nicht geschätzt: die volle
+   Leiste (8 Einträge, Administrator MIT Schatzmeister-Rolle) braucht
+   869px in einer Zeile. Darunter bricht sie um, und in einer
    umgebrochenen Zeile schöbe margin-left:auto den einzelnen Reiter dieser
    Zeile an den rechten Rand — die Einträge stünden treppenförmig
    untereinander. Dieselbe Falle wie auf der Antragsseite unten.
-   Schmalere Rollen (Schatzmeister braucht 781px) kämen früher aus; eine
-   Media-Query kennt die Rolle aber nicht, deshalb entscheidet der breiteste
-   Fall. Wer einen Eintrag ergänzt oder umbenennt, misst neu. */
-@media (min-width: 1060px) {
+   Schmalere Rollen kämen früher aus; eine Media-Query kennt die Rolle aber
+   nicht, deshalb entscheidet der breiteste Fall.
+   Bis 2026-08-10 lag die Grenze bei 1060px — damals waren es 10 Einträge
+   mit 1027px, „Import“ und „Rollen“ sind seitdem in den Einstellungen.
+   Wer einen Eintrag ergänzt oder umbenennt, misst neu. */
+@media (min-width: 880px) {
   #haupt-nav #nav-einstellungen { margin-left: auto; }
   #haupt-nav #nav-einstellungen[hidden] + button { margin-left: auto; }
 }

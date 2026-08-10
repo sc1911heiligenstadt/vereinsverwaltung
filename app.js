@@ -129,12 +129,17 @@ async function start() {
   // der Mitgliedschaftsdaten. Ein Abteilungsleiter pflegt Kontaktdaten
   // seiner Leute -- wer neu aufgenommen wird, entscheidet der Verein.
   $("btn-neu").hidden = !meineRechte.darfSchreiben;
-  $("nav-import").hidden = !meineRechte.darfSchreiben;
+  // Der Import liegt seit 2026-08-10 im Reiter „Einstellungen“ und hat
+  // keinen eigenen Leisten-Eintrag mehr. Das Recht wandert deshalb an den
+  // Block: der Reiter selbst steht auch Rollen offen, die nicht
+  // importieren duerfen.
+  $("ein-import").hidden = !meineRechte.darfSchreiben;
 
   // Rollen entscheiden, wer Personendaten sieht. Das bleibt beim globalen
   // Administrator -- sonst koennte sich die Geschaeftsstelle selbst zum
-  // Schatzmeister machen und damit an die Bankdaten.
-  $("nav-rollen").hidden = !meineRechte.isAdmin;
+  // Schatzmeister machen und damit an die Bankdaten. Ebenfalls im Reiter
+  // „Einstellungen“, ebenfalls am Block statt am Leisten-Eintrag.
+  $("ein-rollen").hidden = !meineRechte.isAdmin;
   $("nav-beitraege").hidden = !(meineRechte.darfSchreiben || meineRechte.darfBuchen);
 
   // Der Beitragslauf erzeugt Forderungen und eine Datei mit hunderten
@@ -147,12 +152,14 @@ async function start() {
   // dasselbe Recht wie das Anlegen von Hand.
   $("nav-antraege").hidden = !meineRechte.darfSchreiben;
 
-  // Der Reiter „Einstellungen“ trägt derzeit nur den Zugang zur
-  // Buchhaltung und hängt deshalb an demselben Recht wie sie zuvor als
-  // eigener Leisten-Eintrag: darfBuchen. Wer nicht bucht, sähe hier einen
-  // leeren Reiter. Kommt ein zweiter Inhalt dazu, gehört die Bedingung
-  // erweitert — und der Buchhaltungs-Kasten dann einzeln versteckt.
-  $("nav-einstellungen").hidden = !meineRechte.darfBuchen;
+  // Der Reiter „Einstellungen“ trägt seit 2026-08-10 drei Blöcke mit drei
+  // verschiedenen Rechten. Jeder ist oben einzeln versteckt; der Reiter
+  // selbst erscheint, sobald einer davon etwas zu zeigen hat — sonst
+  // stünde er leer da. Wer hier einen vierten Block ergänzt, nimmt sein
+  // Recht in diese Zeile mit auf.
+  $("ein-buchhaltung").hidden = !meineRechte.darfBuchen;
+  $("nav-einstellungen").hidden = !(meineRechte.darfBuchen
+    || meineRechte.darfSchreiben || meineRechte.isAdmin);
 
   // Die Auswertungen stehen jeder hinterlegten Rolle offen — der Vorstand
   // hat genau dafür eine. Eigene Seite, weil sie keinen Code lädt, der
@@ -301,7 +308,13 @@ async function zeigeLeerGrund() {
     "</div>" +
     '<div class="leer-aktionen">' +
       (bestand.sparte > 0 ? "" : '<button class="btn grau" id="btn-sparten-anlegen">Sparten anlegen</button>') +
-      '<button class="btn" id="btn-zum-import">Bestand aus Datei übernehmen</button>' +
+      // Beide Knoepfe schreiben. Der Weg zum Import fuehrt seit dem Umzug
+      // in den Reiter „Einstellungen“, und dort ist der Block ohne
+      // Schreibrecht versteckt -- ohne diese Bedingung landete ein
+      // Abteilungsleiter auf einer leeren Seite.
+      (meineRechte.darfSchreiben
+        ? '<button class="btn" id="btn-zum-import">Bestand aus Datei übernehmen</button>'
+        : "") +
     "</div>";
 
   const anlegen = $("btn-sparten-anlegen");
@@ -319,7 +332,19 @@ async function zeigeLeerGrund() {
       }
     });
   }
-  $("btn-zum-import").addEventListener("click", () => waehleTab("tab-import"));
+  const zumImport = $("btn-zum-import");
+  if (zumImport) {
+    zumImport.addEventListener("click", () => {
+      // Erst umschalten, dann scrollen: vorher steht der Reiter auf
+      // display:none, und scrollIntoView auf etwas Verstecktes tut nichts.
+      // ⚠️ OHNE behavior:"smooth" -- im Browser gemessen: mit smooth blieb
+      // scrollY auf 0, der Nutzer landete oben im Reiter und sah statt des
+      // Imports den Rollenkasten. Ein Sprung, der ankommt, ist besser als
+      // ein weicher, der ausbleibt.
+      waehleTab("tab-einstellungen");
+      $("ein-import").scrollIntoView({ block: "start" });
+    });
+  }
 }
 
 // Spalten der Liste. "Alter" ist eine eigene Spalte in der Oberfläche,

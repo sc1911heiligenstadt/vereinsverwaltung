@@ -39,6 +39,38 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Die Sicherung meldet sich, wenn sie ausbleibt",
+    datum: "2026-08-10",
+    punkte: [
+      "Unter „Einstellungen“ steht bei der Sicherung jetzt eine Warnung, wenn der letzte erfolgreiche Lauf länger als einen Tag her ist. Vorher stand dort unverändert der letzte gelungene Lauf — eine seit Wochen ausgefallene Sicherung sah damit genauso aus wie eine gesunde.",
+      "Bricht die nächtliche Sicherung an der Datenmenge ab, entsteht seitdem eine Teilsicherung mit ausdrücklichem Vermerk, statt dass gar keine Datei geschrieben wird. Was gesichert werden konnte, ist damit gesichert, und der Rest steht als Warnung dabei.",
+      "„SEPA-Datei erzeugen“, die Sammelbuchung und die Eröffnungsbilanz lassen sich nicht mehr versehentlich doppelt anstoßen. Ein zweiter Klick, während der erste noch läuft, wird verworfen — beim Prüfen bleibt es beim Prüfen.",
+      "Dieselbe Forderung kann aus derselben SEPA-Datei nicht mehr zweimal als bezahlt gebucht werden. Das war der Weg, auf dem ein nie eingegangener Beitrag still auf „bezahlt“ stehen konnte. Eine Zahlung zu stornieren und neu zu buchen geht unverändert.",
+      "Vier Werkzeuge aus der Aufbauphase (Testdaten anlegen, zwei Messläufe, Testdaten löschen) sind entfernt. Sie wurden von der Oberfläche nie aufgerufen."
+    ]
+  },
+  {
+    version: "Import und Rollen liegen jetzt in den Einstellungen",
+    datum: "2026-08-10",
+    punkte: [
+      "Die beiden Reiter „Import“ und „Rollen“ sind aus der Leiste verschwunden. Beide Bereiche stehen unverändert im Reiter „Einstellungen“ — zuerst die Rollenvergabe samt Sicherung der Datenbank, darunter die Bestandsübernahme aus dem Vereinsmeister, ganz unten der Zugang zur Buchhaltung.",
+      "Nichts ist abgeschaltet oder gelöscht worden: Es sind dieselben Masken mit denselben Rechten. Die Rollenvergabe sieht weiterhin nur ein Administrator, den Import nur, wer Mitglieder anlegen darf, die Buchhaltung nur der Schatzmeister.",
+      "Der Reiter „Einstellungen“ erscheint seitdem für jeden, der mindestens einen dieser drei Bereiche nutzen darf — vorher war er dem Schatzmeister vorbehalten.",
+      "Die Reiterleiste ist damit von zehn auf acht Einträge geschrumpft."
+    ]
+  },
+  {
+    version: "Beitragsläufe löschen",
+    datum: "2026-08-10",
+    punkte: [
+      "Jede Zeile in der Liste der Beitragsläufe hat jetzt einen Löschen-Knopf — für Probeläufe und für den Fall, dass beim Anlegen etwas schiefgegangen ist (etwa zwei Läufe für dasselbe Jahr nebeneinander).",
+      "Vor dem Löschen wird gezeigt, was daran hängt: Zahl und Summe der Forderungen, vermerkte SEPA-Dateien und stornierte Zahlungen. Erst danach kommt die Rückfrage.",
+      "Ein Vermerk über eine erzeugte SEPA-Datei blockiert das Löschen nicht mehr. Die Datei selbst wird nirgends gespeichert — ein Vermerk allein ist kein Beleg dafür, dass etwas bei der Bank liegt.",
+      "Gesperrt bleibt, wo wirklich Geld im Spiel ist: Sind Zahlungen zu dem Lauf verbucht, muss zuerst die Sammelbuchung zurückgenommen werden. Ist der Lauf in die Buchhaltung übernommen, nennt die Meldung die Belegnummer, unter der dort zu stornieren ist.",
+      "Ein festgeschriebener Lauf lässt sich weiterhin nicht löschen. Das ist der Sinn des Festschreibens; einzelne Forderungen lassen sich dort nach wie vor stornieren."
+    ]
+  },
+  {
     version: "Mahnwesen entfernt",
     datum: "2026-08-10",
     punkte: [

@@ -562,6 +562,22 @@ CREATE UNIQUE INDEX idx_mgspa_aktiv
   ON mitgliedschaft_sparte(mitgliedschaft_id, sparte_id)
   WHERE austritt IS NULL;
 
+-- Dieselbe Forderung wird aus derselben SEPA-Datei nur EINMAL bezahlt.
+-- Läuft die Sammelbuchung zweimal zugleich, entstehen sonst zwei
+-- Zahlungen über denselben Posten — und nach einer Rücklastschrift auf
+-- eine der beiden steht die Forderung auf 'bezahlt', obwohl nie Geld
+-- eingegangen ist. Sie verschwindet damit aus den offenen Posten.
+-- D1 kennt kein BEGIN, die Prüfung im Code ist nicht Teil der
+-- Schreibeinheit — entscheiden muss es die Datenbank.
+--
+-- ⚠️ 'storniert_am IS NULL' ist zwingend: ohne die Bedingung blockierte
+-- der Index den legitimen Weg, eine Zahlung zu stornieren und neu zu
+-- buchen. vv-sammel-zurueck storniert, statt zu löschen (GoBD), und die
+-- stornierte Zeile bleibt stehen.
+CREATE UNIQUE INDEX idx_zahlung_sepa_eindeutig
+  ON zahlung(sepa_datei_id, forderung_id)
+  WHERE sepa_datei_id IS NOT NULL AND storniert_am IS NULL;
+
 
 -- ---------------------------------------------------------------------
 -- 9) BUCHHALTUNG (Stufe 4)

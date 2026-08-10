@@ -16,6 +16,7 @@ let laufListe = [];
 let laufAktuell = null;
 let laufStammdaten = null;
 let laufLaeuft = false;
+let laufDarfBuchen = false;
 
 function lEur(cent) {
   if (cent === null || cent === undefined) return "—";
@@ -128,6 +129,7 @@ async function speichereStammdaten() {
 async function ladeLaeufe() {
   const ziel = $("l-liste");
   ziel.innerHTML = '<div class="leer">Wird geladen …</div>';
+  $("l-liste-status").hidden = true;
 
   let antwort;
   try {
@@ -137,7 +139,8 @@ async function ladeLaeufe() {
     return;
   }
   laufListe = antwort.laeufe || [];
-  $("btn-l-neu").hidden = !antwort.darfBuchen;
+  laufDarfBuchen = !!antwort.darfBuchen;
+  $("btn-l-neu").hidden = !laufDarfBuchen;
 
   if (!laufListe.length) {
     ziel.innerHTML = '<div class="leer"><strong>Noch kein Beitragslauf angelegt.</strong><br>' +
@@ -149,6 +152,7 @@ async function ladeLaeufe() {
   ziel.innerHTML = '<div class="tabelle-scroll"><table><thead><tr>' +
     "<th>Bezeichnung</th><th>Jahr</th><th>Fällig</th><th>Status</th>" +
     "<th class=\"betrag\">Forderungen</th><th class=\"betrag\">Summe</th><th class=\"betrag\">SEPA</th>" +
+    (laufDarfBuchen ? "<th></th>" : "") +
     "</tr></thead><tbody>" +
     laufListe.map((l) =>
       '<tr class="klickbar" data-id="' + esc(l.id) + '">' +
@@ -159,12 +163,70 @@ async function ladeLaeufe() {
         '<td class="betrag">' + (l.anzahl_erzeugt || 0) + "</td>" +
         '<td class="betrag">' + lEur(l.summe_cent) + "</td>" +
         '<td class="betrag">' + (l.sepa_dateien || 0) + "</td>" +
+        (laufDarfBuchen
+          ? '<td>' + (l.status === "festgeschrieben"
+              ? '<span class="fussnote" title="Festgeschrieben — nicht löschbar">—</span>'
+              : '<button class="btn klein warn" data-loeschen="' + esc(l.id) +
+                '" title="Diesen Lauf löschen">Löschen</button>') + "</td>"
+          : "") +
       "</tr>").join("") +
     "</tbody></table></div>";
 
   ziel.querySelectorAll("tr.klickbar").forEach((tr) => {
     tr.addEventListener("click", () => oeffneLauf(tr.dataset.id));
   });
+  // ⚠️ Der Knopf sitzt IN der klickbaren Zeile. Ohne stopPropagation
+  // liefe der Zeilen-Handler mit und oeffnete beim Abbrechen der
+  // Rueckfrage trotzdem den Lauf -- dieselbe Falle wie beim Loeschknopf
+  // der Abteilungen, der deshalb ausserhalb des <label> steht.
+  ziel.querySelectorAll("[data-loeschen]").forEach((b) => {
+    b.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      loescheLauf(b.dataset.loeschen);
+    });
+  });
+}
+
+// Zweistufig: erst zaehlen lassen, dann mit den Zahlen fragen. Wer einen
+// Lauf ueber 535 Forderungen wegwirft, soll vorher sehen, was daran
+// haengt -- und was der Server dabei mitloescht.
+async function loescheLauf(id) {
+  let p;
+  try {
+    p = await vvRequest("vv-lauf-verwerfen", { lauf_id: id, pruefen: true });
+  } catch (e) {
+    lMeldung("l-liste-status", "fehler", esc(e.message));
+    return;
+  }
+
+  const anhang = [];
+  if (p.forderungen) anhang.push(p.forderungen + " Forderungen über " + lEur(p.summeCent));
+  if (p.sepaDateien) anhang.push(p.sepaDateien + " SEPA-Vermerk" + (p.sepaDateien > 1 ? "e" : ""));
+  if (p.zahlungenStorniert) anhang.push(p.zahlungenStorniert + " stornierte Zahlungen");
+  // Nicht in dieselbe Zeile: diese Zahlungen gehören zu einem anderen
+  // Lauf und bleiben stehen, sie verlieren nur den Verweis auf die Datei.
+  const geloest = p.zahlungenGeloest
+    ? "\n\nUnberührt bleiben " + p.zahlungenGeloest + " stornierte Zahlungen anderer Läufe; " +
+      "sie verlieren nur den Verweis auf die SEPA-Datei."
+    : "";
+
+  if (!confirm("Beitragslauf " + p.bezeichnung + " (" + p.jahr + ") endgültig löschen?\n\n" +
+               (anhang.length ? "Mitgelöscht wird: " + anhang.join(", ") + ".\n\n" : "") +
+               "Das lässt sich nicht rückgängig machen. Der Vorgang steht danach nur noch im " +
+               "Protokoll." + geloest)) return;
+
+  try {
+    const r = await vvRequest("vv-lauf-verwerfen", { lauf_id: id });
+    $("l-karte-detail").hidden = true;
+    $("l-karte-ergebnis").hidden = true;
+    laufAktuell = null;
+    await ladeLaeufe();
+    lMeldung("l-liste-status", "erfolg",
+      "<strong>" + esc(r.bezeichnung) + "</strong> gelöscht, mitsamt " + r.forderungen +
+      " Forderungen.");
+  } catch (e) {
+    lMeldung("l-liste-status", "fehler", esc(e.message));
+  }
 }
 
 // ---------------------------------------------------------------------
@@ -335,7 +397,7 @@ async function oeffneLauf(id) {
     knoepfe.push('<button class="btn" id="btn-l-fest">Festschreiben</button>');
   }
   if (l.status !== "festgeschrieben") {
-    knoepfe.push('<button class="btn warn" id="btn-l-verwerfen">Verwerfen</button>');
+    knoepfe.push('<button class="btn warn" id="btn-l-verwerfen">Lauf löschen</button>');
   }
   $("l-detail-knoepfe").innerHTML = knoepfe.join("");
 
@@ -346,12 +408,22 @@ async function oeffneLauf(id) {
   binde("btn-l-sepa", () => erzeugeSepa(l.id, false));
   binde("btn-l-vorab", () => zeigeVorab(l.id));
   binde("btn-l-fest", () => schreibeFest(l.id));
-  binde("btn-l-verwerfen", () => verwirf(l.id));
+  binde("btn-l-verwerfen", () => loescheLauf(l.id));
 }
 
 // Sammelbuchung: erst zeigen, was gebucht würde, dann fragen. Bei 497
 // Forderungen ist ein Fehlklick sonst nur noch von Hand zu heilen.
 async function bucheSepaDatei(dateiId, ausfuehrung, laufId) {
+  if (bucheSepaDatei.laeuft) return;
+  bucheSepaDatei.laeuft = true;
+  try {
+    return await bucheSepaDateiAusfuehren(dateiId, ausfuehrung, laufId);
+  } finally {
+    bucheSepaDatei.laeuft = false;
+  }
+}
+
+async function bucheSepaDateiAusfuehren(dateiId, ausfuehrung, laufId) {
   let probe;
   try {
     probe = await vvRequest("vv-zahlung-sammel", { sepa_datei_id: dateiId, pruefen: true });
@@ -518,7 +590,25 @@ async function starteLauf(id) {
 // SEPA
 // ---------------------------------------------------------------------
 
+// Doppelklick-Sperre. Ein zweiter Klick, solange der erste noch laeuft,
+// erzeugt sonst eine zweite SEPA-Datei ueber dieselben Forderungen -- und
+// nach einer Ruecklastschrift auf eine der Dubletten steht die Forderung
+// auf bezahlt, obwohl nie Geld eingegangen ist.
+//
+// ⚠️ Der Waechter MUSS nurPruefen durchreichen. Ein btn.disabled am Knopf
+// war der erste Entwurf und haette den zweiten Parameter verschluckt --
+// aus "SEPA pruefen" waere damit eine echte Erzeugung geworden.
 async function erzeugeSepa(id, nurPruefen) {
+  if (erzeugeSepa.laeuft) return;
+  erzeugeSepa.laeuft = true;
+  try {
+    return await erzeugeSepaAusfuehren(id, nurPruefen);
+  } finally {
+    erzeugeSepa.laeuft = false;
+  }
+}
+
+async function erzeugeSepaAusfuehren(id, nurPruefen) {
   const feld = $("l-einzug");
   const eingabe = feld ? feld.value : "";
   if (!eingabe) {
@@ -683,20 +773,6 @@ async function schreibeFest(id) {
     await ladeLaeufe();
     await oeffneLauf(id);
     lMeldung("l-detail-status", "erfolg", "Festgeschrieben.");
-  } catch (e) {
-    lMeldung("l-detail-status", "fehler", esc(e.message));
-  }
-}
-
-async function verwirf(id) {
-  if (!confirm("Diesen Lauf mit allen erzeugten Forderungen löschen?\n\nDas geht nur, solange " +
-               "keine SEPA-Datei erzeugt und keine Zahlung verbucht wurde.")) return;
-  try {
-    await vvRequest("vv-lauf-verwerfen", { lauf_id: id });
-    $("l-karte-detail").hidden = true;
-    $("l-karte-ergebnis").hidden = true;
-    laufAktuell = null;
-    await ladeLaeufe();
   } catch (e) {
     lMeldung("l-detail-status", "fehler", esc(e.message));
   }

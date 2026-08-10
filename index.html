@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vereinsverwaltung &mdash; 1. SC 1911 Heiligenstadt</title>
-<link rel="stylesheet" href="style.css?v=3.6">
+<link rel="stylesheet" href="style.css?v=3.7">
 </head>
 <body>
 
@@ -23,8 +23,11 @@
   <button data-tab="tab-lauf" id="nav-lauf" hidden>Beitragslauf</button>
   <button data-tab="tab-zahlungen" id="nav-zahlungen" hidden>Zahlungen</button>
   <button data-tab="tab-antraege" id="nav-antraege" hidden>Anträge</button>
-  <button data-tab="tab-import" id="nav-import" hidden>Import</button>
-  <button data-tab="tab-rollen" id="nav-rollen" hidden>Rollen</button>
+  <!-- „Import“ und „Rollen“ hatten bis 2026-08-10 eigene Einträge und
+       liegen seitdem im Reiter „Einstellungen“ (Michel-Vorgabe) — beides
+       sind seltene Vorgänge, die den täglichen Ablauf nicht betreffen.
+       Die Inhalte sind unverändert, nur umgezogen; ihre Rechte hängen
+       jetzt an den Blöcken dort, nicht mehr an einem Leisten-Eintrag. -->
   <!-- Eigene Seite, kein Reiter: die Auswertungen laden keinen Code, der
        etwas ändern kann. Ein Seitenwechsel ist hier die Rechtegrenze.
        Steht VOR „Info“, weil flottenweit gilt: Info ist der letzte
@@ -169,65 +172,6 @@
       </div>
     </section>
 
-    <!-- Bestandsuebernahme aus GLS Vereinsmeister. Bewusst generisch:
-         Das Ausgabeformat der Altsoftware ist nicht bekannt, deshalb wird
-         die Zuordnung der Spalten im Browser gemacht und alles nicht
-         Zugeordnete in ein Auffangfeld geschrieben -- so geht beim Import
-         nichts verloren, auch wenn die Feldnamen ueberraschen. -->
-    <section id="tab-import" class="tab">
-
-      <div class="karte">
-        <h2>Mitgliederbestand übernehmen</h2>
-        <p class="fussnote">Aus dem Vereinsmeister exportierte Datei (CSV oder Excel) auswählen.
-        Die Spalten werden im nächsten Schritt zugeordnet. <strong>Nichts wird geschrieben,
-        bevor der Probelauf gelaufen ist.</strong></p>
-
-        <div class="schritt-nummer">Schritt 1 — Datei</div>
-        <input type="file" id="imp-datei" accept=".csv,.txt,.xlsx,.xls">
-        <div id="imp-datei-info" class="hinweis info" hidden></div>
-      </div>
-
-      <div class="karte" id="imp-karte-zuordnung" hidden>
-        <div class="schritt-nummer">Schritt 2 — Spalten zuordnen</div>
-        <p class="fussnote">Erkannte Zuordnungen sind vorbelegt. Was auf „übernehmen, ohne Feld"
-        steht, wird beim Mitglied als Zusatzangabe mitgespeichert und geht nicht verloren.</p>
-        <div id="imp-zuordnung"></div>
-
-        <h3>Einstellungen</h3>
-        <label class="ankreuz"><input type="checkbox" id="imp-haushalte" checked>
-          Personen mit gleichem Nachnamen unter derselben Anschrift zu einem Haushalt zusammenfassen
-          <span class="fussnote">Grundlage für Familienrabatt und ein gemeinsames SEPA-Mandat. Lässt sich später einzeln korrigieren.</span>
-        </label>
-        <label class="ankreuz"><input type="checkbox" id="imp-sparten-anlegen" checked>
-          Sparten aus der Datei anlegen, wenn es sie noch nicht gibt
-          <span class="fussnote">Beim ersten Import der Normalfall. Später eher ein Tippfehler in der
-          Quelldatei — dann abwählen: unbekannte Sparten werden dann im Bericht gemeldet, statt neu zu entstehen.</span>
-        </label>
-        <label class="ankreuz"><input type="checkbox" id="imp-ergaenzen">
-          Bereits vorhandene Mitglieder um fehlende Angaben ergänzen
-          <span class="fussnote">Für die zweite Datei: trägt Bankverbindung, Kontaktdaten und Sparten
-          nach. Es wird ausschließlich in leere Felder geschrieben — nichts wird überschrieben.
-          Ohne Haken werden vorhandene Mitgliedsnummern übersprungen.</span>
-        </label>
-
-        <div class="knopfreihe">
-          <button class="btn grau" id="btn-imp-probe">Probelauf starten</button>
-          <button class="btn" id="btn-imp-start" disabled>Import starten</button>
-        </div>
-        <div id="imp-status" class="hinweis info" hidden></div>
-        <div id="imp-fortschritt" hidden>
-          <div class="balken"><div class="balken-fuellung" id="imp-balken"></div></div>
-          <div class="fussnote" id="imp-fortschritt-text"></div>
-        </div>
-      </div>
-
-      <div class="karte" id="imp-karte-bericht" hidden>
-        <h2>Bericht</h2>
-        <div id="imp-bericht"></div>
-      </div>
-
-    </section>
-
     <!-- Beiträge. Die Sätze stehen in der Datenbank, nicht im Code:
          ein Beschluss der Mitgliederversammlung darf kein Deploy sein. -->
     <section id="tab-beitraege" class="tab">
@@ -309,6 +253,7 @@
       <div class="karte">
         <h2>Beitragsläufe</h2>
         <div id="l-liste"></div>
+        <div id="l-liste-status" class="hinweis info" hidden></div>
         <div class="knopfreihe">
           <button class="btn grau" id="btn-l-neu-laden">Neu laden</button>
           <button class="btn" id="btn-l-neu">Neuen Lauf anlegen</button>
@@ -419,73 +364,137 @@
 
     </section>
 
-    <!-- Wer hier eine Rolle bekommt, sieht Mitgliederdaten. Deshalb nur
-         für globale Administratoren -- sonst könnte sich die
-         Geschäftsstelle selbst zum Schatzmeister machen und damit an die
-         Bankdaten. -->
-    <section id="tab-rollen" class="tab">
-      <div class="karte">
-        <h2>Rolle vergeben</h2>
-        <p class="fussnote">Die Anmeldung selbst läuft über das Dashboard. Hier wird nur
-        festgelegt, <strong>was</strong> jemand in der Vereinsverwaltung darf. Ohne Rolle
-        sieht ein angemeldetes Konto hier keine Personendaten.</p>
-
-        <div class="filterleiste">
-          <div class="feld suchfeld">
-            <label for="r-nutzer">Konto</label>
-            <select id="r-nutzer"></select>
-          </div>
-          <div class="feld">
-            <label for="r-rolle">Rolle</label>
-            <select id="r-rolle">
-              <option value="geschaeftsstelle">Geschäftsstelle</option>
-              <option value="schatzmeister">Schatzmeister</option>
-              <option value="abteilungsleiter">Abteilungsleitung</option>
-              <option value="vorstand">Vorstand</option>
-              <option value="passstelle">Passstelle</option>
-            </select>
-          </div>
-          <div class="feld" id="r-sparte-feld" hidden>
-            <label for="r-sparte">Sparte</label>
-            <select id="r-sparte"></select>
-          </div>
-          <div class="feld">
-            <label>&nbsp;</label>
-            <button class="btn" id="btn-rolle-setzen">Rolle vergeben</button>
-          </div>
-        </div>
-        <div id="r-status" class="hinweis info" hidden></div>
-        <p class="fussnote" id="r-erklaerung"></p>
-      </div>
-
-      <div class="karte">
-        <h2>Vergebene Rollen</h2>
-        <div id="r-warnung" class="hinweis warn" hidden></div>
-        <div id="r-liste"></div>
-      </div>
-
-      <div class="karte">
-        <h2>Sicherung der Datenbank</h2>
-        <p class="fussnote">Jede Nacht schreibt der Server den vollständigen Datenbestand
-        nach Nextcloud — einmal als Datei zum Zurückspielen, einmal als Mitgliederliste
-        zum Ausdrucken. Die sieben Wochentagsdateien überschreiben sich der Reihe nach,
-        vom Monatsersten bleibt eine Kopie dauerhaft stehen. Gelöscht wird nichts.</p>
-        <div id="s-stand"></div>
-        <div id="s-meldung" class="hinweis" hidden></div>
-        <div class="knopfreihe">
-          <button class="btn grau" id="btn-sicherung-jetzt">Jetzt sichern</button>
-        </div>
-        <div id="s-liste"></div>
-      </div>
-    </section>
-
     <!-- Einstellungen: Sammelort für Bereiche, die nicht in den täglichen
-         Ablauf gehören. Der Reiter hängt an darfBuchen, weil er derzeit
-         genau einen Inhalt hat — einen leeren Reiter zu zeigen wäre
-         schlimmer als keinen. Kommt hier etwas dazu, das andere Rollen
-         angeht, muss die Bedingung in app.js mitwachsen. -->
+         Ablauf gehören. Seit 2026-08-10 liegen hier auch „Rollen“ und
+         „Import“ (Michel-Vorgabe) — beides seltene Vorgänge, die die
+         Reiterleiste nicht dauerhaft belegen sollten.
+
+         ⚠️ Jeder der drei Blöcke trägt sein EIGENES Recht: Rollen isAdmin,
+         Import darfSchreiben, Buchhaltung darfBuchen. Der Reiter selbst
+         wird eingeblendet, sobald eines davon greift — sonst sähe die
+         Geschäftsstelle einen Reiter, in dem nur der Rollenkasten stünde,
+         den sie nicht öffnen darf. Wer hier etwas ergänzt, gibt ihm
+         wieder ein eigenes Gate in app.js. -->
     <section id="tab-einstellungen" class="tab">
-      <div class="karte">
+
+      <!-- Wer hier eine Rolle bekommt, sieht Mitgliederdaten. Deshalb nur
+           für globale Administratoren -- sonst könnte sich die
+           Geschäftsstelle selbst zum Schatzmeister machen und damit an die
+           Bankdaten. -->
+      <div id="ein-rollen" hidden>
+        <div class="karte">
+          <h2>Rolle vergeben</h2>
+          <p class="fussnote">Die Anmeldung selbst läuft über das Dashboard. Hier wird nur
+          festgelegt, <strong>was</strong> jemand in der Vereinsverwaltung darf. Ohne Rolle
+          sieht ein angemeldetes Konto hier keine Personendaten.</p>
+
+          <div class="filterleiste">
+            <div class="feld suchfeld">
+              <label for="r-nutzer">Konto</label>
+              <select id="r-nutzer"></select>
+            </div>
+            <div class="feld">
+              <label for="r-rolle">Rolle</label>
+              <select id="r-rolle">
+                <option value="geschaeftsstelle">Geschäftsstelle</option>
+                <option value="schatzmeister">Schatzmeister</option>
+                <option value="abteilungsleiter">Abteilungsleitung</option>
+                <option value="vorstand">Vorstand</option>
+                <option value="passstelle">Passstelle</option>
+              </select>
+            </div>
+            <div class="feld" id="r-sparte-feld" hidden>
+              <label for="r-sparte">Sparte</label>
+              <select id="r-sparte"></select>
+            </div>
+            <div class="feld">
+              <label>&nbsp;</label>
+              <button class="btn" id="btn-rolle-setzen">Rolle vergeben</button>
+            </div>
+          </div>
+          <div id="r-status" class="hinweis info" hidden></div>
+          <p class="fussnote" id="r-erklaerung"></p>
+        </div>
+
+        <div class="karte">
+          <h2>Vergebene Rollen</h2>
+          <div id="r-warnung" class="hinweis warn" hidden></div>
+          <div id="r-liste"></div>
+        </div>
+
+        <div class="karte">
+          <h2>Sicherung der Datenbank</h2>
+          <p class="fussnote">Jede Nacht schreibt der Server den vollständigen Datenbestand
+          nach Nextcloud — einmal als Datei zum Zurückspielen, einmal als Mitgliederliste
+          zum Ausdrucken. Die sieben Wochentagsdateien überschreiben sich der Reihe nach,
+          vom Monatsersten bleibt eine Kopie dauerhaft stehen. Gelöscht wird nichts.</p>
+          <div id="s-stand"></div>
+          <div id="s-meldung" class="hinweis" hidden></div>
+          <div class="knopfreihe">
+            <button class="btn grau" id="btn-sicherung-jetzt">Jetzt sichern</button>
+          </div>
+          <div id="s-liste"></div>
+        </div>
+      </div>
+
+      <!-- Bestandsuebernahme aus GLS Vereinsmeister. Bewusst generisch:
+           Das Ausgabeformat der Altsoftware ist nicht bekannt, deshalb wird
+           die Zuordnung der Spalten im Browser gemacht und alles nicht
+           Zugeordnete in ein Auffangfeld geschrieben -- so geht beim Import
+           nichts verloren, auch wenn die Feldnamen ueberraschen. -->
+      <div id="ein-import" hidden>
+        <div class="karte">
+          <h2>Mitgliederbestand übernehmen</h2>
+          <p class="fussnote">Aus dem Vereinsmeister exportierte Datei (CSV oder Excel) auswählen.
+          Die Spalten werden im nächsten Schritt zugeordnet. <strong>Nichts wird geschrieben,
+          bevor der Probelauf gelaufen ist.</strong></p>
+
+          <div class="schritt-nummer">Schritt 1 — Datei</div>
+          <input type="file" id="imp-datei" accept=".csv,.txt,.xlsx,.xls">
+          <div id="imp-datei-info" class="hinweis info" hidden></div>
+        </div>
+
+        <div class="karte" id="imp-karte-zuordnung" hidden>
+          <div class="schritt-nummer">Schritt 2 — Spalten zuordnen</div>
+          <p class="fussnote">Erkannte Zuordnungen sind vorbelegt. Was auf „übernehmen, ohne Feld"
+          steht, wird beim Mitglied als Zusatzangabe mitgespeichert und geht nicht verloren.</p>
+          <div id="imp-zuordnung"></div>
+
+          <h3>Einstellungen</h3>
+          <label class="ankreuz"><input type="checkbox" id="imp-haushalte" checked>
+            Personen mit gleichem Nachnamen unter derselben Anschrift zu einem Haushalt zusammenfassen
+            <span class="fussnote">Grundlage für Familienrabatt und ein gemeinsames SEPA-Mandat. Lässt sich später einzeln korrigieren.</span>
+          </label>
+          <label class="ankreuz"><input type="checkbox" id="imp-sparten-anlegen" checked>
+            Sparten aus der Datei anlegen, wenn es sie noch nicht gibt
+            <span class="fussnote">Beim ersten Import der Normalfall. Später eher ein Tippfehler in der
+            Quelldatei — dann abwählen: unbekannte Sparten werden dann im Bericht gemeldet, statt neu zu entstehen.</span>
+          </label>
+          <label class="ankreuz"><input type="checkbox" id="imp-ergaenzen">
+            Bereits vorhandene Mitglieder um fehlende Angaben ergänzen
+            <span class="fussnote">Für die zweite Datei: trägt Bankverbindung, Kontaktdaten und Sparten
+            nach. Es wird ausschließlich in leere Felder geschrieben — nichts wird überschrieben.
+            Ohne Haken werden vorhandene Mitgliedsnummern übersprungen.</span>
+          </label>
+
+          <div class="knopfreihe">
+            <button class="btn grau" id="btn-imp-probe">Probelauf starten</button>
+            <button class="btn" id="btn-imp-start" disabled>Import starten</button>
+          </div>
+          <div id="imp-status" class="hinweis info" hidden></div>
+          <div id="imp-fortschritt" hidden>
+            <div class="balken"><div class="balken-fuellung" id="imp-balken"></div></div>
+            <div class="fussnote" id="imp-fortschritt-text"></div>
+          </div>
+        </div>
+
+        <div class="karte" id="imp-karte-bericht" hidden>
+          <h2>Bericht</h2>
+          <div id="imp-bericht"></div>
+        </div>
+      </div>
+
+      <div class="karte" id="ein-buchhaltung" hidden>
         <h2>Buchhaltung</h2>
         <p>Doppelte Buchführung mit Kontenrahmen, Journal, Saldenliste und
         Jahresabschluss &mdash; dazu die Übernahme der Beitragsläufe und
@@ -857,12 +866,12 @@
 
 <footer>1. SC 1911 Heiligenstadt &mdash; interne Vereinsverwaltung</footer>
 
-<script src="config.js?v=3.5"></script>
+<script src="config.js?v=3.7"></script>
 <script src="db.js?v=1.5"></script>
 <script src="import.js?v=1.2"></script>
-<script src="rollen.js?v=1.3"></script>
+<script src="rollen.js?v=1.4"></script>
 <script src="beitraege.js?v=1.1"></script>
-<script src="lauf.js?v=1.7"></script>
+<script src="lauf.js?v=1.9"></script>
 <script src="zahlungen.js?v=1.2"></script>
 <script src="antrag-druck.js?v=1.0"></script>
 <!-- Fuellt das Verbandsformular AO21. Muss VOR antraege.js stehen: der
@@ -874,6 +883,6 @@
      Reiter-Skripte; app.js macht die Karte sichtbar, sobald die Rechte da
      sind. -->
 <script src="lsb.js?v=1.0"></script>
-<script src="app.js?v=2.8"></script>
+<script src="app.js?v=2.9"></script>
 </body>
 </html>

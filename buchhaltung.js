@@ -532,7 +532,20 @@ async function abschluss(id) {
   await ladeStamm();
 }
 
+// Doppelklick-Sperre, gleiche Begruendung wie bei erzeugeSepa in lauf.js:
+// zwei zugleich laufende Eroeffnungen zoegen zwei Belegnummern fuer
+// denselben Vortrag, und die Bilanz staende doppelt in den Buechern.
 async function eroeffnung(id) {
+  if (eroeffnung.laeuft) return;
+  eroeffnung.laeuft = true;
+  try {
+    return await eroeffnungAusfuehren(id);
+  } finally {
+    eroeffnung.laeuft = false;
+  }
+}
+
+async function eroeffnungAusfuehren(id) {
   let r;
   try {
     r = await vvRequest("vv-eroeffnung", { geschaeftsjahr_id: id });

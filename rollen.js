@@ -183,6 +183,14 @@ function sicherungDauer(ms) {
   return (ms / 1000).toFixed(1).replace(".", ",") + " s";
 }
 
+// In Worten, damit "seit 26 Stunden" nicht erst im Kopf aus zwei
+// Zeitstempeln entstehen muss.
+function sicherungAlter(ms) {
+  const std = Math.floor(ms / 3600000);
+  if (std < 48) return std + " Stunden";
+  return Math.floor(std / 24) + " Tage";
+}
+
 function sicherungDatum(iso) {
   if (!iso) return "";
   const t = String(iso).slice(0, 10).split("-");
@@ -227,9 +235,22 @@ async function ladeSicherung() {
       if (l.zeilen) teile.push(l.zeilen.toLocaleString("de-DE") + " Zeilen");
       if (l.zeichen) teile.push(sicherungGroesse(l.zeichen));
       if (l.dauerMs !== null && l.dauerMs !== undefined) teile.push(sicherungDauer(l.dauerMs));
-      stand.innerHTML = '<div class="hinweis ' + (l.vollstaendig === false ? "warn" : "info") +
+      // ⚠️ Der eigentliche Zweck dieser Prüfung: Stirbt der nächtliche Lauf
+      // am Speicher, bricht das Isolate am try/catch vorbei ab -- es
+      // entsteht KEINE Fehlerzeile. Ohne Altersprüfung stünde hier
+      // unverändert der letzte gelungene Lauf, und eine seit Wochen tote
+      // Sicherung sähe aus wie eine gesunde.
+      const alterMs = l.zeit ? Date.now() - new Date(l.zeit).getTime() : null;
+      const zuAlt = alterMs !== null && isFinite(alterMs) && alterMs > 26 * 3600 * 1000;
+      const unvollstaendig = l.vollstaendig === false;
+      stand.innerHTML = '<div class="hinweis ' + (zuAlt || unvollstaendig ? "warn" : "info") +
         '"><strong>Letzte Sicherung:</strong> ' + esc(teile.join(" · ")) +
-        (l.vollstaendig === false
+        (zuAlt
+          ? "<br><strong>Achtung:</strong> Das ist " + esc(sicherungAlter(alterMs)) +
+            " her. Die Sicherung läuft jede Nacht -- seitdem ist mindestens eine " +
+            "ausgefallen, ohne eine Fehlerzeile zu hinterlassen."
+          : "") +
+        (unvollstaendig
           ? "<br>Achtung, unvollständig: " + esc((l.warnungen || []).join("; "))
           : "") + "</div>";
     } else {
