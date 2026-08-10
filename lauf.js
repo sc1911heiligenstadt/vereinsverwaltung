@@ -540,22 +540,38 @@ async function erzeugeSepa(id, nurPruefen) {
     return;
   }
 
-  // Erst nach dem Download anbieten, was sonst passiert: die Datei liegt
-  // nur in dieser Antwort, der Server speichert sie bewusst nicht.
+  // Die Datei liegt NUR in dieser Antwort -- der Server speichert sie
+  // bewusst nicht. Deshalb zuerst herunterladen, dann erst auffrischen:
+  // oeffneLauf() blendet die Ergebniskarte aus, und mit ihr verschwand bis
+  // zum 10.08.2026 der einzige Link auf die Datei, keine Sekunde nachdem
+  // er erschienen war. Gleiche Reihenfolge wie beim Spielerlaubnis-PDF:
+  // die Handlung, die der Nutzer will, geht vor dem Aufraeumen.
   const blob = new Blob([s.xml], { type: "application/xml" });
   const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = s.dateiname;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+
+  await ladeLaeufe();
+  await oeffneLauf(id);
+
   ergebnis("SEPA-Datei erzeugt",
     warnungen + kopf +
     '<p><a class="btn" download="' + esc(s.dateiname) + '" href="' + url + '">' +
     esc(s.dateiname) + " herunterladen</a></p>" +
-    '<p class="fussnote">Die Datei wird <strong>nicht</strong> auf dem Server gespeichert — eine ' +
-    "Liste mit " + s.anzahl + " Bankverbindungen soll nirgends herumliegen. Gespeichert ist nur, " +
-    "<em>dass</em> sie erzeugt wurde (Kennung " + esc(s.msgId) + "). Vor der ersten echten " +
-    "Einreichung eine Testdatei mit drei Posten bei der Bank einreichen.</p>" +
+    '<p class="fussnote">Der Download ist bereits angestoßen — der Knopf ist der zweite Weg, ' +
+    "falls der Browser ihn abgefangen hat. <strong>Diesen Kasten nicht verlassen, bevor die " +
+    "Datei auf der Platte liegt:</strong> sie wird <strong>nicht</strong> auf dem Server " +
+    "gespeichert (eine Liste mit " + s.anzahl + " Bankverbindungen soll nirgends herumliegen), " +
+    "gespeichert ist nur, <em>dass</em> sie erzeugt wurde (Kennung " + esc(s.msgId) + "). Vor " +
+    "der ersten echten Einreichung eine Testdatei mit drei Posten bei der Bank einreichen.</p>" +
     uebersprungen);
 
-  await ladeLaeufe();
-  await oeffneLauf(id);
+  const karte = $("l-karte-ergebnis");
+  if (karte.scrollIntoView) karte.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 // ---------------------------------------------------------------------

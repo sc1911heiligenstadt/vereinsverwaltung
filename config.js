@@ -39,6 +39,15 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "SEPA-Datei kommt jetzt wirklich an",
+    datum: "2026-08-10",
+    punkte: [
+      "Die erzeugte SEPA-Datei wird jetzt sofort heruntergeladen, und der Kasten mit dem Link bleibt stehen, bis man ihn verlässt.",
+      "Vorher erschien der Link nur für den Bruchteil einer Sekunde: unmittelbar danach lud die Seite den Lauf neu und blendete den Kasten dabei aus. Die Datei war damit verloren — sie wird bewusst nicht auf dem Server gespeichert, gespeichert ist nur, dass sie erzeugt wurde.",
+      "Wer deshalb ein zweites Mal auf „SEPA-Datei erzeugen“ geklickt hat, bekam die Warnung, dass zu diesem Lauf bereits eine Datei erzeugt wurde. Die Warnung war richtig — angekommen war die erste Datei trotzdem nie."
+    ]
+  },
+  {
     version: "Einstellungen und Info stehen rechts",
     datum: "2026-08-08",
     punkte: [
