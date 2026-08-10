@@ -64,8 +64,7 @@ async function ladeOffenePosten() {
   ziel.innerHTML =
     (ueberfaellig
       ? '<div class="hinweis warn">' + ueberfaellig + " Forderungen sind bereits fällig und nicht " +
-        "bezahlt. Nach § 5 Abs. 3 der Satzung braucht ein Ausschluss <strong>zwei schriftliche " +
-        "Mahnungen</strong> — das Mahnwesen ist noch nicht gebaut.</div>"
+        "bezahlt.</div>"
       : "") +
     (zOffene.abgeschnitten
       ? '<div class="hinweis info">Es werden die ersten 500 Forderungen angezeigt. Die Summe ' +

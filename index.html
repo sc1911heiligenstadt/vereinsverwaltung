@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vereinsverwaltung &mdash; 1. SC 1911 Heiligenstadt</title>
-<link rel="stylesheet" href="style.css?v=3.4">
+<link rel="stylesheet" href="style.css?v=3.6">
 </head>
 <body>
 
@@ -98,6 +98,74 @@
           <span id="seiten-info"></span>
           <button class="btn grau" id="btn-weiter">Weiter</button>
         </div>
+      </div>
+
+      <!-- Die Datei, die der Landessportbund einliest. Sie steht HIER und
+           nicht auf vorstand.html: sie enthält Namen, Geburtsdaten und
+           Abteilungen aller Mitglieder, und jene Seite lädt bewusst
+           keinen Code, der Personendaten anzeigen kann. Sichtbar ab
+           darfSchreiben — dieselbe Stufe wie das Anlegen von Hand
+           (Export ab Bearbeiten). -->
+      <div class="karte" id="lsb-karte" hidden>
+        <h2>Bestandsmeldung an den Landessportbund</h2>
+        <p class="fussnote">Erzeugt die <strong>Mitgliederliste im Format des LSB Thüringen</strong>
+        (CSV mit einer Zeile je Person). Im Portal
+        <a href="https://www.unser-sportverein.net/" target="_blank" rel="noopener">unser-sportverein.net</a>
+        wird sie in Schritt 3 der Bestandserhebung über „Bestandsdaten einlesen“ hochgeladen; das
+        Portal rechnet daraus selbst die Jahrgangs- und Fachverbandsmeldung. Meldezeitraum ist
+        der 1. Januar bis Mitte Februar. <strong>Die Zahlen je Altersgruppe zum Gegenrechnen
+        stehen in den Auswertungen.</strong></p>
+
+        <div class="filterleiste">
+          <div class="feld">
+            <label for="lsb-stichtag">Stichtag</label>
+            <input type="date" id="lsb-stichtag">
+          </div>
+          <div class="feld">
+            <label>&nbsp;</label>
+            <button class="btn" id="btn-lsb-liste">Liste erzeugen</button>
+          </div>
+          <div class="feld">
+            <label>&nbsp;</label>
+            <button class="btn" id="btn-lsb-csv" hidden>Datei für das Portal (CSV)</button>
+          </div>
+        </div>
+
+        <div id="lsb-ergebnis"></div>
+
+        <details class="lsb-teilen">
+          <summary>Sammelposten auf zwei Abteilungen aufteilen</summary>
+          <p class="fussnote">Für Abteilungen, die keiner Sportart entsprechen — im Bestand ist
+          das <strong>Breitensport</strong>. Solange die Mitglieder dort stehen, sind sie keinem
+          Fachverband zuzuordnen. Die Zuordnungen werden <strong>umgehängt</strong>, nicht neu
+          angelegt: Eintrittsdatum und Beitragsgeschichte bleiben. Wer bereits in einer der
+          beiden Ziel-Abteilungen ist, bleibt unangetastet und wird namentlich genannt.</p>
+
+          <div class="filterleiste">
+            <div class="feld">
+              <label for="lsb-quelle">Sammelposten</label>
+              <select id="lsb-quelle"></select>
+            </div>
+            <div class="feld">
+              <label for="lsb-grenze">Altersgrenze</label>
+              <input type="number" id="lsb-grenze" min="1" max="120" step="1" value="50">
+            </div>
+            <div class="feld">
+              <label for="lsb-ziel-ab">ab dieser Grenze nach</label>
+              <select id="lsb-ziel-ab"></select>
+            </div>
+            <div class="feld">
+              <label for="lsb-ziel-unter">darunter nach</label>
+              <select id="lsb-ziel-unter"></select>
+            </div>
+          </div>
+          <div class="knopfreihe">
+            <button class="btn grau" id="btn-lsb-vorschau">Vorschau</button>
+            <button class="btn warn" id="btn-lsb-aufteilen">Jetzt aufteilen</button>
+          </div>
+
+          <div id="lsb-teilen-ergebnis"></div>
+        </details>
       </div>
     </section>
 
@@ -307,51 +375,6 @@
         </div>
         <div id="z-summe" class="betrag-anzeige"></div>
         <div id="z-liste"></div>
-      </div>
-
-      <!-- Satzung § 5 Abs. 3: Ausschluss erst nach zwei schriftlichen
-           Mahnungen, davor Anhörung mit zehn Tagen Frist. Eine Stufe wird
-           erst erreicht, wenn die Frist der vorigen abgelaufen ist —
-           zwei Mahnungen am selben Tag sind keine zwei Mahnungen. -->
-      <div class="karte">
-        <h2>Mahnlauf</h2>
-        <p class="fussnote" id="m-regeln"></p>
-        <div class="knopfreihe">
-          <button class="btn grau" id="btn-m-probe">Wer wäre dran?</button>
-          <button class="btn" id="btn-m-start" hidden>Mahnungen erzeugen</button>
-        </div>
-        <div id="m-status" class="hinweis info" hidden></div>
-        <div id="m-vorschau"></div>
-      </div>
-
-      <div class="karte" id="m-karte-liste">
-        <h2>Mahnungen</h2>
-        <div class="filterleiste">
-          <div class="feld">
-            <label class="ankreuz"><input type="checkbox" id="m-auch-erledigte"> auch erledigte zeigen</label>
-          </div>
-          <div class="feld">
-            <label>&nbsp;</label>
-            <button class="btn grau" id="btn-m-neu-laden">Neu laden</button>
-          </div>
-        </div>
-        <div id="m-liste"></div>
-      </div>
-
-      <div class="karte" id="m-karte-ausschluss">
-        <h2>Ausschluss nach § 5 Abs. 3</h2>
-        <p class="fussnote">Diese Liste ist eine <strong>Vorlage für den Vorstand</strong>, kein
-        Vollzug. Der Ausschluss ist ein Vorstandsbeschluss — so wie die Aufnahme nach § 4 einer ist.
-        Die App schließt niemanden aus.</p>
-        <div id="m-ausschluss"></div>
-      </div>
-
-      <div class="karte">
-        <h2>Mahnfristen und Gebühren</h2>
-        <p class="fussnote">Eine geänderte Zahlungsfrist darf kein Programm-Update sein. Die Frist
-        der Anhörung lässt sich nicht unter zehn Tage setzen — das steht so in der Satzung.</p>
-        <div id="m-einstellungen"></div>
-        <div id="m-einst-status" class="hinweis info" hidden></div>
       </div>
 
       <div class="karte" id="z-karte-konto" hidden>
@@ -834,20 +857,23 @@
 
 <footer>1. SC 1911 Heiligenstadt &mdash; interne Vereinsverwaltung</footer>
 
-<script src="config.js?v=3.3"></script>
+<script src="config.js?v=3.5"></script>
 <script src="db.js?v=1.5"></script>
 <script src="import.js?v=1.2"></script>
 <script src="rollen.js?v=1.3"></script>
 <script src="beitraege.js?v=1.1"></script>
 <script src="lauf.js?v=1.7"></script>
-<script src="zahlungen.js?v=1.1"></script>
-<script src="mahnung.js?v=1.1"></script>
+<script src="zahlungen.js?v=1.2"></script>
 <script src="antrag-druck.js?v=1.0"></script>
 <!-- Fuellt das Verbandsformular AO21. Muss VOR antraege.js stehen: der
      Knopf im Antrags-Reiter ruft tfvAntragHerunterladen(). pdf-lib laedt
      die Datei selbst nach, erst beim ersten Klick. -->
 <script src="tfv-antrag.js?v=1.1"></script>
-<script src="antraege.js?v=1.8"></script>
-<script src="app.js?v=2.6"></script>
+<script src="antraege.js?v=1.9"></script>
+<!-- Die Datei für den Landessportbund. Steht vor app.js wie die übrigen
+     Reiter-Skripte; app.js macht die Karte sichtbar, sobald die Rechte da
+     sind. -->
+<script src="lsb.js?v=1.0"></script>
+<script src="app.js?v=2.8"></script>
 </body>
 </html>

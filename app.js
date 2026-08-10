@@ -178,9 +178,6 @@ async function start() {
     ladeLaeufe();
     ladeZahlungsJahre();
     ladeOffenePosten();
-    ladeMahnEinstellungen();
-    ladeMahnungen();
-    ladeAusschluss();
   }
   // Steht bewusst hinter dem Block darüber: die Annahme eines Antrags
   // schreibt beitragsklasse_id und familienbeitrag, und diese beiden
@@ -188,6 +185,11 @@ async function start() {
   if (meineRechte.darfSchreiben) {
     ladeAntraege();
     ladeAntragSchalter();
+    // Die Meldedatei für den Landessportbund. Sie enthält Namen und
+    // Geburtsdaten aller Mitglieder — deshalb dasselbe Recht wie das
+    // Anlegen von Hand und nicht darfKennzahlenSehen, an dem die
+    // Auswertungen hängen. Der Worker prüft es noch einmal selbst.
+    lsbKarteZeigen();
   }
 }
 
@@ -805,7 +807,6 @@ function init() {
   beitraegeVerdrahten();
   laufVerdrahten();
   zahlungenVerdrahten();
-  mahnungVerdrahten();
   antraegeVerdrahten();
 
   // Klick auf die abgedunkelte Flaeche schliesst, Klick im Dialog nicht.

@@ -1568,23 +1568,12 @@ const EINSTELLUNGEN = {
   tfv_vereinsnummer: { gruppe: "antrag", label: "Vereinsnummer beim Landesverband " +
                        "(nur setzen, wenn der Bogen sie NICHT vorgedruckt traegt)", max: 8 },
 
-  // Mahnwesen. Fristen und Gebuehren gehoeren nicht in den Code: eine
-  // geaenderte Zahlungsfrist darf kein Deploy sein.
-  mahn_karenz_tage: { gruppe: "mahnung", label: "Karenz nach Faelligkeit (Tage)",
-                      zahl: true, vorgabe: 14, min: 0, max_wert: 180 },
-  mahn_frist_tage:  { gruppe: "mahnung", label: "Zahlungsfrist je Mahnung (Tage)",
-                      zahl: true, vorgabe: 14, min: 7, max_wert: 90 },
-  mahn_mindest_cent: { gruppe: "mahnung", label: "Erst ab diesem Betrag mahnen (Cent)",
-                      zahl: true, vorgabe: 500, min: 0, max_wert: 100000 },
-  mahn_gebuehr1_cent: { gruppe: "mahnung", label: "Gebuehr 1. Mahnung (Cent)",
-                      zahl: true, vorgabe: 0, min: 0, max_wert: 10000 },
-  mahn_gebuehr2_cent: { gruppe: "mahnung", label: "Gebuehr 2. Mahnung (Cent)",
-                      zahl: true, vorgabe: 0, min: 0, max_wert: 10000 },
-  // Satzung § 5 Abs. 3: Anhoerung mit einer Frist von 10 Tagen. Weniger
-  // ist deshalb nicht einstellbar -- eine Satzung ist keine Vorgabe, die
-  // man in einem Formular unterbieten darf.
-  anhoerung_tage:   { gruppe: "mahnung", label: "Frist der Anhoerung vor Ausschluss (Tage, § 5 Abs. 3)",
-                      zahl: true, vorgabe: 10, min: 10, max_wert: 90 },
+  // ⚠️ Die Gruppe "mahnung" (Karenz, Zahlungsfrist, Mindestbetrag, die
+  // beiden Gebuehren, Anhoerungsfrist) ist am 10.08.2026 auf Michels
+  // Wunsch entfernt worden -- zusammen mit dem gesamten Mahnwesen. Wer
+  // sie wieder einfuehrt, braucht auch handleEinstellungSetzen zurueck:
+  // dort haengt das Recht an der Gruppe, und "mahnung" fiel unter
+  // darfBuchen (Schatzmeister).
 
   // Der Aufnahmeantrag ist der einzige Schreibpunkt der App, den jemand
   // ohne Anmeldung erreicht. Ein offener Endpunkt, den man nicht wieder
@@ -1608,17 +1597,6 @@ function einstellungZahl(cfg, schluessel) {
   const roh = cfg ? cfg[schluessel] : null;
   const n = parseInt(roh, 10);
   return Number.isFinite(n) ? n : regel.vorgabe;
-}
-
-// Tage auf ein ISO-Datum rechnen. Ueber Date.UTC, damit die Sommerzeit
-// eine Frist nicht um einen Tag verschiebt -- bei einer Mahnfrist ist
-// das kein Schoenheitsfehler.
-function tageAddieren(iso, tage) {
-  const t = String(iso).slice(0, 10).split("-").map(Number);
-  const d = new Date(Date.UTC(t[0], t[1] - 1, t[2] + tage));
-  return d.getUTCFullYear() + "-" +
-    String(d.getUTCMonth() + 1).padStart(2, "0") + "-" +
-    String(d.getUTCDate()).padStart(2, "0");
 }
 
 // IBAN-Pruefziffer nach ISO 13616 (Modulo 97). Ohne diese Pruefung faellt
@@ -1688,10 +1666,10 @@ async function handleEinstellungSetzen(body, env, me, corsHeaders) {
   const regel = EINSTELLUNGEN[schluessel];
   if (!regel) return json({ error: "Unbekannte Einstellung" }, 400, corsHeaders);
 
-  // Das Recht haengt an der Gruppe, nicht an der Tabelle. Vereins-IBAN,
-  // Glaeubiger-ID und Mahnfristen sind Sache des Schatzmeisters; ob das
-  // oeffentliche Antragsformular offen ist, entscheidet die
-  // Geschaeftsstelle -- die nimmt die Antraege entgegen.
+  // Das Recht haengt an der Gruppe, nicht an der Tabelle. Vereins-IBAN
+  // und Glaeubiger-ID sind Sache des Schatzmeisters; ob das oeffentliche
+  // Antragsformular offen ist, entscheidet die Geschaeftsstelle -- die
+  // nimmt die Antraege entgegen.
   const darf = regel.gruppe === "antrag"
     ? (rolle.istAdmin || rolle.darfSchreiben)
     : (rolle.istAdmin || rolle.darfBuchen);
@@ -1713,9 +1691,8 @@ async function handleEinstellungSetzen(body, env, me, corsHeaders) {
       return json({ error: regel.label + ": bitte eine Zahl eintragen" }, 400, corsHeaders);
     }
     if (n < regel.min || n > regel.max_wert) {
-      return json({ error: regel.label + ": zulaessig sind " + regel.min + " bis " + regel.max_wert +
-                    (regel.min === 10 && schluessel === "anhoerung_tage"
-                      ? ". Die Satzung verlangt mindestens 10 Tage." : "") }, 400, corsHeaders);
+      return json({ error: regel.label + ": zulaessig sind " + regel.min + " bis " +
+                    regel.max_wert }, 400, corsHeaders);
     }
     wert = String(n);
   }
@@ -2838,12 +2815,6 @@ async function handleZahlungSammel(body, env, me, corsHeaders) {
   for (let i = 0; i < alleIds.length; i += 50) {
     anweisungen.push(statusNeuBerechnen(env, alleIds.slice(i, i + 50)));
   }
-  // Offene Mahnungen der bezahlten Haushalte schliessen -- sonst mahnt
-  // der naechste Lauf jemanden, der laengst gezahlt hat.
-  const haushalte = Array.from(new Set(offen.map((z) => z.haushalt_id)));
-  for (let i = 0; i < haushalte.length; i += 50) {
-    anweisungen.push(mahnungenErledigen(env, haushalte.slice(i, i + 50), jetzt));
-  }
   anweisungen.push(env.VV_DB.prepare("UPDATE sepa_datei SET gebucht_am = ? WHERE id = ?")
     .bind(jetzt, datei.id));
 
@@ -2932,20 +2903,11 @@ async function handleSammelZurueck(body, env, me, corsHeaders) {
 
   await env.VV_DB.batch(anweisungen);
 
-  // ⚠️ Erledigte Mahnungen werden NICHT wieder aufgemacht. Ob eine Mahnung
-  // wegen dieser Buchung geschlossen wurde oder von Hand, steht nirgends --
-  // und die Stufenzaehlung des § 5 Abs. 3 ist nichts, was eine Reparatur
-  // still umschreiben darf. Gemeldet wird sie, damit niemand sie uebersieht.
-  const m = await env.VV_DB.prepare(
-    "SELECT COUNT(*) AS n FROM mahnung WHERE erledigt_am IS NOT NULL AND haushalt_id IN " +
-    "(SELECT DISTINCT haushalt_id FROM zahlung WHERE sepa_datei_id = ?)"
-  ).bind(datei.id).first();
-
   await protokolliere(env, me.username, "sepa-buchung-zurueckgenommen", "sepa_datei", datei.id,
                       { anzahl: zahlungen.length, summeCent: summe, grund,
                         warGebuchtAm: datei.gebucht_am });
   return json({ ok: true, anzahl: zahlungen.length, summeCent: summe,
-                mahnungenErledigt: m ? m.n : 0, msgId: datei.msg_id }, 200, corsHeaders);
+                msgId: datei.msg_id }, 200, corsHeaders);
 }
 
 // Einzelzahlung. Ohne forderung_id wird auf die offenen Forderungen des
@@ -3011,7 +2973,6 @@ async function handleZahlungErfassen(body, env, me, corsHeaders) {
   }
 
   anweisungen.push(statusNeuBerechnen(env, verteilt.map((v) => v.forderung_id)));
-  anweisungen.push(mahnungenErledigen(env, [zeilen[0].haushalt_id], jetzt));
   await env.VV_DB.batch(anweisungen);
   await protokolliere(env, me.username, "zahlung-erfasst", "haushalt",
                       zeilen[0].haushalt_id, { betrag, art, verteilt: verteilt.length });
@@ -3118,9 +3079,7 @@ async function handleOffenePosten(body, env, me, corsHeaders) {
     "SELECT f.id, f.bezeichnung, f.art, f.jahr, f.betrag_cent, f.faellig_am, f.status, " +
     "       f.haushalt_id, m.mitgliedsnummer, p.vorname, p.nachname, " +
     "       (SELECT COALESCE(SUM(z.betrag_cent),0) FROM zahlung z " +
-    "        WHERE z.forderung_id = f.id AND z.storniert_am IS NULL) AS bezahlt_cent, " +
-    "       (SELECT COUNT(*) FROM mahnung mh WHERE mh.haushalt_id = f.haushalt_id " +
-    "        AND mh.erledigt_am IS NULL) AS mahnungen " +
+    "        WHERE z.forderung_id = f.id AND z.storniert_am IS NULL) AS bezahlt_cent " +
     "FROM forderung f " +
     "JOIN mitgliedschaft m ON m.id = f.mitgliedschaft_id " +
     "JOIN person p ON p.id = m.person_id " +
@@ -3134,8 +3093,7 @@ async function handleOffenePosten(body, env, me, corsHeaders) {
     haushalt_id: f.haushalt_id, faellig_am: f.faellig_am, status: f.status,
     betrag_cent: f.betrag_cent, bezahlt_cent: f.bezahlt_cent,
     rest_cent: f.betrag_cent - f.bezahlt_cent,
-    ueberfaellig: f.faellig_am < heute,
-    mahnungen: f.mahnungen
+    ueberfaellig: f.faellig_am < heute
   }));
 
   const gesamt = await env.VV_DB.prepare(
@@ -3195,515 +3153,20 @@ async function handleZahlungenListe(body, env, me, corsHeaders) {
 }
 
 // ---------------------------------------------------------------------
-// Mahnwesen nach § 5 Abs. 3 der Satzung
+// Mahnwesen: am 10.08.2026 auf Michels Wunsch vollstaendig entfernt
 // ---------------------------------------------------------------------
 //
-// "Ein Mitglied kann ausgeschlossen werden, wenn es trotz zweier
-//  schriftlicher Mahnungen mit dem Beitrag im Rueckstand ist. Vor der
-//  Entscheidung ist ihm Gelegenheit zur Aeusserung zu geben, mit einer
-//  Frist von zehn Tagen."
+// Hier standen MAHN_STUFE_TEXT, mahnungenErledigen, sammleMahnfaelle und
+// die sechs Aktionen vv-mahnlauf / vv-mahnungen / vv-mahnung-brief /
+// vv-mahnung-versendet / vv-mahnung-erledigt / vv-ausschluss-kandidaten,
+// dazu die Tabelle `mahnung` und die Forderungsart 'mahngebuehr'.
 //
-// Daraus folgen drei Stufen, und zwar in genau dieser Reihenfolge:
-//   1  erste schriftliche Mahnung
-//   2  zweite schriftliche Mahnung
-//   3  Anhoerung vor dem Ausschluss, Frist mindestens 10 Tage
-//
-// Eine Stufe wird erst erreicht, wenn die FRIST der vorigen abgelaufen
-// ist. Zwei Mahnungen am selben Tag sind keine zwei Mahnungen -- das
-// waere der Fehler, an dem ein Ausschluss vor Gericht scheitert.
-//
-// Und: diese App schliesst NIEMANDEN aus. Sie legt dem Vorstand eine
-// Liste vor. Der Beschluss ist ein Vorstandsakt, so wie die Aufnahme
-// nach § 4 einer ist.
-
-const MAHN_STUFE_TEXT = {
-  1: "1. Mahnung",
-  2: "2. Mahnung",
-  3: "Anhoerung vor Ausschluss (§ 5 Abs. 3)"
-};
-
-// Mahnungen eines Haushalts gelten als erledigt, sobald dort nichts mehr
-// offen ist. Mengenbasiert, wird an jede Zahlungsbuchung angehaengt --
-// sonst mahnt der naechste Lauf jemanden, der laengst bezahlt hat.
-function mahnungenErledigen(env, haushaltIds, jetzt) {
-  const p = haushaltIds.map(() => "?").join(",");
-  return env.VV_DB.prepare(
-    "UPDATE mahnung SET erledigt_am = ? WHERE erledigt_am IS NULL " +
-    "AND haushalt_id IN (" + p + ") AND NOT EXISTS (" +
-    "  SELECT 1 FROM forderung f WHERE f.haushalt_id = mahnung.haushalt_id " +
-    "  AND f.storniert_am IS NULL AND f.status <> 'bezahlt')"
-  ).bind(jetzt, ...haushaltIds);
-}
-
-// Wer ist mahnfaellig, und auf welcher Stufe? Zwei Abfragen fuer den
-// gesamten Bestand, danach nur noch Rechnen.
-async function sammleMahnfaelle(env, cfg, heute) {
-  const karenz = einstellungZahl(cfg, "mahn_karenz_tage");
-  const frist = einstellungZahl(cfg, "mahn_frist_tage");
-  const mindest = einstellungZahl(cfg, "mahn_mindest_cent");
-  const anhoerung = einstellungZahl(cfg, "anhoerung_tage");
-  const stichtag = tageAddieren(heute, -karenz);
-
-  const offen = await env.VV_DB.prepare(
-    "SELECT f.haushalt_id, COUNT(*) AS anzahl, MIN(f.faellig_am) AS aeltester, " +
-    "  SUM(f.betrag_cent - (SELECT COALESCE(SUM(z.betrag_cent),0) FROM zahlung z " +
-    "      WHERE z.forderung_id = f.id AND z.storniert_am IS NULL)) AS offen_cent " +
-    "FROM forderung f " +
-    "WHERE f.storniert_am IS NULL AND f.status <> 'bezahlt' AND f.faellig_am <= ? " +
-    "GROUP BY f.haushalt_id"
-  ).bind(stichtag).all();
-
-  const bestehend = await env.VV_DB.prepare(
-    "SELECT haushalt_id, MAX(stufe) AS stufe, MAX(frist_bis) AS frist_bis " +
-    "FROM mahnung WHERE erledigt_am IS NULL GROUP BY haushalt_id"
-  ).all();
-  const stand = new Map();
-  for (const z of bestehend.results || []) stand.set(z.haushalt_id, z);
-
-  const faellig = [];
-  const wartend = [];
-  const zuKlein = [];
-  const ausschluss = [];
-
-  for (const h of offen.results || []) {
-    if (h.offen_cent <= 0) continue;
-    const vorher = stand.get(h.haushalt_id);
-    const stufeVorher = vorher ? vorher.stufe : 0;
-
-    if (stufeVorher >= 3) {
-      // Anhoerung laeuft oder ist abgelaufen. Nicht weiter mahnen --
-      // ab hier entscheidet der Vorstand.
-      ausschluss.push({ haushalt_id: h.haushalt_id, offen_cent: h.offen_cent,
-                        frist_bis: vorher.frist_bis,
-                        frist_abgelaufen: vorher.frist_bis < heute });
-      continue;
-    }
-    if (vorher && vorher.frist_bis >= heute) {
-      wartend.push({ haushalt_id: h.haushalt_id, offen_cent: h.offen_cent,
-                     stufe: stufeVorher, frist_bis: vorher.frist_bis });
-      continue;
-    }
-    if (h.offen_cent < mindest) {
-      zuKlein.push({ haushalt_id: h.haushalt_id, offen_cent: h.offen_cent });
-      continue;
-    }
-
-    const stufe = stufeVorher + 1;
-    faellig.push({
-      haushalt_id: h.haushalt_id,
-      stufe,
-      anzahl: h.anzahl,
-      offen_cent: h.offen_cent,
-      aeltester: h.aeltester,
-      frist_bis: tageAddieren(heute, stufe === 3 ? anhoerung : frist),
-      gebuehr_cent: stufe === 1 ? einstellungZahl(cfg, "mahn_gebuehr1_cent")
-                  : stufe === 2 ? einstellungZahl(cfg, "mahn_gebuehr2_cent") : 0
-    });
-  }
-
-  return { faellig, wartend, zuKlein, ausschluss, karenz, frist, mindest, anhoerung, stichtag };
-}
-
-// Namen und Anschriften zu einer Menge von Haushalten. Eine Abfrage.
-async function ladeHaushaltsInfos(env, ids) {
-  const infos = new Map();
-  for (let i = 0; i < ids.length; i += 50) {
-    const b = ids.slice(i, i + 50);
-    const r = await env.VV_DB.prepare(
-      "SELECT h.id, h.abw_empfaenger, h.abw_strasse, h.abw_plz, h.abw_ort, " +
-      "       zp.vorname AS z_vorname, zp.nachname AS z_nachname, zp.email AS z_email, " +
-      "       zp.strasse AS z_strasse, zp.plz AS z_plz, zp.ort AS z_ort " +
-      "FROM haushalt h LEFT JOIN person zp ON zp.id = h.zahler_person_id " +
-      "WHERE h.id IN (" + b.map(() => "?").join(",") + ")"
-    ).bind(...b).all();
-    for (const z of r.results || []) {
-      infos.set(z.id, {
-        empfaenger: z.abw_empfaenger || ((z.z_vorname || "") + " " + (z.z_nachname || "")).trim(),
-        email: z.z_email || "",
-        strasse: z.abw_strasse || z.z_strasse || "",
-        plz: z.abw_plz || z.z_plz || "",
-        ort: z.abw_ort || z.z_ort || ""
-      });
-    }
-  }
-  return infos;
-}
-
-// Mitglieder eines Haushalts mit offener Forderung -- fuer den Brieftext
-// und, bei Stufe 3, fuer die einzelnen Anhoerungen.
-async function ladeBetroffene(env, ids) {
-  const nach = new Map();
-  for (let i = 0; i < ids.length; i += 50) {
-    const b = ids.slice(i, i + 50);
-    const r = await env.VV_DB.prepare(
-      "SELECT f.id AS forderung_id, f.haushalt_id, f.mitgliedschaft_id, f.bezeichnung, " +
-      "       f.jahr, f.faellig_am, f.betrag_cent, m.mitgliedsnummer, p.vorname, p.nachname, " +
-      "       (SELECT COALESCE(SUM(z.betrag_cent),0) FROM zahlung z " +
-      "        WHERE z.forderung_id = f.id AND z.storniert_am IS NULL) AS bezahlt_cent " +
-      "FROM forderung f JOIN mitgliedschaft m ON m.id = f.mitgliedschaft_id " +
-      "JOIN person p ON p.id = m.person_id " +
-      "WHERE f.storniert_am IS NULL AND f.status <> 'bezahlt' " +
-      "  AND f.haushalt_id IN (" + b.map(() => "?").join(",") + ") " +
-      "ORDER BY f.faellig_am"
-    ).bind(...b).all();
-    for (const z of r.results || []) {
-      if (!nach.has(z.haushalt_id)) nach.set(z.haushalt_id, []);
-      nach.get(z.haushalt_id).push(z);
-    }
-  }
-  return nach;
-}
-
-async function handleMahnlauf(body, env, me, corsHeaders) {
-  const rolle = await ladeRolle(env, me);
-  const nurPruefen = !!body.pruefen;
-  if (!rolle.istAdmin && !rolle.darfBuchen && !(nurPruefen && rolle.darfSchreiben)) {
-    return json({ error: "Nur der Schatzmeister kann mahnen" }, 403, corsHeaders);
-  }
-
-  const cfg = (await ladeEinstellungen(env)) || {};
-  const heute = istIsoDatum(body.datum) ? body.datum : new Date().toISOString().slice(0, 10);
-  const s = await sammleMahnfaelle(env, cfg, heute);
-
-  const alleIds = s.faellig.map((f) => f.haushalt_id)
-    .concat(s.ausschluss.map((a) => a.haushalt_id));
-  const infos = await ladeHaushaltsInfos(env, alleIds);
-  const betroffene = await ladeBetroffene(env, alleIds);
-
-  function anreichern(x) {
-    const i = infos.get(x.haushalt_id) || {};
-    const p = betroffene.get(x.haushalt_id) || [];
-    return Object.assign({}, x, {
-      empfaenger: i.empfaenger || "(kein Zahler hinterlegt)",
-      email: i.email || "",
-      hatAnschrift: !!(i.strasse && i.ort),
-      mitglieder: p.map((f) => ({ nr: f.mitgliedsnummer,
-                                  name: (f.vorname + " " + f.nachname).trim() }))
-        .filter((m, k, a) => a.findIndex((y) => y.nr === m.nr) === k)
-    });
-  }
-
-  const vorschau = {
-    ok: true, heute, pruefung: nurPruefen,
-    regeln: { karenz: s.karenz, frist: s.frist, mindest_cent: s.mindest,
-              anhoerung: s.anhoerung, stichtag: s.stichtag },
-    faellig: s.faellig.map(anreichern),
-    nachStufe: [1, 2, 3].map((st) => ({
-      stufe: st, text: MAHN_STUFE_TEXT[st],
-      anzahl: s.faellig.filter((f) => f.stufe === st).length,
-      summe_cent: s.faellig.filter((f) => f.stufe === st).reduce((a, f) => a + f.offen_cent, 0)
-    })).filter((x) => x.anzahl),
-    wartend: s.wartend.length,
-    zuKlein: s.zuKlein.length,
-    zuKleinSumme: s.zuKlein.reduce((a, x) => a + x.offen_cent, 0),
-    ausschluss: s.ausschluss.map(anreichern),
-    summeCent: s.faellig.reduce((a, f) => a + f.offen_cent, 0)
-  };
-
-  if (nurPruefen) return json(vorschau, 200, corsHeaders);
-  if (!s.faellig.length) {
-    return json({ error: "Es ist derzeit niemand mahnfaellig" }, 409, corsHeaders);
-  }
-
-  const jetzt = new Date().toISOString();
-  const anweisungen = [];
-  let gebuehren = 0;
-
-  for (const f of s.faellig) {
-    const posten = (betroffene.get(f.haushalt_id) || []);
-    const forderungsIds = posten.map((x) => x.forderung_id);
-
-    if (f.stufe === 3) {
-      // Die Anhoerung geht an das MITGLIED, nicht an den Haushalt: der
-      // Ausschluss trifft eine Person. Bei einer Familie bekommt deshalb
-      // jedes betroffene Mitglied eine eigene -- adressiert wird
-      // trotzdem der Zahler.
-      const mitgliedschaften = Array.from(new Set(posten.map((x) => x.mitgliedschaft_id)));
-      for (const mid of mitgliedschaften) {
-        anweisungen.push(env.VV_DB.prepare(
-          "INSERT INTO mahnung (id, haushalt_id, mitgliedschaft_id, stufe, erstellt_datum, " +
-          "frist_bis, summe_cent, forderungen_json, versand_art, erstellt_am, erstellt_von) " +
-          "VALUES (?,?,?,3,?,?,?,?,'brief',?,?)"
-        ).bind(uuid(), f.haushalt_id, mid, heute, f.frist_bis, f.offen_cent,
-               JSON.stringify(posten.filter((x) => x.mitgliedschaft_id === mid)
-                                    .map((x) => x.forderung_id)),
-               jetzt, me.username));
-      }
-      continue;
-    }
-
-    anweisungen.push(env.VV_DB.prepare(
-      "INSERT INTO mahnung (id, haushalt_id, stufe, erstellt_datum, frist_bis, summe_cent, " +
-      "forderungen_json, versand_art, erstellt_am, erstellt_von) VALUES (?,?,?,?,?,?,?,?,?,?)"
-    ).bind(uuid(), f.haushalt_id, f.stufe, heute, f.frist_bis, f.offen_cent,
-           JSON.stringify(forderungsIds), infos.get(f.haushalt_id) &&
-           infos.get(f.haushalt_id).email ? "mail" : "brief", jetzt, me.username));
-
-    // Mahngebuehr als eigene Forderung, nie auf den Beitrag geschlagen.
-    // Sie haengt an der aeltesten offenen Forderung des Haushalts, damit
-    // sie einer Mitgliedschaft zugeordnet ist.
-    if (f.gebuehr_cent > 0 && posten.length) {
-      gebuehren++;
-      anweisungen.push(env.VV_DB.prepare(
-        "INSERT INTO forderung (id, mitgliedschaft_id, haushalt_id, art, bezeichnung, jahr, " +
-        "betrag_cent, faellig_am, status, erstellt_am, erstellt_von) " +
-        "VALUES (?,?,?,'mahngebuehr',?,?,?,?,'offen',?,?)"
-      ).bind(uuid(), posten[0].mitgliedschaft_id, f.haushalt_id,
-             "Mahngebuehr " + f.stufe + ". Mahnung", posten[0].jahr,
-             f.gebuehr_cent, f.frist_bis, jetzt, me.username));
-    }
-  }
-
-  await env.VV_DB.batch(anweisungen);
-  await protokolliere(env, me.username, "mahnlauf", "mahnung", null,
-                      { anzahl: s.faellig.length, summeCent: vorschau.summeCent, heute });
-
-  return json(Object.assign({}, vorschau, {
-    pruefung: false, erzeugt: s.faellig.length, gebuehren
-  }), 200, corsHeaders);
-}
-
-// Alle Mahnungen, jüngste zuerst. Mit dem aktuellen Rueckstand des
-// Haushalts, nicht nur dem Betrag zum Zeitpunkt der Mahnung -- sonst
-// steht in der Liste eine Summe, die laengst bezahlt ist.
-async function handleMahnungenListe(body, env, me, corsHeaders) {
-  const rolle = await ladeRolle(env, me);
-  if (!rolle.istAdmin && !rolle.darfBuchen && !rolle.darfSchreiben) {
-    return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
-  }
-  const heute = new Date().toISOString().slice(0, 10);
-  const bedingungen = [];
-  if (!body.auch_erledigte) bedingungen.push("mh.erledigt_am IS NULL");
-
-  const r = await env.VV_DB.prepare(
-    "SELECT mh.id, mh.haushalt_id, mh.mitgliedschaft_id, mh.stufe, mh.erstellt_datum, " +
-    "       mh.frist_bis, mh.summe_cent, mh.versand_art, mh.versendet_am, mh.erledigt_am, " +
-    "       zp.vorname AS z_vorname, zp.nachname AS z_nachname, zp.email AS z_email, " +
-    "       h.abw_empfaenger, " +
-    "       (SELECT COALESCE(SUM(f.betrag_cent - (SELECT COALESCE(SUM(z.betrag_cent),0) " +
-    "          FROM zahlung z WHERE z.forderung_id = f.id AND z.storniert_am IS NULL)),0) " +
-    "        FROM forderung f WHERE f.haushalt_id = mh.haushalt_id " +
-    "        AND f.storniert_am IS NULL AND f.status <> 'bezahlt') AS aktuell_offen " +
-    "FROM mahnung mh JOIN haushalt h ON h.id = mh.haushalt_id " +
-    "LEFT JOIN person zp ON zp.id = h.zahler_person_id " +
-    (bedingungen.length ? "WHERE " + bedingungen.join(" AND ") + " " : "") +
-    "ORDER BY mh.erstellt_datum DESC, mh.stufe DESC LIMIT 500"
-  ).all();
-
-  return json({
-    ok: true, heute,
-    mahnungen: (r.results || []).map((m) => ({
-      id: m.id, haushalt_id: m.haushalt_id, stufe: m.stufe,
-      stufe_text: MAHN_STUFE_TEXT[m.stufe] || String(m.stufe),
-      empfaenger: m.abw_empfaenger || ((m.z_vorname || "") + " " + (m.z_nachname || "")).trim(),
-      email: m.z_email || "",
-      erstellt_datum: m.erstellt_datum, frist_bis: m.frist_bis,
-      summe_cent: m.summe_cent, aktuell_offen: m.aktuell_offen,
-      versand_art: m.versand_art, versendet_am: m.versendet_am, erledigt_am: m.erledigt_am,
-      frist_abgelaufen: !m.erledigt_am && m.frist_bis < heute
-    })),
-    darfBuchen: rolle.istAdmin || rolle.darfBuchen
-  }, 200, corsHeaders);
-}
-
-// Serienbriefdaten. Wie bei der Vorabankuendigung: die App erzeugt die
-// Liste, nicht den Versand. Eine Mahnung, die im Spam landet, ist keine
-// schriftliche Mahnung im Sinne des § 5 Abs. 3 -- und genau daran haengt
-// spaeter die Wirksamkeit des Ausschlusses.
-async function handleMahnungBrief(body, env, me, corsHeaders) {
-  const rolle = await ladeRolle(env, me);
-  if (!rolle.istAdmin && !rolle.darfBuchen && !rolle.darfSchreiben) {
-    return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
-  }
-
-  const stufe = parseInt(body.stufe, 10);
-  const datum = istIsoDatum(body.erstellt_datum) ? body.erstellt_datum : null;
-  const bedingungen = ["mh.erledigt_am IS NULL", "mh.versendet_am IS NULL"];
-  const werte = [];
-  if (stufe >= 1 && stufe <= 3) { bedingungen.push("mh.stufe = ?"); werte.push(stufe); }
-  if (datum) { bedingungen.push("mh.erstellt_datum = ?"); werte.push(datum); }
-
-  const r = await env.VV_DB.prepare(
-    "SELECT mh.id, mh.haushalt_id, mh.stufe, mh.erstellt_datum, mh.frist_bis, " +
-    "       mh.summe_cent, mh.forderungen_json, " +
-    "       h.abw_empfaenger, h.abw_strasse, h.abw_plz, h.abw_ort, " +
-    "       zp.vorname AS z_vorname, zp.nachname AS z_nachname, zp.email AS z_email, " +
-    "       zp.strasse AS z_strasse, zp.plz AS z_plz, zp.ort AS z_ort " +
-    "FROM mahnung mh JOIN haushalt h ON h.id = mh.haushalt_id " +
-    "LEFT JOIN person zp ON zp.id = h.zahler_person_id " +
-    "WHERE " + bedingungen.join(" AND ") + " ORDER BY mh.stufe, zp.nachname LIMIT 500"
-  ).bind(...werte).all();
-
-  const zeilen = r.results || [];
-  const alleForderungen = [];
-  for (const m of zeilen) {
-    try { alleForderungen.push(...JSON.parse(m.forderungen_json || "[]")); } catch { /* leer */ }
-  }
-
-  // Die Einzelposten dazu -- eine Mahnung ohne Aufstellung, wofuer
-  // gemahnt wird, kann niemand pruefen.
-  const posten = new Map();
-  for (let i = 0; i < alleForderungen.length; i += 50) {
-    const b = alleForderungen.slice(i, i + 50);
-    const p = await env.VV_DB.prepare(
-      "SELECT f.id, f.haushalt_id, f.bezeichnung, f.faellig_am, f.betrag_cent, " +
-      "       m.mitgliedsnummer, pe.vorname, pe.nachname, " +
-      "       (SELECT COALESCE(SUM(z.betrag_cent),0) FROM zahlung z " +
-      "        WHERE z.forderung_id = f.id AND z.storniert_am IS NULL) AS bezahlt_cent " +
-      "FROM forderung f JOIN mitgliedschaft m ON m.id = f.mitgliedschaft_id " +
-      "JOIN person pe ON pe.id = m.person_id " +
-      "WHERE f.id IN (" + b.map(() => "?").join(",") + ")"
-    ).bind(...b).all();
-    for (const z of p.results || []) {
-      if (!posten.has(z.haushalt_id)) posten.set(z.haushalt_id, []);
-      posten.get(z.haushalt_id).push(z);
-    }
-  }
-
-  const cfg = (await ladeEinstellungen(env)) || {};
-  return json({
-    ok: true,
-    verein: cfg.verein_name || "",
-    anzahl: zeilen.length,
-    briefe: zeilen.map((m) => {
-      const p = (posten.get(m.haushalt_id) || []).filter((x) => x.betrag_cent > x.bezahlt_cent);
-      return {
-        id: m.id, stufe: m.stufe, stufe_text: MAHN_STUFE_TEXT[m.stufe],
-        empfaenger: m.abw_empfaenger || ((m.z_vorname || "") + " " + (m.z_nachname || "")).trim(),
-        strasse: m.abw_strasse || m.z_strasse || "",
-        plz: m.abw_plz || m.z_plz || "",
-        ort: m.abw_ort || m.z_ort || "",
-        email: m.z_email || "",
-        erstellt_datum: m.erstellt_datum,
-        frist_bis: m.frist_bis,
-        summe_cent: p.reduce((a, x) => a + (x.betrag_cent - x.bezahlt_cent), 0),
-        posten: p.map((x) => ({
-          nr: x.mitgliedsnummer, name: (x.vorname + " " + x.nachname).trim(),
-          bezeichnung: x.bezeichnung, faellig_am: x.faellig_am,
-          rest_cent: x.betrag_cent - x.bezahlt_cent
-        }))
-      };
-    }).filter((b) => b.summe_cent > 0)
-  }, 200, corsHeaders);
-}
-
-// Als versendet kennzeichnen. Erst DAS macht aus einer erzeugten Mahnung
-// eine schriftliche Mahnung -- die Stufenzaehlung des § 5 Abs. 3 haengt
-// daran, nicht am Erzeugen.
-async function handleMahnungVersendet(body, env, me, corsHeaders) {
-  const rolle = await ladeRolle(env, me);
-  if (!rolle.istAdmin && !rolle.darfBuchen) {
-    return json({ error: "Nur der Schatzmeister kann den Versand bestaetigen" }, 403, corsHeaders);
-  }
-  const ids = Array.isArray(body.ids) ? body.ids.map(String).slice(0, 500) : [];
-  const stufe = parseInt(body.stufe, 10);
-  const datum = istIsoDatum(body.versendet_am) ? body.versendet_am
-                                               : new Date().toISOString().slice(0, 10);
-  const jetzt = new Date().toISOString();
-
-  if (ids.length) {
-    const anweisungen = [];
-    for (let i = 0; i < ids.length; i += 50) {
-      const b = ids.slice(i, i + 50);
-      anweisungen.push(env.VV_DB.prepare(
-        "UPDATE mahnung SET versendet_am = ?, versendet_von = ? WHERE versendet_am IS NULL " +
-        "AND id IN (" + b.map(() => "?").join(",") + ")"
-      ).bind(datum, me.username, ...b));
-    }
-    await env.VV_DB.batch(anweisungen);
-    await protokolliere(env, me.username, "mahnungen-versendet", "mahnung", null,
-                        { anzahl: ids.length, datum });
-    return json({ ok: true, anzahl: ids.length }, 200, corsHeaders);
-  }
-
-  // Ohne Liste: alle noch nicht versendeten einer Stufe.
-  if (!(stufe >= 1 && stufe <= 3)) {
-    return json({ error: "Weder Mahnungen noch eine Stufe angegeben" }, 400, corsHeaders);
-  }
-  const zahl = await env.VV_DB.prepare(
-    "SELECT COUNT(*) AS n FROM mahnung WHERE versendet_am IS NULL AND erledigt_am IS NULL AND stufe = ?"
-  ).bind(stufe).first();
-  await env.VV_DB.prepare(
-    "UPDATE mahnung SET versendet_am = ?, versendet_von = ? " +
-    "WHERE versendet_am IS NULL AND erledigt_am IS NULL AND stufe = ?"
-  ).bind(datum, me.username, stufe).run();
-  await protokolliere(env, me.username, "mahnungen-versendet", "mahnung", null,
-                      { stufe, anzahl: zahl ? zahl.n : 0, datum });
-  return json({ ok: true, anzahl: zahl ? zahl.n : 0 }, 200, corsHeaders);
-}
-
-async function handleMahnungErledigt(body, env, me, corsHeaders) {
-  const rolle = await ladeRolle(env, me);
-  if (!rolle.istAdmin && !rolle.darfBuchen) {
-    return json({ error: "Nur der Schatzmeister kann eine Mahnung abschliessen" }, 403, corsHeaders);
-  }
-  const id = String(body.id || "");
-  if (!id) return json({ error: "Keine Mahnung angegeben" }, 400, corsHeaders);
-  await env.VV_DB.prepare(
-    "UPDATE mahnung SET erledigt_am = ? WHERE id = ? AND erledigt_am IS NULL"
-  ).bind(new Date().toISOString(), id).run();
-  await protokolliere(env, me.username, "mahnung-erledigt", "mahnung", id,
-                      { grund: sauber(body.grund, 200) });
-  return json({ ok: true }, 200, corsHeaders);
-}
-
-// Wer erfuellt die Voraussetzungen des § 5 Abs. 3? Ausdruecklich eine
-// VORLAGE fuer den Vorstand: zwei versendete Mahnungen, abgelaufene
-// Anhoerungsfrist, immer noch offen. Diese App schliesst niemanden aus.
-async function handleAusschlussKandidaten(env, me, corsHeaders) {
-  const rolle = await ladeRolle(env, me);
-  if (!rolle.istAdmin && !rolle.darfBuchen && !rolle.darfSchreiben) {
-    return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
-  }
-  const heute = new Date().toISOString().slice(0, 10);
-
-  const r = await env.VV_DB.prepare(
-    "SELECT mh.id, mh.haushalt_id, mh.mitgliedschaft_id, mh.frist_bis, mh.versendet_am, " +
-    "       m.mitgliedsnummer, m.status, p.vorname, p.nachname, " +
-    "       (SELECT COUNT(*) FROM mahnung m2 WHERE m2.haushalt_id = mh.haushalt_id " +
-    "        AND m2.stufe IN (1,2) AND m2.versendet_am IS NOT NULL) AS mahnungen_versendet, " +
-    "       (SELECT COALESCE(SUM(f.betrag_cent - (SELECT COALESCE(SUM(z.betrag_cent),0) " +
-    "          FROM zahlung z WHERE z.forderung_id = f.id AND z.storniert_am IS NULL)),0) " +
-    "        FROM forderung f WHERE f.haushalt_id = mh.haushalt_id " +
-    "        AND f.storniert_am IS NULL AND f.status <> 'bezahlt') AS offen_cent " +
-    "FROM mahnung mh " +
-    "LEFT JOIN mitgliedschaft m ON m.id = mh.mitgliedschaft_id " +
-    "LEFT JOIN person p ON p.id = m.person_id " +
-    "WHERE mh.stufe = 3 AND mh.erledigt_am IS NULL " +
-    "ORDER BY mh.frist_bis"
-  ).all();
-
-  const kandidaten = [];
-  const nochNicht = [];
-  for (const z of r.results || []) {
-    const eintrag = {
-      mahnung_id: z.id, mitgliedschaft_id: z.mitgliedschaft_id,
-      mitgliedsnummer: z.mitgliedsnummer,
-      name: ((z.vorname || "") + " " + (z.nachname || "")).trim(),
-      status: z.status, frist_bis: z.frist_bis, offen_cent: z.offen_cent,
-      mahnungen_versendet: z.mahnungen_versendet,
-      anhoerung_versendet: !!z.versendet_am
-    };
-    // Alle drei Bedingungen der Satzung muessen erfuellt sein.
-    const bereit = z.mahnungen_versendet >= 2 && !!z.versendet_am &&
-                   z.frist_bis < heute && z.offen_cent > 0 && z.status !== "beendet";
-    if (bereit) kandidaten.push(eintrag);
-    else {
-      // Als Code, nicht als Satz: der Text gehoert in die Oberflaeche,
-      // wo er mit Umlauten und deutschem Datum geschrieben werden kann.
-      eintrag.grund =
-        z.offen_cent <= 0 ? "bezahlt"
-        : z.status === "beendet" ? "beendet"
-        : z.mahnungen_versendet < 2 ? "mahnungen_fehlen"
-        : !z.versendet_am ? "anhoerung_nicht_versendet"
-        : "frist_laeuft";
-      nochNicht.push(eintrag);
-    }
-  }
-
-  return json({ ok: true, heute, kandidaten, nochNicht,
-                darfBuchen: rolle.istAdmin || rolle.darfBuchen }, 200, corsHeaders);
-}
+// ⚠️ Der Ausschluss nach § 5 Abs. 3 SETZT ZWEI SCHRIFTLICHE MAHNUNGEN
+// VORAUS. Die App unterstuetzt diesen Weg seitdem nicht mehr -- der
+// Austrittsgrund 'ausschluss' in handleAustritt ist geblieben und
+// vollzieht weiterhin einen Vorstandsbeschluss, aber die Vorstufen
+// dazu muessen ausserhalb der App dokumentiert werden. Wer das
+// Mahnwesen zurueckholt, findet es im Commit davor.
 
 // Die uebernommenen Mandate wurden vom Vereinsmeister bereits genutzt --
 // aus Sicht der Bank sind es Folgelastschriften, keine Erstlastschriften.
@@ -3975,8 +3438,8 @@ function pruefeAntrag(roh, erlaubteSparten, heute, quelle) {
   if (geburtsdatum > heute) return { fehler: "Das Geburtsdatum liegt in der Zukunft" };
   if (geburtsdatum < "1900-01-01") return { fehler: "Das Geburtsdatum ist nicht plausibel" };
 
-  // Ohne vollstaendige Anschrift kann der Verein weder eine Rechnung noch
-  // eine Mahnung zustellen -- und § 5 Abs. 3 haengt an der Zustellbarkeit.
+  // Ohne vollstaendige Anschrift kann der Verein dem Mitglied nichts
+  // zustellen -- weder eine Rechnung noch eine Beitragsankuendigung.
   const strasse = sauber(roh.strasse, 120);
   const plz = sauber(roh.plz, 10);
   const ort = sauber(roh.ort, 80);
@@ -6057,6 +5520,294 @@ async function handleBestandsmeldung(body, env, me, corsHeaders) {
   }, 200, corsHeaders);
 }
 
+// =====================================================================
+// DIE DATEI, DIE DER LANDESSPORTBUND EINLIEST
+// =====================================================================
+//
+// Das Portal unser-sportverein.net nimmt in Schritt 3 eine CSV mit
+// EINZELPERSONEN entgegen -- Name;Vorname;Geschlecht;Geburtsdatum;
+// Abteilungen -- und rechnet daraus selbst die Jahrgangsmatrix der
+// A- und B-Meldung. handleBestandsmeldung liefert dagegen Summen je
+// DOSB-Altersgruppe: gut zum Nachsehen und zum Gegenrechnen, aber nichts,
+// was sich hochladen liesse. Deshalb diese zweite Sicht auf dieselben
+// Daten.
+//
+// ⚠️ Diese Antwort enthaelt KLARNAMEN. Sie haengt deshalb an
+// darfSchreiben und ausdruecklich NICHT an darfKennzahlenSehen -- sonst
+// koennte vorstand.html sie rufen, und die Rechtegrenze jener Seite
+// ("laedt keinen Code, der Personendaten anzeigen kann") waere nur noch
+// eine Absicht. Ein Abteilungsleiter bekommt sie ebenfalls nicht: er
+// sieht seine Sparte, nicht den Gesamtbestand.
+
+// Gemerkt wird nur das JA -- dieselbe Falle wie bei hatGesetzl2Spalte:
+// die Migration laeuft moeglicherweise in einem anderen Isolate, und ein
+// gemerktes Nein hielte dieses hier dauerhaft auf dem alten Stand fest.
+let sportartSpalteDa = false;
+async function hatSportartSpalte(env) {
+  if (sportartSpalteDa) return true;
+  const r = await env.VV_DB.prepare("PRAGMA table_info(sparte)").all();
+  const da = (r.results || []).some((s) => s.name === "dosb_sportart_nr");
+  if (da) sportartSpalteDa = true;
+  return da;
+}
+
+// Die Nummer je Abteilung. Sie steht in der Sportartenliste des LSB und
+// ist eine Entscheidung des Vereins, keine Ableitung aus dem Namen:
+// "Turnen" gibt es in der Thueringer Liste gar nicht, der Verein meldet
+// es als Gymnastik (95). Wer sie aus dem Spartennamen erraten wollte,
+// meldete Mitglieder an den falschen Fachverband.
+async function handleSparteSportart(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfSchreiben) {
+    return json({ error: "Nur die Geschaeftsstelle oder der Schatzmeister kann Abteilungen pflegen" },
+                403, corsHeaders);
+  }
+
+  const id = String(body.sparte_id || "");
+  if (!id) return json({ error: "Keine Abteilung angegeben" }, 400, corsHeaders);
+
+  // Leeren muss moeglich bleiben: eine Abteilung ohne gueltige Sportart
+  // soll lieber gar keine Nummer tragen als eine falsche.
+  let nr = null;
+  if (body.nummer !== null && body.nummer !== undefined && String(body.nummer).trim() !== "") {
+    nr = Number(String(body.nummer).trim());
+    if (!Number.isInteger(nr) || nr < 1 || nr > 9999) {
+      return json({ error: "Die Sportartennummer ist eine ganze Zahl zwischen 1 und 9999" },
+                  400, corsHeaders);
+    }
+  }
+
+  // Der Aufrufer hat darfSchreiben und kaeme damit ohnehin an
+  // handleMigration -- die Spalte hier nachzuziehen erspart ihm den
+  // Umweg ueber einen anderen Reiter.
+  if (!(await hatSportartSpalte(env))) {
+    await env.VV_DB.prepare("ALTER TABLE sparte ADD COLUMN dosb_sportart_nr INTEGER").run();
+    sportartSpalteDa = true;
+  }
+
+  const da = await env.VV_DB.prepare("SELECT id, name FROM sparte WHERE id = ?").bind(id).first();
+  if (!da) return json({ error: "Abteilung nicht gefunden" }, 404, corsHeaders);
+
+  await env.VV_DB.prepare(
+    "UPDATE sparte SET dosb_sportart_nr = ?, geaendert_am = ?, geaendert_von = ? WHERE id = ?"
+  ).bind(nr, new Date().toISOString(), me.username, id).run();
+
+  await protokolliere(env, me.username, "sparte-sportart", "sparte", id, { name: da.name, nummer: nr });
+  return json({ ok: true, id, nummer: nr }, 200, corsHeaders);
+}
+
+// Zweistelliges Geschlecht des Portals: M, W, D und O fuer "ohne
+// Angabe". Ein leeres Feld waere nicht dasselbe -- das Portal fuehrt O
+// als eigene Spalte, und wer es weglaesst, riskiert, dass die Zeile beim
+// Einlesen liegen bleibt.
+function lsbGeschlecht(wert) {
+  const t = String(wert || "").trim().toLowerCase();
+  if (t === "w" || t === "m" || t === "d") return t;
+  return "o";
+}
+
+// TT.MM.JJJJ. Das Portal erwartet das deutsche Format; in der Datenbank
+// steht ISO.
+function lsbDatum(iso) {
+  if (!istIsoDatum(String(iso || "").slice(0, 10))) return "";
+  const t = String(iso).slice(0, 10).split("-");
+  return t[2] + "." + t[1] + "." + t[0];
+}
+
+async function handleLsbExport(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfSchreiben) {
+    return json({ error: "Diese Liste enthaelt Namen und Geburtsdaten aller Mitglieder und " +
+                         "ist der Geschaeftsstelle vorbehalten" }, 403, corsHeaders);
+  }
+
+  const stichtag = istIsoDatum(body.stichtag) ? body.stichtag
+                                              : (new Date().getFullYear() + "-01-01");
+  const nrDa = await hatSportartSpalte(env);
+
+  // LEFT JOIN, nicht JOIN: gemeldet werden ALLE Mitglieder, auch die
+  // ohne Abteilung. Im Altbestand sind das fuenf -- mit einem inneren
+  // Verbund fielen sie lautlos aus der Meldung, und die A-Meldung waere
+  // um fuenf Personen zu klein.
+  const roh = ((await env.VV_DB.prepare(
+    "SELECT m.id AS mid, m.mitgliedsnummer, p.nachname, p.vorname, p.geschlecht, p.geburtsdatum, " +
+    " s.name AS sparte, " + (nrDa ? "s.dosb_sportart_nr" : "NULL") + " AS nr " +
+    "FROM mitgliedschaft m JOIN person p ON p.id = m.person_id " +
+    "LEFT JOIN mitgliedschaft_sparte ms ON ms.mitgliedschaft_id = m.id " +
+    " AND (ms.austritt IS NULL OR ms.austritt >= ?) " +
+    "LEFT JOIN sparte s ON s.id = ms.sparte_id " +
+    "WHERE " + bestandSql(stichtag) + " " +
+    "ORDER BY p.nachname, p.vorname, s.name"
+  ).bind(stichtag).all()).results) || [];
+
+  const nachMitglied = new Map();
+  for (const z of roh) {
+    if (!nachMitglied.has(z.mid)) {
+      nachMitglied.set(z.mid, {
+        mitgliedsnummer: z.mitgliedsnummer,
+        nachname: z.nachname || "", vorname: z.vorname || "",
+        geschlecht: lsbGeschlecht(z.geschlecht),
+        geburtsdatum: lsbDatum(z.geburtsdatum),
+        nummern: [], sparten: []
+      });
+    }
+    const e = nachMitglied.get(z.mid);
+    if (!z.sparte) continue;
+    e.sparten.push(z.sparte);
+    // Dieselbe Nummer zweimal waere beim Verband eine zweite
+    // Mitgliedschaft in derselben Sportart. Kann vorkommen, sobald zwei
+    // Abteilungen auf dieselbe Sportart gemeldet werden.
+    if (z.nr && !e.nummern.includes(z.nr)) e.nummern.push(z.nr);
+  }
+
+  const zeilen = Array.from(nachMitglied.values());
+
+  // Was der Datei fehlt, wird NAMENTLICH gemeldet statt gezaehlt: "drei
+  // ohne Geburtsdatum" ist nichts, womit die Geschaeftsstelle arbeiten
+  // kann.
+  const ohneAbteilung = zeilen.filter((z) => !z.sparten.length)
+    .map((z) => ({ name: z.vorname + " " + z.nachname, nummer: z.mitgliedsnummer }));
+  const ohneDatum = zeilen.filter((z) => !z.geburtsdatum)
+    .map((z) => ({ name: z.vorname + " " + z.nachname, nummer: z.mitgliedsnummer }));
+  const ohneGeschlecht = zeilen.filter((z) => z.geschlecht === "o").length;
+
+  // Abteilungen, die jemanden tragen, aber keine Nummer haben. Genau die
+  // Leute landen sonst beim Verband unter "ohne Landesfachverband" --
+  // 2026 kostet das Anstatt-Beitrag, ab 2027 geht es gar nicht mehr.
+  const nummerJeSparte = new Map();
+  for (const r of roh) {
+    if (r.sparte && !nummerJeSparte.has(r.sparte)) nummerJeSparte.set(r.sparte, r.nr || null);
+  }
+  const ohneNummer = new Map();
+  for (const z of zeilen) {
+    for (const name of z.sparten) {
+      if (!nummerJeSparte.get(name)) ohneNummer.set(name, (ohneNummer.get(name) || 0) + 1);
+    }
+  }
+
+  return json({
+    ok: true, stichtag, zeilen,
+    mitglieder: zeilen.length,
+    // Die B-Meldung ist hoeher als die A-Meldung, sobald jemand zwei
+    // Sportarten betreibt. Das ist so gewollt und keine Doppelzaehlung.
+    meldungen: zeilen.reduce((s, z) => s + z.nummern.length, 0),
+    ohne_abteilung: ohneAbteilung,
+    ohne_geburtsdatum: ohneDatum,
+    ohne_geschlecht: ohneGeschlecht,
+    ohne_nummer: Array.from(ohneNummer, ([name, anzahl]) => ({ name, anzahl })),
+    spalte_fehlt: !nrDa
+  }, 200, corsHeaders);
+}
+
+// Einen Sammelposten auf zwei echte Abteilungen verteilen.
+//
+// Anlass: "Breitensport" ist keine Sportart des DOSB und steht in keiner
+// Liste -- der Posten stammt aus dem Vereinsmeister, der die realen
+// Abteilungen nur zusammengefasst kennt. Solange die 85 Leute dort
+// stehen, sind sie beim Verband nicht meldbar.
+//
+// ⚠️ Die Zuordnung wird UMGEHAENGT, nicht beendet und neu angelegt. Ein
+// beendeter Sammelposten-Eintrag traegt sein Austrittsdatum in der
+// Zukunft des Stichtags und wuerde in derselben Meldung ein zweites Mal
+// mitgezaehlt; ausserdem ginge der Eintrittstag verloren, an dem die
+// Beitragsgeschichte haengt. Umhaengen erhaelt beides.
+async function handleSparteAufteilen(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfSchreiben) {
+    return json({ error: "Nur die Geschaeftsstelle oder der Schatzmeister kann Abteilungen pflegen" },
+                403, corsHeaders);
+  }
+
+  const quelle = String(body.quelle_id || "");
+  const zielAlt = String(body.ziel_ab_id || "");
+  const zielJung = String(body.ziel_unter_id || "");
+  if (!quelle || !zielAlt || !zielJung) {
+    return json({ error: "Quelle und beide Ziele muessen angegeben sein" }, 400, corsHeaders);
+  }
+  if (zielAlt === quelle || zielJung === quelle) {
+    return json({ error: "Eine Abteilung kann nicht in sich selbst aufgeteilt werden" }, 400, corsHeaders);
+  }
+
+  const grenze = Number(body.grenze);
+  if (!Number.isInteger(grenze) || grenze < 1 || grenze > 120) {
+    return json({ error: "Die Altersgrenze ist eine ganze Zahl zwischen 1 und 120" }, 400, corsHeaders);
+  }
+  const stichtag = istIsoDatum(body.stichtag) ? body.stichtag
+                                              : (new Date().getFullYear() + "-01-01");
+
+  const namen = ((await env.VV_DB.prepare(
+    "SELECT id, name FROM sparte WHERE id IN (?,?,?)"
+  ).bind(quelle, zielAlt, zielJung).all()).results) || [];
+  if (namen.length < 2) return json({ error: "Abteilung nicht gefunden" }, 404, corsHeaders);
+  const nameVon = (id) => (namen.find((n) => n.id === id) || {}).name || "?";
+
+  // Wer schon in der Zielabteilung steht, wird NICHT umgehaengt -- sonst
+  // stuenden zwei laufende Zuordnungen zur selben Abteilung da. Diese
+  // Faelle werden namentlich gemeldet und bleiben, wie sie sind.
+  const bedingung = (jaAlt) =>
+    "ms.sparte_id = ? AND ms.austritt IS NULL " +
+    "AND EXISTS (SELECT 1 FROM mitgliedschaft m JOIN person p ON p.id = m.person_id " +
+    " WHERE m.id = ms.mitgliedschaft_id AND " + bestandSql(stichtag) +
+    " AND " + alterSql(stichtag) + (jaAlt ? " >= " : " < ") + grenze + ") " +
+    "AND NOT EXISTS (SELECT 1 FROM mitgliedschaft_sparte x " +
+    " WHERE x.mitgliedschaft_id = ms.mitgliedschaft_id AND x.sparte_id = ? AND x.austritt IS NULL)";
+
+  const zaehle = async (jaAlt, ziel) => {
+    const r = await env.VV_DB.prepare(
+      "SELECT COUNT(*) AS n FROM mitgliedschaft_sparte ms WHERE " + bedingung(jaAlt)
+    ).bind(quelle, ziel).first();
+    return (r && r.n) || 0;
+  };
+
+  const nAlt = await zaehle(true, zielAlt);
+  const nJung = await zaehle(false, zielJung);
+
+  // Alles, was in keiner der beiden Mengen liegt: schon in der
+  // Zielabteilung, oder ohne Geburtsdatum (dann ist das Alter NULL und
+  // faellt durch beide Vergleiche).
+  const bleibt = ((await env.VV_DB.prepare(
+    "SELECT p.vorname, p.nachname, m.mitgliedsnummer, " + alterSql(stichtag) + " AS alter_jahre " +
+    "FROM mitgliedschaft_sparte ms JOIN mitgliedschaft m ON m.id = ms.mitgliedschaft_id " +
+    "JOIN person p ON p.id = m.person_id " +
+    "WHERE ms.sparte_id = ? AND ms.austritt IS NULL AND " + bestandSql(stichtag) + " " +
+    " AND (" + alterSql(stichtag) + " IS NULL " +
+    "  OR EXISTS (SELECT 1 FROM mitgliedschaft_sparte x WHERE x.mitgliedschaft_id = ms.mitgliedschaft_id " +
+    "   AND x.sparte_id IN (?,?) AND x.austritt IS NULL)) " +
+    "ORDER BY p.nachname, p.vorname"
+  ).bind(quelle, zielAlt, zielJung).all()).results) || [];
+
+  if (!body.ausfuehren) {
+    return json({ ok: true, vorschau: true, stichtag, grenze,
+                  quelle: nameVon(quelle),
+                  ab: { name: nameVon(zielAlt), anzahl: nAlt },
+                  unter: { name: nameVon(zielJung), anzahl: nJung },
+                  bleibt }, 200, corsHeaders);
+  }
+
+  // Zwei mengenbasierte UPDATEs statt einer Schleife ueber 85 Zeilen --
+  // dieselbe Regel wie beim Import und beim Beitragslauf.
+  const jetzt = new Date().toISOString();
+  const umhaengen = (jaAlt, ziel) => env.VV_DB.prepare(
+    "UPDATE mitgliedschaft_sparte SET sparte_id = ?, geaendert_am = ?, geaendert_von = ? " +
+    "WHERE id IN (SELECT ms.id FROM mitgliedschaft_sparte ms WHERE " + bedingung(jaAlt) + ")"
+  ).bind(ziel, jetzt, me.username, quelle, ziel);
+
+  await env.VV_DB.batch([umhaengen(true, zielAlt), umhaengen(false, zielJung)]);
+
+  await protokolliere(env, me.username, "sparte-aufgeteilt", "sparte", quelle, {
+    quelle: nameVon(quelle), grenze, stichtag,
+    ab: { name: nameVon(zielAlt), anzahl: nAlt },
+    unter: { name: nameVon(zielJung), anzahl: nJung },
+    bleibt: bleibt.length
+  });
+
+  return json({ ok: true, vorschau: false, stichtag, grenze,
+                quelle: nameVon(quelle),
+                ab: { name: nameVon(zielAlt), anzahl: nAlt },
+                unter: { name: nameVon(zielJung), anzahl: nJung },
+                bleibt }, 200, corsHeaders);
+}
+
 function uuid() {
   return crypto.randomUUID();
 }
@@ -6597,18 +6348,14 @@ export default {
         case "vv-forderung-stornieren": return handleForderungStornieren(body, env, me, corsHeaders);
         case "vv-offene-posten":   return handleOffenePosten(body, env, me, corsHeaders);
         case "vv-zahlungen":       return handleZahlungenListe(body, env, me, corsHeaders);
-        case "vv-mahnlauf":        return handleMahnlauf(body, env, me, corsHeaders);
-        case "vv-mahnungen":       return handleMahnungenListe(body, env, me, corsHeaders);
-        case "vv-mahnung-brief":   return handleMahnungBrief(body, env, me, corsHeaders);
-        case "vv-mahnung-versendet": return handleMahnungVersendet(body, env, me, corsHeaders);
-        case "vv-mahnung-erledigt": return handleMahnungErledigt(body, env, me, corsHeaders);
-        case "vv-ausschluss-kandidaten": return handleAusschlussKandidaten(env, me, corsHeaders);
         case "vv-antraege":        return handleAntraegeListe(body, env, me, corsHeaders);
         case "vv-antrag":          return handleAntragDetail(body, env, me, corsHeaders);
         case "vv-antrag-status":   return handleAntragStatus(body, env, me, corsHeaders);
         case "vv-antrag-annehmen": return handleAntragAnnehmen(body, env, me, corsHeaders);
         case "vv-sparte-aktiv":    return handleSparteAktiv(body, env, me, corsHeaders);
         case "vv-sparte-loeschen": return handleSparteLoeschen(body, env, me, corsHeaders);
+        case "vv-sparte-sportart": return handleSparteSportart(body, env, me, corsHeaders);
+        case "vv-sparte-aufteilen": return handleSparteAufteilen(body, env, me, corsHeaders);
         case "vv-buch-init":       return handleBuchInit(env, me, corsHeaders);
         case "vv-buch-stammdaten": return handleBuchStammdaten(env, me, corsHeaders);
         case "vv-jahr-anlegen":    return handleJahrAnlegen(body, env, me, corsHeaders);
@@ -6623,6 +6370,10 @@ export default {
         case "vv-eroeffnung":      return handleEroeffnung(body, env, me, corsHeaders);
         case "vv-kennzahlen":      return handleKennzahlen(body, env, me, corsHeaders);
         case "vv-bestandsmeldung": return handleBestandsmeldung(body, env, me, corsHeaders);
+        // Die Datei zum Hochladen -- mit Klarnamen, deshalb an
+        // darfSchreiben und nicht an darfKennzahlenSehen wie die
+        // Auswertung darueber.
+        case "vv-lsb-export":      return handleLsbExport(body, env, me, corsHeaders);
         case "vv-sicherung":       return handleSicherung(env, me, corsHeaders);
         case "vv-sicherung-jetzt": return handleSicherungJetzt(env, me, corsHeaders);
         case "vv-sparten-init":    return handleSpartenInit(env, me, corsHeaders);

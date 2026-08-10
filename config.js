@@ -39,13 +39,33 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Mahnwesen entfernt",
+    datum: "2026-08-10",
+    punkte: [
+      "Der gesamte Mahnbereich im Reiter „Zahlungen“ ist entfallen: Mahnlauf, Mahnungsliste, Serienbrief, die Ausschlussliste für den Vorstand und die Einstellungen für Fristen und Mahngebühren.",
+      "Die offenen Posten bleiben unverändert — fällige und nicht bezahlte Forderungen werden dort weiterhin gezählt und hervorgehoben. Nur der Weg, daraus eine Mahnung zu erzeugen, gibt es nicht mehr.",
+      "Wichtig für den Fall eines Ausschlusses: Die Satzung verlangt nach § 5 Abs. 3 zwei schriftliche Mahnungen und eine Anhörung. Diese Schritte müssen jetzt außerhalb der App belegt werden. Der Austrittsgrund „Ausschluss“ bleibt bestehen und vollzieht wie bisher einen Vorstandsbeschluss.",
+      "Bereits erzeugte Mahnungen sind mit entfernt worden."
+    ]
+  },
+  {
+    version: "Meldedatei für den Landessportbund",
+    datum: "2026-08-10",
+    punkte: [
+      "Neuer Kasten unter der Mitgliederliste: „Bestandsmeldung an den Landessportbund“. Er erzeugt die CSV-Datei im Format des LSB Thüringen — eine Zeile je Person mit Name, Vorname, Geschlecht, Geburtsdatum und Sportartennummer. Genau die liest das Portal unser-sportverein.net in Schritt 3 der Bestandserhebung ein und rechnet daraus selbst die Jahrgangs- und Fachverbandsmeldung.",
+      "Die Zahlen je Altersgruppe in den Auswertungen bleiben, wo sie sind — sie sind zum Gegenrechnen da, hochladen lassen sie sich nicht.",
+      "Jede Abteilung bekommt dafür im Reiter „Anträge“ ein Feld für ihre Sportartennummer aus der Sportartenliste des LSB. Ohne Nummer laufen ihre Mitglieder beim Verband unter „ohne Landesfachverband“: 2026 kostet das 5 € je Kind und 10 € je Erwachsenem, ab 2027 ist es gar nicht mehr möglich.",
+      "Was der Meldung fehlt, wird namentlich genannt statt gezählt: Mitglieder ohne Abteilung, ohne Geburtsdatum, und jede Abteilung ohne Nummer samt der Zahl der Betroffenen.",
+      "Dazu ein Werkzeug, das einen Sammelposten wie „Breitensport“ nach Alter auf zwei echte Abteilungen verteilt — mit Vorschau vor dem Schreiben. Die Zuordnungen werden umgehängt, nicht neu angelegt: Eintrittsdatum und Beitragsgeschichte bleiben unberührt, und wer schon in der Zielabteilung steht, wird nicht angefasst, sondern gemeldet."
+    ]
+  },
+  {
     version: "Sammelbuchung lässt sich zurücknehmen",
     datum: "2026-08-10",
     punkte: [
       "Eine als eingegangen gebuchte SEPA-Datei lässt sich jetzt zurücknehmen — für den Fall, dass der Einzug in Wahrheit nie stattgefunden hat. Der Knopf steht in der Tabelle „SEPA-Dateien“ des Beitragslaufs, dort wo sonst „als eingegangen buchen“ steht.",
       "Die Zahlungen werden dabei storniert, nicht gelöscht: sie bleiben mit Grund und Urheber sichtbar. Die Forderungen stehen danach wieder offen und lassen sich erneut einziehen.",
-      "Gesperrt ist der Weg, sobald der Einzug in die Buchhaltung übernommen wurde — dort wird zuerst storniert, sonst zeigt das Forderungskonto etwas anderes als die Beitragsverwaltung.",
-      "Bereits erledigte Mahnungen werden nicht wieder aufgemacht; gibt es welche, wird darauf hingewiesen."
+      "Gesperrt ist der Weg, sobald der Einzug in die Buchhaltung übernommen wurde — dort wird zuerst storniert, sonst zeigt das Forderungskonto etwas anderes als die Beitragsverwaltung."
     ]
   },
   {
@@ -182,20 +202,6 @@ const CHANGELOG = [
       "Das Formular lässt sich in der Verwaltung schließen und wieder öffnen.",
       "Die IBAN wird schon beim Tippen geprüft. Eine falsche Prüfziffer lässt sonst die komplette Einreichung bei der Bank scheitern.",
       "Nach dem Absenden bekommt der Antragsteller seine Erklärung samt Unterschrift zum Ausdrucken oder Speichern."
-    ]
-  },
-  {
-    version: "Mahnwesen nach § 5 Abs. 3",
-    datum: "2026-07-30",
-    punkte: [
-      "Mahnlauf mit drei Stufen: erste Mahnung, zweite Mahnung, Anhörung vor dem Ausschluss.",
-      "Eine Stufe wird erst erreicht, wenn die Frist der vorigen abgelaufen ist. Zwei Mahnungen am selben Tag sind keine zwei Mahnungen — daran scheitert ein Ausschluss.",
-      "Erst der bestätigte Versand macht aus einer erzeugten Mahnung eine schriftliche Mahnung. Die Stufenzählung hängt daran, nicht am Erzeugen.",
-      "Serienbrief zum Herunterladen: Adressliste und fertige Brieftexte mit allen Einzelposten. Die Anhörung nennt die Satzung und die Frist.",
-      "Ausschlussliste für den Vorstand — erst wenn alle drei Voraussetzungen erfüllt sind. Die App schließt niemanden aus, das ist ein Vorstandsbeschluss.",
-      "Wer bezahlt, dessen Mahnungen schließen sich von selbst. Eine Teilzahlung reicht nicht.",
-      "Karenzzeit, Fristen, Mindestbetrag und Mahngebühren sind einstellbar. Die Anhörungsfrist lässt sich nicht unter zehn Tage setzen.",
-      "Mahngebühren werden als eigene Forderung angelegt, nicht auf den Beitrag geschlagen."
     ]
   },
   {

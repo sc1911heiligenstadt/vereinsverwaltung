@@ -94,6 +94,8 @@ async function ladeAntragSparten() {
   const sparten = antwort.sparten || [];
   const aktive = sparten.filter((s) => s.aktiv).length;
 
+  const ohneNr = sparten.filter((s) => s.aktiv && !s.dosb_sportart_nr).length;
+
   ziel.innerHTML =
     "<h3>Abteilungen im Formular</h3>" +
     '<p class="fussnote">Angehakt heißt: steht im Aufnahmeantrag zur Auswahl. Zurzeit ' +
@@ -101,12 +103,23 @@ async function ladeAntragSparten() {
       "Abteilung behält ihre Mitglieder und ihre Geschichte — sie wird nur nicht mehr " +
       "angeboten. Das × daneben löscht die Abteilung ganz; das geht nur, solange ihr " +
       "niemand mehr zugeordnet ist.</p>" +
+    '<p class="fussnote">Das Zahlenfeld ist die <strong>Sportartennummer des LSB</strong> ' +
+      "(Sportartenliste des Landessportbundes). Sie entscheidet, an welchen Fachverband die " +
+      "Mitglieder dieser Abteilung gemeldet werden — ohne sie laufen sie unter „ohne " +
+      "Landesfachverband“ und kosten den Anstatt-Beitrag." +
+      (ohneNr ? " <strong>" + ohneNr + (ohneNr === 1 ? " aktive Abteilung hat" : " aktive Abteilungen haben") +
+        " noch keine Nummer.</strong>" : "") + "</p>" +
     '<div class="ankreuz-raster">' + sparten.map((s) =>
       '<div class="sparte-zeile">' +
       '<label class="ankreuz"><input type="checkbox" class="an-sp-aktiv" data-id="' + esc(s.id) +
       '" data-name="' + esc(s.name) + '" data-anzahl="' + (s.mitglieder || 0) + '"' +
       (s.aktiv ? " checked" : "") + "><span>" + esc(s.name) +
       ' <span class="fussnote">(' + (s.mitglieder || 0) + ")</span></span></label>" +
+      '<input type="number" class="sparte-nr an-sp-nr" min="1" max="9999" step="1" ' +
+      'inputmode="numeric" placeholder="Nr." title="Sportartennummer des LSB" ' +
+      'data-id="' + esc(s.id) + '" data-name="' + esc(s.name) + '" ' +
+      'data-wert="' + (s.dosb_sportart_nr || "") + '" ' +
+      'value="' + (s.dosb_sportart_nr || "") + '">' +
       '<button type="button" class="sparte-weg an-sp-weg" data-id="' + esc(s.id) +
       '" data-name="' + esc(s.name) + '" title="Abteilung löschen">×</button>' +
       "</div>").join("") +
@@ -118,11 +131,35 @@ async function ladeAntragSparten() {
   ziel.querySelectorAll(".an-sp-weg").forEach((b) => {
     b.addEventListener("click", () => loescheSparte(b));
   });
+  // "change" statt "input": gespeichert wird, wenn das Feld verlassen
+  // wird -- sonst schriebe jede einzelne getippte Ziffer eine eigene
+  // Nummer in die Datenbank (aus "291" wuerden 2, 29 und 291).
+  ziel.querySelectorAll(".an-sp-nr").forEach((f) => {
+    f.addEventListener("change", () => setzeSportart(f));
+  });
 }
 
-// Der Server liefert Codes, die Saetze entstehen hier -- wie beim
-// Mahnwesen. "rolle" und "buchung" sind Sperren, an denen kein Knopf
-// vorbeifuehrt.
+// Die Nummer wird einzeln gespeichert, ohne Sammelknopf: es ist ein Feld
+// je Zeile, und ein "Speichern" darueber liesse offen, ob die gerade
+// getippte Zahl schon drin ist.
+async function setzeSportart(feld) {
+  const alt = feld.dataset.wert || "";
+  try {
+    await vvRequest("vv-sparte-sportart",
+                    { sparte_id: feld.dataset.id, nummer: feld.value.trim() });
+  } catch (e) {
+    feld.value = alt;
+    alert("Nicht gespeichert: " + e.message);
+    return;
+  }
+  feld.dataset.wert = feld.value.trim();
+  feld.classList.add("gespeichert");
+  setTimeout(() => feld.classList.remove("gespeichert"), 1200);
+}
+
+// Der Server liefert Codes, die Saetze entstehen hier -- dort gehoeren
+// Umlaute und deutsches Datum hin. "rolle" und "buchung" sind Sperren,
+// an denen kein Knopf vorbeifuehrt.
 function sperrText(sp) {
   if (sp.was === "rolle") {
     return sp.anzahl === 1

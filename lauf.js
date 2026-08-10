@@ -73,12 +73,10 @@ async function ladeStammdaten() {
     return;
   }
 
-  // Nur die SEPA-Stammdaten. Die Mahnfristen kommen aus derselben Aktion,
-  // gehören aber in den Zahlungen-Reiter, wo sie gebraucht werden.
-  // Weißliste, keine Sperrliste: hier gehören ausschließlich die
-  // SEPA-Stammdaten hin. Mit "alles außer mahnung" wäre jede künftige
-  // Einstellungsgruppe ungefragt in diesem Reiter gelandet — genau das
-  // ist mit der Gruppe "antrag" beinahe passiert.
+  // Nur die SEPA-Stammdaten. Weißliste, keine Sperrliste: hier gehören
+  // ausschließlich die SEPA-Stammdaten hin. Mit "alles außer <Gruppe X>"
+  // wäre jede künftige Einstellungsgruppe ungefragt in diesem Reiter
+  // gelandet — genau das ist mit der Gruppe "antrag" beinahe passiert.
   const felder = laufStammdaten.felder.filter((f) => f.gruppe === "sepa");
 
   ziel.innerHTML = '<div class="formraster">' +
@@ -415,12 +413,7 @@ async function nimmSammelZurueck(dateiId, laufId) {
     await oeffneLauf(laufId);
     lMeldung("l-detail-status", "erfolg",
       "<strong>" + r.anzahl + " Zahlungen</strong> über <strong>" + lEur(r.summeCent) +
-      "</strong> storniert. Die Forderungen stehen wieder offen." +
-      (r.mahnungenErledigt
-        ? " <strong>Achtung:</strong> zu diesen Haushalten sind " + r.mahnungenErledigt +
-          " Mahnungen als erledigt vermerkt. Die wurden <em>nicht</em> wieder aufgemacht — " +
-          "bitte im Reiter &bdquo;Zahlungen&ldquo; ansehen."
-        : ""));
+      "</strong> storniert. Die Forderungen stehen wieder offen.");
   } catch (e) {
     lMeldung("l-detail-status", "fehler", esc(e.message));
   }

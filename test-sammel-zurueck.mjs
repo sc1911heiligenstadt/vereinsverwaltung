@@ -249,7 +249,11 @@ const zurueck = await ruf(W.handleSammelZurueck,
 pruefe("C4  Ruecknahme laeuft", zurueck.status === 200, "Status " + zurueck.status);
 pruefe("C5  drei Zahlungen zurueckgenommen", zurueck.daten.anzahl === 3);
 pruefe("C6  Summe wird gemeldet", zurueck.daten.summeCent === 26400);
-pruefe("C7  keine erledigte Mahnung im Spiel", zurueck.daten.mahnungenErledigt === 0);
+// Das Mahnwesen ist am 10.08.2026 entfernt worden. Die Ruecknahme darf
+// deshalb NICHTS mehr darueber melden -- eine Antwort, die ein Feld aus
+// einem abgebauten Bereich weiterfuehrt, ist eine Zusage ins Leere.
+pruefe("C7  meldet nichts mehr zu Mahnungen",
+       zurueck.daten.mahnungenErledigt === undefined);
 
 // =====================================================================
 // D  Storniert statt geloescht, Status abgeleitet

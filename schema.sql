@@ -133,6 +133,13 @@ CREATE TABLE sparte (
   -- Zuschlag zusätzlich zum Grundbeitrag, pro Jahr. 0 = kein Zuschlag.
   zuschlag_cent     INTEGER NOT NULL DEFAULT 0,
 
+  -- Sportartennummer aus der Sportartenliste des LSB Thüringen, für die
+  -- Bestandsmeldung. NULL = noch nicht zugeordnet; diese Mitglieder
+  -- laufen beim Verband unter „ohne Landesfachverband“.
+  -- Keine Ableitung aus dem Namen: „Turnen“ steht in der Liste gar nicht
+  -- und wird als Gymnastik (95) gemeldet.
+  dosb_sportart_nr  INTEGER,
+
   erstellt_am       TEXT NOT NULL,
   erstellt_von      TEXT NOT NULL,
   geaendert_am      TEXT,
@@ -419,29 +426,11 @@ CREATE TABLE zahlung (
   erstellt_von      TEXT NOT NULL
 );
 
--- Satzung § 5 Abs. 3: Ausschluss erst nach ZWEI schriftlichen Mahnungen.
--- Die Stufe ist deshalb kein Freitext, und der Versand wird protokolliert.
-CREATE TABLE mahnung (
-  id                TEXT PRIMARY KEY,
-  haushalt_id       TEXT NOT NULL REFERENCES haushalt(id),
-  mitgliedschaft_id TEXT REFERENCES mitgliedschaft(id),
-
-  stufe             INTEGER NOT NULL,       -- 1 | 2 ; ab 2 ist Ausschluss möglich
-  erstellt_datum    TEXT NOT NULL,
-  frist_bis         TEXT NOT NULL,
-  summe_cent        INTEGER NOT NULL,
-  forderungen_json  TEXT,                   -- IDs der gemahnten Forderungen
-
-  -- Mahnungen gehen auf Papier, solange ein Ausschluss daran hängen kann.
-  versand_art       TEXT NOT NULL DEFAULT 'brief',   -- 'brief' | 'email'
-  versendet_am      TEXT,
-  versendet_von     TEXT,
-  datei_pfad        TEXT,
-
-  erledigt_am       TEXT,                   -- ausgeglichen
-  erstellt_am       TEXT NOT NULL,
-  erstellt_von      TEXT NOT NULL
-);
+-- Hier stand bis zum 10.08.2026 die Tabelle `mahnung`. Sie ist auf
+-- Michels Wunsch zusammen mit dem gesamten Mahnwesen entfernt worden
+-- (Client, Worker-Aktionen, Einstellungen, Forderungsart 'mahngebuehr').
+-- ⚠️ Der Ausschluss nach § 5 Abs. 3 setzt zwei schriftliche Mahnungen
+-- voraus — dieser Nachweis entsteht seitdem außerhalb der App.
 
 
 -- ---------------------------------------------------------------------
@@ -547,7 +536,6 @@ CREATE INDEX idx_zahlung_haushalt  ON zahlung(haushalt_id, eingang_am);
 CREATE INDEX idx_zahlung_forderung ON zahlung(forderung_id);
 
 CREATE INDEX idx_mandat_haushalt   ON sepa_mandat(haushalt_id, widerrufen_am);
-CREATE INDEX idx_mahnung_haushalt  ON mahnung(haushalt_id, erledigt_am);
 CREATE INDEX idx_antrag_status     ON aufnahmeantrag(status, eingang_am);
 CREATE INDEX idx_rolle_username    ON benutzer_rolle(username);
 CREATE INDEX idx_protokoll_zeit    ON protokoll(zeit);
@@ -703,7 +691,8 @@ CREATE INDEX idx_bzeile_konto    ON buchungszeile(konto_id);
 -- ---------------------------------------------------------------------
 
 -- Schlüssel-Wert-Ablage für Vereinsstammdaten (Name, IBAN, Gläubiger-ID),
--- Mahnfristen und den Schalter für das öffentliche Antragsformular.
+-- die Vereinsnummer beim Landesverband und die Schalter für die beiden
+-- öffentlichen Antragsformulare.
 --
 -- Nachgetragen am 30.07.2026: Die Tabelle entsteht seit Juli zur Laufzeit
 -- in handleMigration und fehlte hier. Aufgefallen ist es der nächtlichen
