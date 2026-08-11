@@ -118,6 +118,20 @@ nav {
   z-index: 10;
 }
 
+/* ⚠️ HIER BEWUSST KEIN `font-family`. Nicht „vergessen“ und nicht ergänzen.
+
+   Ein <button> erbt die Schrift der Seite nicht von selbst, er bekommt vom
+   Browser Arial. Die übrigen 28 Apps der Flotte setzen deshalb nichts, und ihre
+   Reiter stehen in Arial. Diese App hatte `font-family: inherit` und damit als
+   einzige die Seitenschrift in der Leiste. Michel-Entscheidung vom 2026-08-11:
+   die eine App wird angeglichen, nicht die 28 anderen. Wer hier `inherit`
+   wieder einträgt, bricht die Angleichung.
+
+   ⚠️ Die Schriftfamilie war NICHT die Ursache der abweichenden Leistenhöhe --
+   das war eine falsche Fährte. Nach dem Entfernen von `inherit` stand die
+   Leiste unverändert auf 53 px. Der Grund lag beim `<a>` darunter (Zeilenhöhe,
+   siehe dortiger Kommentar). Beides ist behoben, aber wer die Höhe erneut
+   untersucht, fängt bei der Zeilenhöhe an, nicht bei der Familie. */
 nav button {
   background: none;
   border: none;
@@ -128,7 +142,6 @@ nav button {
   font-weight: 600;
   color: var(--muted);
   cursor: pointer;
-  font-family: inherit;
 }
 nav button:hover { color: var(--text); }
 nav button.aktiv {
@@ -887,13 +900,23 @@ a.btn-link:hover { background: var(--blue-dark); }
 /* Der Verweis „Auswertungen →“ sieht aus wie ein Reiter, führt aber auf eine
    andere Seite. Der Pfeil im Text sagt das; die Optik folgt `nav button`,
    damit die Zeile nicht auseinanderfällt — wer dort etwas ändert, ändert es
-   hier mit. */
+   hier mit.
+
+   ⚠️ `font-family` und `line-height` stehen hier, weil ein <a> beides von der
+   Seite ERBT, ein <button> aber nicht (der bekommt vom Browser Arial und
+   `normal`). Ohne die zwei Zeilen war dieser eine Verweis 21 px hoher Inhalt
+   gegen 16 px bei den Reitern — und weil Flex-Kinder standardmäßig auf die
+   Zeilenhöhe gestreckt werden, zog er die GANZE Leiste auf 53 statt 48 px.
+   Am 2026-08-11 gemessen; die 5 px waren zuerst der Schriftfamilie
+   zugeschrieben worden, das war falsch. Es ist die Zeilenhöhe. */
 nav a {
   border-bottom: 3px solid transparent;
   border-radius: 8px 8px 0 0;
   padding: 10px 16px;
+  font-family: Arial, sans-serif;
   font-size: 14px;
   font-weight: 600;
+  line-height: normal;
   color: var(--muted);
   text-decoration: none;
   align-self: center;
