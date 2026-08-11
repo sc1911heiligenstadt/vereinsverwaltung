@@ -39,6 +39,16 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Reiterleiste wie in den übrigen Vereins-Tools",
+    datum: "2026-08-11",
+    punkte: [
+      "Die Reiterleiste sieht jetzt aus wie in allen anderen Vereins-Tools: gleiche Schriftgröße, gleicher Abstand zum Rand und dieselbe abgerundete Oberkante. Sie begann bisher als einzige der Familie weiter links als die blaue Kopfzeile darüber.",
+      "„Einstellungen“ und „Info“ stehen weiterhin rechts, jetzt aber auf jeder Bildschirmbreite. Bisher rutschten sie auf schmalen Fenstern und am Handy nach links zu den übrigen Reitern.",
+      "Die Knöpfe sind wie überall sonst in Halbfett gesetzt — sie standen hier als einzige App in normaler Stärke.",
+      "Die Buchhaltung hat einen Reiter „Info“ bekommen. Sie war die einzige Seite ohne einen, dadurch stand die Versionsangabe dort nirgends."
+    ]
+  },
+  {
     version: "Rehasport in der Bestandsmeldung",
     datum: "2026-08-10",
     punkte: [

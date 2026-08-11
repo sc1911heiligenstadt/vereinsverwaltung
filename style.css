@@ -97,12 +97,21 @@ header h1 {
 
 /* ---------- Navigation ---------- */
 
+/* Reiterleiste byte-gleich zur uebrigen Flotte (testspielplaner,
+   ausbildungsplan und 28 weitere) -- am 2026-08-11 angeglichen, nachdem der
+   Flotten-Check sie als letzte Abweichung dieser App gemeldet hatte: Polsterung
+   0/16 statt 8/28/0, Reiter 15px/13px statt 14px/10px, ohne Fettung und ohne
+   abgerundete Oberkante. Die Leiste sass dadurch sichtbar weiter links als die
+   Kopfzeile darueber. Wer hier etwas aendert, misst gegen E:\testspielplaner.
+
+   `position: sticky` bleibt -- eigene Funktion dieser App (lange
+   Mitgliederlisten), am Ruhebild aendert es nichts. */
 nav {
   background: var(--card);
   border-bottom: 1px solid var(--line);
   display: flex;
   gap: 4px;
-  padding: 0 16px;
+  padding: 8px 28px 0;
   flex-wrap: wrap;
   position: sticky;
   top: 0;
@@ -113,8 +122,10 @@ nav button {
   background: none;
   border: none;
   border-bottom: 3px solid transparent;
-  padding: 13px 16px;
-  font-size: 15px;
+  border-radius: 8px 8px 0 0;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
   color: var(--muted);
   cursor: pointer;
   font-family: inherit;
@@ -123,62 +134,28 @@ nav button:hover { color: var(--text); }
 nav button.aktiv {
   color: var(--blue);
   border-bottom-color: var(--blue);
-  font-weight: 600;
 }
 
-/* Antragsseite: „Antrag stellen“ bleibt links, „Eingegangene Anträge“ und
-   „Info“ stehen rechts (Michel-Vorgabe 2026-08-06). Bewusst auf
-   .antragseite begrenzt — die Leiste der Verwaltung bleibt, wie sie ist.
+/* Die rechte Reitergruppe steht in <div class="nav-right">, und der Schub
+   haengt am WRAPPER -- nie am ersten Knopf. Flottenregel (E:\CLAUDE.md,
+   Abschnitt UI-Konventionen), hier am 2026-08-11 nachgezogen.
 
-   Der Schub sitzt am ERSTEN der beiden rechten Reiter. Ist der
-   Sicht-Reiter versteckt (kein Schreibrecht), übernimmt ihn „Info“ über
-   den Geschwister-Selektor; sonst klebte Info allein links.
+   ⚠️ Das ersetzt drei Media-Queries (460px auf der Antragsseite, 880px in
+   der Verwaltung, 300px im Nachwuchs) samt der Kruecke
+   `#nav-einstellungen[hidden] + button`. Die Grenzen gab es, weil ein
+   margin-left:auto am einzelnen Knopf in einer UMGEBROCHENEN Zeile den
+   einzelnen Reiter jener Zeile an den rechten Rand schob -- die Eintraege
+   standen dann treppenfoermig untereinander. Ein Wrapper hat das Problem
+   nicht: er bricht als Ganzes um und bleibt dabei zusammen. Deshalb
+   braucht diese Loesung keine gemessene Grenze und muss beim Ergaenzen
+   oder Umbenennen eines Reiters auch nicht neu vermessen werden.
 
-   ⚠️ Erst ab 460px: die drei Reiter brauchen zusammen 409px, darunter
-   bricht die Leiste um. In einer umgebrochenen Zeile schöbe ein
-   margin-left:auto den einzelnen Reiter dieser Zeile an den rechten Rand
-   — und dann stünden die drei treppenförmig untereinander. */
-@media (min-width: 460px) {
-  .antragseite nav #nav-eingang { margin-left: auto; }
-  .antragseite nav #nav-eingang[hidden] + button { margin-left: auto; }
-}
-
-/* Verwaltungsleiste: „Einstellungen“ und „Info“ stehen rechts
-   (Michel-Vorgabe 2026-08-08), Info als letzter Eintrag wie flottenweit.
-   Der Schub sitzt am ERSTEN der beiden; hat die Rolle kein Buchungsrecht,
-   ist „Einstellungen“ versteckt und „Info“ übernimmt ihn über den
-   Geschwister-Selektor — sonst klebte Info allein links.
-
-   ⚠️ Erst ab 880px, und die Zahl ist gemessen, nicht geschätzt: die volle
-   Leiste (8 Einträge, Administrator MIT Schatzmeister-Rolle) braucht
-   869px in einer Zeile. Darunter bricht sie um, und in einer
-   umgebrochenen Zeile schöbe margin-left:auto den einzelnen Reiter dieser
-   Zeile an den rechten Rand — die Einträge stünden treppenförmig
-   untereinander. Dieselbe Falle wie auf der Antragsseite unten.
-   Schmalere Rollen kämen früher aus; eine Media-Query kennt die Rolle aber
-   nicht, deshalb entscheidet der breiteste Fall.
-   Bis 2026-08-10 lag die Grenze bei 1060px — damals waren es 10 Einträge
-   mit 1027px, „Import“ und „Rollen“ sind seitdem in den Einstellungen.
-   Wer einen Eintrag ergänzt oder umbenennt, misst neu. */
-@media (min-width: 880px) {
-  #haupt-nav #nav-einstellungen { margin-left: auto; }
-  #haupt-nav #nav-einstellungen[hidden] + button { margin-left: auto; }
-}
-
-/* Dieselbe Regel für die Nachwuchsseite (Michel-Vorgabe 2026-08-06):
-   „Info“ steht rechts wie in allen Apps. Sie braucht einen EIGENEN
-   Selektor, weil der Schub oben an #nav-eingang hängt — den gibt es hier
-   nicht, es sind nur zwei Reiter.
-
-   Die Grenze liegt weit unter den 460px oben: die beiden Reiter belegen
-   nachgemessen zusammen 160px und enden bei 320px Fensterbreite auf x=180
-   — es bricht also nichts um, und „Info“ steht auf jedem Gerät rechts.
-   Die Media-Query bleibt trotzdem stehen: sie ist das Sicherheitsnetz für
-   den Fall, dass hier je ein dritter Reiter dazukommt (dann greift die
-   Treppen-Falle aus dem Block darüber, und die Grenze muss neu gemessen
-   werden). */
-@media (min-width: 300px) {
-  .nachwuchsseite nav button[data-tab="tab-info"] { margin-left: auto; }
+   Der Geschwister-Fall faellt ebenfalls weg: ist „Einstellungen“ fuer eine
+   Rolle versteckt, bleibt „Info“ im Wrapper und damit rechts. */
+nav .nav-right {
+  margin-left: auto;
+  display: flex;
+  gap: inherit;
 }
 
 /* ---------- Inhalt ---------- */
@@ -226,6 +203,12 @@ input:focus, select:focus { outline: 2px solid var(--blue); outline-offset: -1px
 
 .suchfeld { min-width: 240px; flex: 1 1 240px; }
 
+/* ⚠️ Die Fettung 600 ist der Flottenwert und stand hier bis 2026-08-11
+   nicht drin -- die Knoepfe dieser App waren dadurch als einzige der Flotte
+   duenn gesetzt (400). Sie steht in VIER Regeln, die dasselbe Aussehen
+   nachbauen: `button.btn` hier, `a.btn`, `a.btn-link` und `label.btn`. Die
+   Klasse ist elementgebunden, ein <label class="btn"> erbt von `button.btn`
+   nichts -- wer eine aendert, aendert alle vier. */
 button.btn {
   background: var(--blue);
   color: #fff;
@@ -233,6 +216,7 @@ button.btn {
   padding: 10px 18px;
   border-radius: 8px;
   font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
   font-family: inherit;
 }
@@ -646,6 +630,7 @@ a.btn {
   padding: 10px 18px;
   border-radius: 8px;
   font-size: 14px;
+  font-weight: 600;
   text-decoration: none;
 }
 a.btn:hover { background: var(--blue-dark); }
@@ -895,16 +880,20 @@ a.btn-link {
   padding: 10px 18px;
   border-radius: 8px;
   font-size: 14px;
+  font-weight: 600;
 }
 a.btn-link:hover { background: var(--blue-dark); }
 
-/* Die beiden Verweise in der Reiterleiste sehen aus wie Reiter, führen
-   aber auf eine andere Seite. Der Pfeil im Text sagt das; die Optik
-   folgt nav button, damit die Zeile nicht auseinanderfällt. */
+/* Der Verweis „Auswertungen →“ sieht aus wie ein Reiter, führt aber auf eine
+   andere Seite. Der Pfeil im Text sagt das; die Optik folgt `nav button`,
+   damit die Zeile nicht auseinanderfällt — wer dort etwas ändert, ändert es
+   hier mit. */
 nav a {
   border-bottom: 3px solid transparent;
-  padding: 13px 16px;
-  font-size: 15px;
+  border-radius: 8px 8px 0 0;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
   color: var(--muted);
   text-decoration: none;
   align-self: center;
@@ -1241,6 +1230,7 @@ label.btn {
   padding: 10px 18px;
   border-radius: 8px;
   font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
   font-family: inherit;
   line-height: normal;

@@ -651,7 +651,26 @@ function waehleTab(id) {
   if (id === "tab-konten") zeigeKonten();
 }
 
+// Kopie aus app.js -- der Info-Reiter dieser Seite zeigt denselben Changelog
+// aus config.js. Die Seite liegt hinter der Anmeldung und ist dem Schatzmeister
+// vorbehalten; anders als antrag.html braucht sie deshalb keinen eigenen,
+// gekürzten Block. Wer das Format in app.js ändert, ändert es hier mit.
+function zeichneChangelog() {
+  const ziel = $("changelog-liste");
+  if (!ziel || typeof CHANGELOG === "undefined") return;
+  ziel.innerHTML = CHANGELOG.map((block) =>
+    '<div class="changelog-block">' +
+      "<h3>" + esc(block.version) + "</h3>" +
+      '<div class="changelog-datum">' + datumDe(block.datum) + "</div>" +
+      "<ul>" + block.punkte.map((p) => "<li>" + esc(p) + "</li>").join("") + "</ul>" +
+    "</div>"
+  ).join("");
+}
+
 function verdrahten() {
+  $("version-badge-2").textContent = APP_VERSION;
+  zeichneChangelog();
+
   document.querySelectorAll("#haupt-nav button").forEach((b) => {
     b.addEventListener("click", () => waehleTab(b.dataset.tab));
   });

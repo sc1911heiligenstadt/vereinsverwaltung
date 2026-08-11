@@ -6,7 +6,7 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=1">
 <link rel="icon" href="/favicon.png?v=1" type="image/png">
 <title>Vereinsverwaltung &mdash; 1. SC 1911 Heiligenstadt</title>
-<link rel="stylesheet" href="style.css?v=3.9">
+<link rel="stylesheet" href="style.css?v=4.0">
 </head>
 <body>
 
@@ -38,8 +38,16 @@
        liegt jetzt im Reiter „Einstellungen“ (Michel-Vorgabe: sie wird auf
        lange Sicht nicht gebraucht, soll aber nicht verworfen werden). -->
   <a href="vorstand.html" id="nav-auswertung" hidden>Auswertungen &rarr;</a>
-  <button data-tab="tab-einstellungen" id="nav-einstellungen" hidden>Einstellungen</button>
-  <button data-tab="tab-info">Info</button>
+  <!-- Rechte Gruppe im Wrapper (Flottenregel, hier am 2026-08-11 nachgezogen).
+       Sie ersetzt die gemessene Media-Query ab 880px samt der Krücke
+       `#nav-einstellungen[hidden] + button`: der Wrapper bricht als Ganzes um
+       und bleibt dabei zusammen, deshalb entsteht keine Treppe und es muss
+       beim Ergänzen eines Reiters nichts mehr nachgemessen werden. Ist
+       „Einstellungen“ für eine Rolle versteckt, steht „Info“ trotzdem rechts. -->
+  <div class="nav-right">
+    <button data-tab="tab-einstellungen" id="nav-einstellungen" hidden>Einstellungen</button>
+    <button data-tab="tab-info">Info</button>
+  </div>
 </nav>
 
 <main>
@@ -858,7 +866,7 @@
 
 <footer>1. SC 1911 Heiligenstadt &mdash; interne Vereinsverwaltung</footer>
 
-<script src="config.js?v=4.2"></script>
+<script src="config.js?v=4.3"></script>
 <script src="db.js?v=1.6"></script>
 <script src="import.js?v=1.2"></script>
 <script src="rollen.js?v=1.4"></script>

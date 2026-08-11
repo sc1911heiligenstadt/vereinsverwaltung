@@ -7,7 +7,7 @@
 <link rel="icon" href="/favicon.png?v=1" type="image/png">
 <title>Aufnahmeantrag &mdash; 1. SC 1911 Heiligenstadt</title>
 <meta name="robots" content="noindex">
-<link rel="stylesheet" href="style.css?v=3.9">
+<link rel="stylesheet" href="style.css?v=4.0">
 </head>
 <body class="antragseite">
 
@@ -34,8 +34,14 @@
      und wird in antrag.js eingeblendet. -->
 <nav>
   <button data-tab="tab-formular" class="aktiv">Antrag stellen</button>
-  <button data-tab="tab-eingang" id="nav-eingang" hidden>Eingegangene Anträge</button>
-  <button data-tab="tab-info">Info</button>
+  <!-- Rechte Gruppe im Wrapper, nicht per margin-left:auto am ersten Knopf:
+       so bleibt „Info“ auch dann rechts, wenn der Sicht-Reiter für eine
+       Rolle versteckt ist, und die Gruppe bricht am Handy geschlossen um
+       statt treppenförmig. Flottenregel, hier am 2026-08-11 nachgezogen. -->
+  <div class="nav-right">
+    <button data-tab="tab-eingang" id="nav-eingang" hidden>Eingegangene Anträge</button>
+    <button data-tab="tab-info">Info</button>
+  </div>
 </nav>
 
 <main>
