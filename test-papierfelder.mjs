@@ -157,16 +157,30 @@ pruefe("B6 Ort faellt auf den Wohnort zurueck",
        b2.satz && b2.satz.inhalt.unterschrift_ort === "Heilbad Heiligenstadt",
        b2.satz && b2.satz.inhalt.unterschrift_ort);
 
-// Bei Ueberweisung gibt es kein Mandat -- also auch keine Bankangaben.
+// Seit 14.08.2026 nimmt der Verein NEUE Antraege nur noch per Lastschrift
+// an. Die Zahlungsart gehoert damit zur Weissliste: sie wird gesetzt, nicht
+// entgegengenommen. Frueher stand hier die Gegenprobe -- Ueberweisung geht
+// ohne IBAN durch. Genau die darf jetzt nicht mehr aufgehen.
 const b3 = W.pruefeAntrag(antrag({
   zahlungsart: "ueberweisung", iban: "", kontoinhaber: "",
   bank_name: "VR-Bank Mitte", kontoinhaber_anschrift: "Anderer Weg 9"
 }), sparten, HEUTE);
-pruefe("B7 Ueberweisung geht ohne IBAN durch", !b3.fehler, b3.fehler);
-pruefe("B8 Bei Ueberweisung kein Kreditinstitut gespeichert",
-       b3.satz && b3.satz.inhalt.bank_name === null);
-pruefe("B9 Bei Ueberweisung keine Kontoinhaber-Anschrift gespeichert",
-       b3.satz && b3.satz.inhalt.kontoinhaber_anschrift === null);
+pruefe("B7 Ein mitgeschicktes 'ueberweisung' kommt ohne IBAN NICHT mehr durch",
+       !!b3.fehler && /IBAN/.test(b3.fehler), b3.fehler);
+
+// ... und mit IBAN wird daraus eine Lastschrift, keine Ueberweisung. Ohne
+// diese Zeile waere B7 auch dann gruen, wenn der Server das Feld weiterhin
+// vom Client uebernaehme und nur die IBAN-Pflicht vorgezogen worden waere.
+const b3b = W.pruefeAntrag(antrag({
+  zahlungsart: "ueberweisung",
+  bank_name: "VR-Bank Mitte", kontoinhaber_anschrift: "Anderer Weg 9"
+}), sparten, HEUTE);
+pruefe("B8 Ein mitgeschicktes 'ueberweisung' wird als Lastschrift gespeichert",
+       b3b.satz && b3b.satz.inhalt.zahlungsart === "lastschrift",
+       b3b.fehler || (b3b.satz && b3b.satz.inhalt.zahlungsart));
+pruefe("B9 Kreditinstitut und Kontoinhaber-Anschrift bleiben dabei erhalten",
+       b3b.satz && b3b.satz.inhalt.bank_name === "VR-Bank Mitte" &&
+       /Anderer Weg 9/.test(b3b.satz.inhalt.kontoinhaber_anschrift || ""));
 
 // Weissliste: der Server baut den Satz selbst.
 const b4 = W.pruefeAntrag(antrag({

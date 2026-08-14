@@ -171,12 +171,11 @@ function zeigeInfo() {
 // Zustand des Formulars
 // ---------------------------------------------------------------------
 
-function zeigeZahlungsart() {
-  const last = istLastschrift();
-  $("a-bank-block").hidden = !last;
-  $("a-ueberweisung-hinweis").hidden = last;
-  aktualisiereSigTitel();
-}
+// zeigeZahlungsart() gab es hier bis zum 14.08.2026: sie blendete den
+// Bankblock je nach angekreuzter Zahlungsart ein und aus. Mit dem Wegfall
+// der Ueberweisung ist der Bankblock immer sichtbar, und damit hatte sie
+// nichts mehr zu tun. Den Unterschriftentitel frischt zeigeMinderjaehrig()
+// ohnehin selbst auf.
 
 // Der Block der Erziehungsberechtigten erscheint aus dem Geburtsdatum --
 // ein volljaehriger A-Jugend-Spieler unterschreibt selbst. Bleiben die
@@ -934,8 +933,6 @@ function verdrahten() {
   $("a-geburtsdatum").addEventListener("change", zeigeMinderjaehrig);
   $("a-geburtsdatum").addEventListener("input", zeigeMinderjaehrig);
   $("a-nationalitaet").addEventListener("input", pruefeFreigabe);
-  $("a-zart-last").addEventListener("change", zeigeZahlungsart);
-  $("a-zart-ueber").addEventListener("change", zeigeZahlungsart);
   $("a-allein-sorge").addEventListener("change", zeigeZweitenVertreter);
   $("a-iban").addEventListener("blur", pruefeIbanFeld);
 
@@ -961,7 +958,6 @@ function verdrahten() {
   $("btn-drucken").addEventListener("click", () => window.print());
   verdrahtePassbild();
 
-  zeigeZahlungsart();
   zeigeMinderjaehrig();
   zeigeSpielerlaubnisArt();
 }

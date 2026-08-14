@@ -274,14 +274,14 @@
 
     <div class="karte">
       <div class="schritt-nummer" id="nr-beitrag">4 — Beitragszahlung</div>
-      <div class="ankreuz">
-        <input type="radio" name="a-zahlungsart" id="a-zart-last" value="lastschrift" checked>
-        <label for="a-zart-last">Lastschrift (SEPA-Mandat, empfohlen)</label>
-      </div>
-      <div class="ankreuz">
-        <input type="radio" name="a-zahlungsart" id="a-zart-ueber" value="ueberweisung">
-        <label for="a-zart-ueber">Überweisung</label>
-      </div>
+      <!-- Seit 14.08.2026 gibt es hier KEINE Auswahl mehr: der Beitrag wird
+           ausschliesslich per SEPA-Lastschrift eingezogen. Die Ueberweisung
+           stand bis dahin daneben. Bestehende Antraege und Haushalte mit
+           "ueberweisung" bleiben davon unberuehrt und werden weiter
+           angezeigt und verarbeitet -- weggefallen ist nur der Weg, einen
+           NEUEN Antrag ohne Mandat zu stellen. -->
+      <p class="hinweis info">Der Beitrag wird per <strong>SEPA-Lastschrift</strong>
+      eingezogen. Eine andere Zahlungsweise bietet der Verein nicht an.</p>
 
       <div id="a-bank-block">
         <div class="formraster">
@@ -309,11 +309,6 @@
         </div>
         <div id="a-iban-hinweis" class="hinweis fehler" hidden></div>
         <div class="mandatstext" id="a-mandatstext"></div>
-      </div>
-
-      <div id="a-ueberweisung-hinweis" class="hinweis info" hidden>
-        Sie erhalten mit der Aufnahmebestätigung die Bankverbindung des Vereins und
-        den fälligen Betrag.
       </div>
     </div>
 
@@ -343,7 +338,7 @@
             beim Verein <strong>getrennt und zugriffsbeschränkt</strong>
             aufbewahrt — nur die Geschäftsstelle kommt an sie heran.</li>
             <li>Bankverbindung und SEPA-Mandat, um die Beiträge einzuziehen
-            (Art. 6 Abs. 1 lit. b DSGVO). Bei Überweisung entfällt das.</li>
+            (Art. 6 Abs. 1 lit. b DSGVO).</li>
             <li>Die Meldung an den Landessportbund und die Fachverbände erfolgt
             auf Ihre Einwilligung hin (Art. 6 Abs. 1 lit. a DSGVO).</li>
             <li>Die Foto-Einwilligung und die Einwilligung in die Nutzung der
@@ -626,8 +621,8 @@
 </div>
 
 <script src="signature-pad.js?v=1.0"></script>
-<script src="antrag-felder.js?v=1.0"></script>
-<script src="db-antrag.js?v=1.4"></script>
-<script src="nachwuchs.js?v=1.2"></script>
+<script src="antrag-felder.js?v=1.1"></script>
+<script src="db-antrag.js?v=1.5"></script>
+<script src="nachwuchs.js?v=1.3"></script>
 </body>
 </html>

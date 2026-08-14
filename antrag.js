@@ -318,12 +318,11 @@ function zeigeMandatstext() {
 // Zustand des Formulars
 // ---------------------------------------------------------------------
 
-function zeigeZahlungsart() {
-  const last = istLastschrift();
-  $("a-bank-block").hidden = !last;
-  $("a-ueberweisung-hinweis").hidden = last;
-  aktualisiereSigTitel();
-}
+// zeigeZahlungsart() gab es hier bis zum 14.08.2026: sie blendete den
+// Bankblock je nach angekreuzter Zahlungsart ein und aus. Mit dem Wegfall
+// der Ueberweisung ist der Bankblock immer sichtbar, und damit hatte sie
+// nichts mehr zu tun. Den Unterschriftentitel frischt zeigeMinderjaehrig()
+// ohnehin selbst auf.
 
 // Der Block erscheint und verschwindet mit dem Geburtsdatum. Bleiben die
 // Schrittnummern dabei stehen, springt die Zaehlung von 4 auf 6 — das
@@ -519,8 +518,6 @@ function zeigeDanke(daten, antwort) {
 function verdrahten() {
   $("a-geburtsdatum").addEventListener("change", zeigeMinderjaehrig);
   $("a-geburtsdatum").addEventListener("input", zeigeMinderjaehrig);
-  $("a-zart-last").addEventListener("change", zeigeZahlungsart);
-  $("a-zart-ueber").addEventListener("change", zeigeZahlungsart);
   $("a-allein-sorge").addEventListener("change", zeigeZweitenVertreter);
   $("a-iban").addEventListener("blur", pruefeIbanFeld);
   // Der Ort der Unterschrift ist fast immer der Wohnort. Vorbelegen, aber
@@ -539,7 +536,6 @@ function verdrahten() {
   $("btn-antrag-senden").addEventListener("click", absenden);
   $("btn-drucken").addEventListener("click", () => window.print());
 
-  zeigeZahlungsart();
   zeigeMinderjaehrig();
 }
 

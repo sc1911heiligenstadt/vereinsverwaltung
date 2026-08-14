@@ -117,8 +117,14 @@ function baueSpartenAuswahl(info) {
 // Zustand des Formulars
 // ---------------------------------------------------------------------
 
+// Seit 14.08.2026 gibt es keine Wahl mehr -- der Verein zieht den Beitrag
+// ausschliesslich per SEPA-Lastschrift ein, die Auswahlkaestchen
+// a-zart-last/a-zart-ueber stehen in keiner der beiden Seiten mehr. Die
+// Funktion bleibt als EINE Stelle stehen, an der die Regel steht: wer die
+// Ueberweisung je wieder anbieten will, aendert sie hier und stellt die
+// Kaestchen zurueck, statt acht Fallunterscheidungen neu zu erfinden.
 function istLastschrift() {
-  return $("a-zart-last").checked;
+  return true;
 }
 
 // Sammelt die Felder, die BEIDE Seiten fuehren. Was nur eine Seite hat
@@ -140,7 +146,7 @@ function sammleGemeinsameFelder(padGesetzl2) {
     email: $("a-email").value,
     mobil: $("a-mobil").value,
     telefon: $("a-telefon").value,
-    zahlungsart: istLastschrift() ? "lastschrift" : "ueberweisung",
+    zahlungsart: "lastschrift",
     kontoinhaber: $("a-kontoinhaber").value,
     kontoinhaber_anschrift: $("a-kontoinhaber-anschrift").value,
     iban: $("a-iban").value,

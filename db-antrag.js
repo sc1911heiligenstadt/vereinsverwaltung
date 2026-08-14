@@ -26,6 +26,14 @@ const ANTRAG_VERSION = "1.0";
 
 const ANTRAG_CHANGELOG = [
   {
+    version: "Beitrag nur noch per SEPA-Lastschrift",
+    datum: "2026-08-14",
+    punkte: [
+      "Die Auswahl zwischen Lastschrift und Überweisung ist entfallen. Der Beitrag wird ausschließlich per SEPA-Lastschrift eingezogen; das Mandat wird mit dem Antrag erteilt.",
+      "Wer bereits Mitglied ist und überweist, ist davon nicht betroffen — die Änderung gilt für neue Anträge."
+    ]
+  },
+  {
     version: "Papier und Bildschirm gleichen sich",
     datum: "2026-08-06",
     punkte: [
@@ -39,7 +47,7 @@ const ANTRAG_CHANGELOG = [
     datum: "2026-07-30",
     punkte: [
       "Die Mitgliedschaft lässt sich am Handy beantragen und unterschreiben — ein Ausdruck ist nicht nötig.",
-      "Das SEPA-Lastschriftmandat wird im selben Zug erteilt. Wer lieber überweist, kann das wählen.",
+      "Das SEPA-Lastschriftmandat wird im selben Zug erteilt.",
       "Nach dem Absenden erscheint eine Bestätigungsseite mit allen Angaben und der Unterschrift. Sie ist die eigene Kopie der Erklärung und lässt sich drucken oder als PDF sichern.",
       "Der Antrag ist noch keine Mitgliedschaft: über die Aufnahme entscheidet nach § 4 der Satzung der Gesamtvorstand."
     ]
@@ -50,6 +58,14 @@ const ANTRAG_CHANGELOG = [
 // der beschreibt den allgemeinen Aufnahmeantrag, und was den Nachwuchs
 // betrifft, geht dort zwischen Beitragsart und Familienverbund unter.
 const NACHWUCHS_CHANGELOG = [
+  {
+    version: "Beitrag nur noch per SEPA-Lastschrift",
+    datum: "2026-08-14",
+    punkte: [
+      "Die Auswahl zwischen Lastschrift und Überweisung ist entfallen. Der Beitrag wird ausschließlich per SEPA-Lastschrift eingezogen; das Mandat wird mit der Anmeldung erteilt.",
+      "Wer bereits Mitglied ist und überweist, ist davon nicht betroffen — die Änderung gilt für neue Anmeldungen."
+    ]
+  },
   {
     version: "Anmeldung und Spielerlaubnis in einem Durchgang",
     datum: "2026-08-06",

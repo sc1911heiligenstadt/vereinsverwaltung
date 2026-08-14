@@ -3799,14 +3799,21 @@ function pruefeAntrag(roh, erlaubteSparten, heute, quelle) {
     if (!erlaubteSparten.has(s)) return { fehler: "Unbekannte Abteilung" };
   }
 
-  const zahlungsart = roh.zahlungsart === "ueberweisung" ? "ueberweisung" : "lastschrift";
+  // Seit 14.08.2026 nimmt der Verein NEUE Antraege nur noch mit
+  // SEPA-Lastschrift an. Die Zahlungsart wird deshalb wie status und
+  // person_id gesetzt statt entgegengenommen -- ein mitgeschicktes
+  // "ueberweisung" wird ignoriert, nicht abgewiesen: das Formular bietet
+  // es nirgends mehr an, ein solcher Koerper kommt also nur noch aus einer
+  // veralteten Seite im Cache oder von aussen. Beides ist mit einem
+  // vollstaendigen Lastschrift-Antrag besser bedient als mit einem Fehler.
+  // BESTANDSDATEN bleiben unberuehrt: aeltere Antraege und Haushalte mit
+  // "ueberweisung" werden weiterhin angezeigt, gedruckt und angenommen.
+  const zahlungsart = "lastschrift";
   const iban = (sauber(roh.iban, 40) || "").replace(/\s+/g, "").toUpperCase() || null;
   const kontoinhaber = sauber(roh.kontoinhaber, 120);
-  if (zahlungsart === "lastschrift") {
-    if (!iban) return { fehler: "Fuer das Lastschriftmandat wird eine IBAN gebraucht" };
-    if (!ibanGueltig(iban)) return { fehler: "Die IBAN ist nicht gueltig (Pruefziffer stimmt nicht)" };
-    if (!kontoinhaber) return { fehler: "Bitte den Kontoinhaber angeben" };
-  }
+  if (!iban) return { fehler: "Fuer das Lastschriftmandat wird eine IBAN gebraucht" };
+  if (!ibanGueltig(iban)) return { fehler: "Die IBAN ist nicht gueltig (Pruefziffer stimmt nicht)" };
+  if (!kontoinhaber) return { fehler: "Bitte den Kontoinhaber angeben" };
 
   // Satzung: die Aufnahme setzt die Anerkennung der Satzung voraus. Die
   // Foto-Einwilligung steht daneben und ist FREIWILLIG -- sie darf nicht
@@ -3908,11 +3915,11 @@ function pruefeAntrag(roh, erlaubteSparten, heute, quelle) {
         familie_hinweis: sauber(roh.familie_hinweis, 200),
         zahlungsart, kontoinhaber, iban,
         bic: (sauber(roh.bic, 20) || "").replace(/\s+/g, "").toUpperCase() || null,
-        // Nur bei Lastschrift erhoben und nur dann gespeichert: bei
-        // Ueberweisung gibt es kein Mandat, an dem sie haengen wuerden.
-        bank_name: zahlungsart === "lastschrift" ? sauber(roh.bank_name, 80) : null,
-        kontoinhaber_anschrift: zahlungsart === "lastschrift"
-          ? sauber(roh.kontoinhaber_anschrift, 200) : null,
+        // Beide haengen am Mandat. Solange es die Ueberweisung gab, standen
+        // sie unter einer Bedingung; seit dem 14.08.2026 gibt es nur noch
+        // den Mandatsfall.
+        bank_name: sauber(roh.bank_name, 80),
+        kontoinhaber_anschrift: sauber(roh.kontoinhaber_anschrift, 200),
         // "Ort, Datum" steht auf dem Papierformular ueber beiden
         // Unterschriften. Das Datum ist der Zeitstempel; der Ort faellt
         // auf den Wohnort zurueck, statt leer zu bleiben.

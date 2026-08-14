@@ -39,6 +39,14 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Neue Anträge nur noch per SEPA-Lastschrift",
+    datum: "2026-08-14",
+    punkte: [
+      "Im Aufnahmeantrag und in der Nachwuchs-Anmeldung ist die Auswahl zwischen Lastschrift und Überweisung entfallen. Beide Formulare erteilen jetzt immer ein SEPA-Mandat; ohne gültige IBAN nimmt der Server keinen Antrag mehr an.",
+      "Bestehende Mitglieder und bereits eingegangene Anträge bleiben unberührt: Wer als Überweiser geführt wird, wird weiterhin so angezeigt, gedruckt und angenommen, und der Beitragslauf überspringt ihn wie bisher namentlich."
+    ]
+  },
+  {
     version: "Reiterleiste wie in den übrigen Vereins-Tools",
     datum: "2026-08-11",
     punkte: [
