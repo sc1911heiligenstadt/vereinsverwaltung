@@ -263,6 +263,47 @@ th {
   top: 0;
 }
 
+/* ⚠️ Das nowrap oben ist richtig fuer Zahlen, Daten und Kategorien --
+   eine umbrochene Betragsspalte liest sich nicht mehr. Es macht eine
+   Tabelle mit FREITEXT-Spalten aber unschrumpfbar: ihre min-content-
+   Breite ist die Summe aller ungebrochenen Zellen, und dagegen hilft
+   weder width:auto noch max-width:100%. Die Tabelle sprengt dann ihre
+   Huelle und bekommt eine Laufleiste, obwohl rechts daneben Platz frei
+   ist -- am 14.08.2026 von Michel an der Antragsliste gemeldet, wo der
+   Loeschknopf dadurch hinter der Kante verschwand.
+
+   .umbruch nimmt genau den Spalten die Sperre, die Namen oder
+   Ortsangaben tragen. Die min-width haelt sie davon ab, dabei auf
+   einzelne Buchstaben zusammenzufallen. */
+td.umbruch { white-space: normal; min-width: 96px; }
+
+/* Zwei Knoepfe in EINER Zelle, statt je einer eigenen Spalte: das spart
+   die Zellpolsterung des zweiten Feldes und haelt die Tabelle schmal.
+   flex-Ausrichtung, damit sie auch dann auf einer Linie stehen, wenn die
+   Nachbarzelle wegen .umbruch zweizeilig wird. */
+td.zeilen-knoepfe {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+/* Das Kreuz traegt keinen Text, der es breit machen wuerde -- deshalb
+   quadratisch und mittig gesetzt, sonst steht es als schmaler Strich
+   neben dem breiten Nachbarn. Die 28 px sind der Wert, bei dem es genau
+   so hoch ist wie ein .btn.klein daneben. */
+button.btn.kreuz {
+  padding: 0;
+  width: 28px;
+  min-width: 28px;
+  height: 27px;
+  font-size: 17px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 th.sortierbar {
   cursor: pointer;
   user-select: none;
@@ -717,6 +758,13 @@ tr.erledigt td { color: var(--muted); }
   /* 27 px hoch trifft am Handy niemand zuverlaessig. Betrifft die Knoepfe
      in den Tabellen (stornieren, Ruecklastschrift, buchen). */
   button.btn.klein { padding: 9px 14px; }
+
+  /* ⚠️ Das Kreuz muss hier MIT wachsen. Seine Groesse steht fest (es hat
+     keinen Text, an dem die Polsterung ziehen koennte) -- ohne diese
+     Zeile bliebe es bei 27 px, waehrend der Knopf daneben auf 35 geht:
+     zwei Knoepfe auf verschiedenen Hoehen in einer Zeile, und der
+     kleinere ist ausgerechnet der zum Loeschen. */
+  button.btn.kreuz { width: 35px; min-width: 35px; height: 35px; }
 
   .overlay { padding: 0; }
   .dialog { max-height: 100vh; border-radius: 0; }

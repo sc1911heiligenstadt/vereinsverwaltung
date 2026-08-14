@@ -199,25 +199,33 @@ function zeichneEingangListe(liste) {
 
   const loeschbar = darfEingangLoeschen();
 
+  // ⚠️ Der Löschknopf steht in DERSELBEN Zelle wie „Ansehen" und trägt ein
+  // Kreuz statt des Wortes. Beides ist Platzrechnung, nicht Geschmack: mit
+  // eigener Spalte und ausgeschriebenem „Löschen" braucht die Tabelle
+  // 788 px statt 675 und scrollt in sich — ausgerechnet der neue Knopf
+  // verschwindet dann hinter der rechten Kante (von Michel gemeldet).
+  // Zusammen mit .umbruch an Name und Ort passt sie wieder ohne Laufleiste.
   ziel.innerHTML =
     '<div class="tabelle-scroll"><table class="schmal"><thead><tr>' +
     "<th>Eingang</th><th>Name</th><th>Geboren</th><th>Ort</th><th>Zahlung</th><th></th>" +
-    (loeschbar ? "<th></th>" : "") +
     "</tr></thead><tbody>" +
     liste.map((a) =>
       "<tr>" +
         "<td>" + esc(datumDe(a.eingang_am)) + "</td>" +
-        "<td>" + esc(a.vorname + " " + a.nachname) +
+        '<td class="umbruch">' + esc(a.vorname + " " + a.nachname) +
           (a.minderjaehrig ? ' <span class="fussnote">(minderjährig)</span>' : "") + "</td>" +
         "<td>" + esc(datumDe(a.geburtsdatum)) + "</td>" +
-        "<td>" + esc(a.ort) + "</td>" +
+        '<td class="umbruch">' + esc(a.ort) + "</td>" +
         "<td>" + esc(a.zahlungsart === "lastschrift" ? "Lastschrift" : "Überweisung") + "</td>" +
-        '<td><button class="btn klein" type="button" data-antrag="' + esc(a.id) +
-          '">Ansehen</button></td>' +
-        (loeschbar
-          ? '<td><button class="btn klein warn" type="button" data-eingangloeschen="' +
-            esc(a.id) + '" title="Diesen Antrag endgültig löschen">Löschen</button></td>'
-          : "") +
+        '<td class="zeilen-knoepfe">' +
+          '<button class="btn klein" type="button" data-antrag="' + esc(a.id) +
+            '">Ansehen</button>' +
+          (loeschbar
+            ? '<button class="btn klein warn kreuz" type="button" data-eingangloeschen="' +
+              esc(a.id) + '" title="Diesen Antrag endgültig löschen" ' +
+              'aria-label="Antrag löschen">&times;</button>'
+            : "") +
+        "</td>" +
       "</tr>").join("") +
     "</tbody></table></div>";
 
