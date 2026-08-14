@@ -26,6 +26,15 @@ const ANTRAG_VERSION = "1.0";
 
 const ANTRAG_CHANGELOG = [
   {
+    version: "Anträge lassen sich hier löschen",
+    datum: "2026-08-14",
+    punkte: [
+      "Im Reiter „Eingegangene Anträge“ steht je Zeile ein Löschknopf. Er ist für zurückgezogene Anträge und für Testeinträge gedacht — bisher ging das nur in der Vereinsverwaltung.",
+      "Hochgeladene Nachweise und Unterschriften werden mitgelöscht. Die Rückfrage sagt vorher, was daran hängt.",
+      "Ein bereits angenommener Antrag bleibt stehen: an ihm hängen die Mitgliedschaft und das SEPA-Mandat. Die Mitgliedschaft endet über den Austritt, nicht über das Formular."
+    ]
+  },
+  {
     version: "Beitrag nur noch per SEPA-Lastschrift",
     datum: "2026-08-14",
     punkte: [
@@ -220,4 +229,46 @@ function ladeAntragDetail(id) {
 // Fusszeile des Ausdrucks kuerzer.
 function ladeStammdatenAntrag() {
   return antragRequestMitToken("vv-einstellungen", {});
+}
+
+// Zweistufig wie in der Verwaltung: mit pruefen=true zaehlt der Server
+// nur, was an dem Antrag haengt, und schreibt nichts. Erst der Aufruf
+// ohne die Flagge loescht.
+//
+// ⚠️ Die Antwort traegt in BEIDEN Stufen nachweis_owner -- der Schluessel
+// zu den Ausweiskopien steht nur im Antrag, und nach dem DELETE kennt ihn
+// niemand mehr. Wer ihn nicht vorher liest, laesst die Dateien
+// unauffindbar in der Ablage liegen.
+function loescheAntragSatz(id, pruefen) {
+  return antragRequestMitToken("vv-antrag-loeschen",
+    pruefen ? { id, pruefen: true } : { id });
+}
+
+// Gegenstueck zu ladeNachweisHoch, aber MIT Token: das Hochladen macht die
+// Familie ohne Konto, das Loeschen ausschliesslich die Geschaeftsstelle.
+// ⚠️ Der Gateway verlangt hier session.isAdmin, nicht nur das
+// Bearbeiten-Haekchen der Kachel. Wer Antraege loeschen darf, aber kein
+// Administrator ist, bekommt an dieser Stelle 403 -- der Antrag bleibt
+// dann stehen, statt halb geloescht zu werden.
+async function loescheNachweiseAntrag(owner) {
+  const token = antragToken();
+  if (!token) throw new Error("Nicht angemeldet");
+
+  let res;
+  try {
+    res = await fetch(GATEWAY_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + token
+      },
+      body: JSON.stringify({ action: "vv-nachweis-loeschen", owner })
+    });
+  } catch {
+    throw new Error("Die Ablage ist nicht erreichbar.");
+  }
+
+  const daten = await res.json().catch(() => null);
+  if (!res.ok) throw new Error((daten && daten.error) || ("Fehler " + res.status));
+  return daten;
 }

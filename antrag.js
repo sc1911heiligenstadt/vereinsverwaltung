@@ -28,6 +28,7 @@ let eingangStatus = "neu";
 let eingangZaehler = {};
 let eingangAktuell = null;
 let eingangStammdaten = null;
+let eingangNurNachwuchs = false;
 
 const EINGANG_STATUS_TEXT = {
   neu: "Neu",
@@ -167,6 +168,12 @@ async function ladeEingang(status) {
     return;
   }
   eingangZaehler = antwort.nach || {};
+  // Die Oberflaeche richtet sich nach dem, was der Server GELIEFERT hat,
+  // nicht nach dem, was sie zu duerfen glaubt -- dieselbe Regel wie in
+  // antraege.js. Der Reiter erscheint zwar nur mit darfSchreiben, aber
+  // die Antwort ist die einzige Quelle, die auch dann noch stimmt, wenn
+  // sich die Rechteableitung im Worker einmal aendert.
+  eingangNurNachwuchs = !!antwort.nur_nachwuchs;
   zeichneEingangReiter();
   zeichneEingangListe(antwort.antraege || []);
 }
@@ -190,9 +197,12 @@ function zeichneEingangListe(liste) {
     return;
   }
 
+  const loeschbar = darfEingangLoeschen();
+
   ziel.innerHTML =
     '<div class="tabelle-scroll"><table class="schmal"><thead><tr>' +
     "<th>Eingang</th><th>Name</th><th>Geboren</th><th>Ort</th><th>Zahlung</th><th></th>" +
+    (loeschbar ? "<th></th>" : "") +
     "</tr></thead><tbody>" +
     liste.map((a) =>
       "<tr>" +
@@ -204,12 +214,87 @@ function zeichneEingangListe(liste) {
         "<td>" + esc(a.zahlungsart === "lastschrift" ? "Lastschrift" : "Überweisung") + "</td>" +
         '<td><button class="btn klein" type="button" data-antrag="' + esc(a.id) +
           '">Ansehen</button></td>' +
+        (loeschbar
+          ? '<td><button class="btn klein warn" type="button" data-eingangloeschen="' +
+            esc(a.id) + '" title="Diesen Antrag endgültig löschen">Löschen</button></td>'
+          : "") +
       "</tr>").join("") +
     "</tbody></table></div>";
 
   ziel.querySelectorAll("[data-antrag]").forEach((b) => {
     b.addEventListener("click", () => oeffneEingang(b.dataset.antrag));
   });
+  ziel.querySelectorAll("[data-eingangloeschen]").forEach((b) => {
+    b.addEventListener("click", () => loescheEingang(b.dataset.eingangloeschen));
+  });
+}
+
+// Zwei Bedingungen, beide serverseitig ohnehin durchgesetzt — hier geht es
+// nur darum, keinen Knopf zu zeigen, der sicher 403 oder 409 antwortet.
+// Dieselbe Regel wie anDarfLoeschen() in antraege.js; sie steht hier ein
+// zweites Mal, weil diese Seite bewusst kein Skript der Verwaltung laedt.
+// ⚠️ Wer eine der beiden aendert, aendert beide.
+//   * Die Passstelle loescht nicht. nur_nachwuchs heisst beim Server
+//     !darfSchreiben, und genau daran haengt vv-antrag-loeschen.
+//   * Ein angenommener Antrag bleibt stehen. An ihm haengen Mitgliedschaft
+//     und SEPA-Mandat; die Mitgliedschaft endet ueber den Austritt.
+function darfEingangLoeschen() {
+  return !eingangNurNachwuchs && eingangStatus !== "angenommen";
+}
+
+// Zweistufig: erst zaehlen lassen, dann mit den Zahlen fragen. Wer einen
+// Antrag wegwirft, soll vorher sehen, was daran haengt -- vor allem die
+// Nachweise, die woanders liegen.
+async function loescheEingang(id) {
+  let p;
+  try {
+    p = await loescheAntragSatz(id, true);
+  } catch (e) {
+    alert("Der Antrag lässt sich nicht löschen: " + e.message);
+    return;
+  }
+
+  const anhang = [];
+  if (p.nachweis_owner) anhang.push("die hochgeladenen Nachweise");
+  if (p.unterschriften) {
+    anhang.push(p.unterschriften + " Unterschrift" + (p.unterschriften > 1 ? "en" : ""));
+  }
+
+  if (!confirm("Aufnahmeantrag von " + p.name + " (Eingang " + datumDe(p.eingang_am) +
+               ") endgültig löschen?\n\n" +
+               (anhang.length ? "Mitgelöscht werden: " + anhang.join(" und ") + ".\n\n" : "") +
+               "Das lässt sich nicht rückgängig machen. Der Vorgang steht danach nur noch " +
+               "im Protokoll.")) return;
+
+  // ⚠️ Reihenfolge bindend: erst die Nachweise, dann die Zeile. Der
+  // Schluessel zu den Dateien steht NUR im Antrag -- ist er weg, sind die
+  // Ausweiskopien unauffindbar. Scheitert das Loeschen dort, wird auch der
+  // Antrag nicht angefasst, statt eine halbe Loeschung zu hinterlassen.
+  if (p.nachweis_owner) {
+    try {
+      await loescheNachweiseAntrag(p.nachweis_owner);
+    } catch (e) {
+      alert("Die Nachweise ließen sich nicht entfernen: " + e.message +
+            "\n\nDer Antrag bleibt deshalb stehen — sonst lägen die Dateien unauffindbar " +
+            "in der Ablage. Bitte noch einmal versuchen.");
+      return;
+    }
+  }
+
+  try {
+    await loescheAntragSatz(id, false);
+  } catch (e) {
+    alert("Der Antrag ließ sich nicht löschen: " + e.message);
+    return;
+  }
+
+  // ⚠️ Das Detail des geloeschten Antrags muss zu. Ohne das bliebe die
+  // Karte darunter mit einem Vorgang stehen, den es nicht mehr gibt --
+  // samt Druckknopf, der dann ins Leere greift. ladeEingang() versteckt
+  // sie ohnehin als erste Anweisung; eingangAktuell wird hier
+  // zurueckgesetzt, damit auch der Zustand dazu passt.
+  eingangAktuell = null;
+  await ladeEingang();
 }
 
 async function oeffneEingang(id) {

@@ -257,6 +257,133 @@ pruefe("G6  und zeigt den einen verbliebenen",
        "anzahl " + (liste.daten.antraege || []).length);
 
 // =====================================================================
+// H  Der Loeschweg im Client -- an ZWEI Orten (14.08.2026)
+// =====================================================================
+//
+// Seit dem 14.08.2026 gibt es den Loeschknopf nicht mehr nur im Reiter
+// "Antraege" der Verwaltung (antraege.js), sondern auch im Sicht-Reiter
+// auf antrag.html (antrag.js). Beide Seiten muessen dieselbe Regel
+// fahren -- antrag.html laedt bewusst kein Skript der Verwaltung, die
+// Funktion steht dort also ein zweites Mal.
+//
+// Geprueft wird der ECHTE Code aus beiden Dateien, nicht nachgebaut.
+
+const antraegeQuelle = readFileSync(REPO + "/antraege.js", "utf8");
+const antragQuelle = readFileSync(REPO + "/antrag.js", "utf8");
+
+// Zieht eine Funktion samt Koerper aus einer Browser-Datei. Der Anker ist
+// die schliessende Klammer am Zeilenanfang -- so wie die ganze Flotte
+// formatiert ist.
+function zieheFunktion(quelle, name) {
+  const m = quelle.match(
+    new RegExp("(async )?function " + name + "\\([^)]*\\) \\{[\\s\\S]*?\\n\\}"));
+  if (!m) throw new Error("Funktion " + name + " nicht gefunden");
+  return m[0];
+}
+
+// --- H1-H8  Die Sichtbarkeitsregel ist an beiden Orten dieselbe --------
+
+const regelA = zieheFunktion(antraegeQuelle, "anDarfLoeschen");
+const regelB = zieheFunktion(antragQuelle, "darfEingangLoeschen");
+
+function frageRegel(code, name, v1, nurNachwuchs, status) {
+  return new Function(v1[0], v1[1], code + "\nreturn " + name + "();")(nurNachwuchs, status);
+}
+
+const FAELLE = [
+  { nn: false, st: "neu",          soll: true,  text: "neu" },
+  { nn: false, st: "geprueft",     soll: true,  text: "vorgemerkt" },
+  { nn: false, st: "abgelehnt",    soll: true,  text: "abgelehnt" },
+  { nn: false, st: "zurueckgezogen", soll: true, text: "zurueckgezogen" },
+  { nn: false, st: "angenommen",   soll: false, text: "angenommen" },
+  { nn: true,  st: "neu",          soll: false, text: "Passstelle" },
+  { nn: true,  st: "angenommen",   soll: false, text: "Passstelle + angenommen" }
+];
+
+let h = 0;
+for (const f of FAELLE) {
+  h++;
+  const a = frageRegel(regelA, "anDarfLoeschen", ["anNurNachwuchs", "anStatus"], f.nn, f.st);
+  const b = frageRegel(regelB, "darfEingangLoeschen",
+                       ["eingangNurNachwuchs", "eingangStatus"], f.nn, f.st);
+  pruefe("H" + h + "  " + f.text + ": beide Orte sagen " + (f.soll ? "ja" : "nein"),
+         a === f.soll && b === f.soll, "Verwaltung " + a + ", Sicht-Reiter " + b);
+}
+
+// --- H8-H12  Die Reihenfolge: erst die Nachweise, dann die Zeile ------
+//
+// ⚠️ Der Schluessel zu den Ausweiskopien steht NUR im Antrag. Wer die
+// Zeile zuerst loescht, laesst die Dateien unauffindbar in der Ablage
+// liegen. Scheitert das Loeschen dort, darf der Antrag NICHT angefasst
+// werden -- eine halbe Loeschung ist der schlechteste Ausgang.
+
+const loeschCode = zieheFunktion(antragQuelle, "loescheEingang");
+
+async function fahreLoeschweg({ bestaetigt, nachweisFehler }) {
+  const ruf = [];
+  const meldungen = [];
+  const probe = {
+    ok: true, pruefung: true, id: "x1", name: "Lina Mustermann",
+    eingang_am: "2026-08-11", status: "neu",
+    nachweis_owner: "0123456789abcdef0123456789abcdef", unterschriften: 2
+  };
+  const f = new Function(
+    "loescheAntragSatz", "loescheNachweiseAntrag", "ladeEingang",
+    "datumDe", "alert", "confirm",
+    "let eingangAktuell = {};\n" + loeschCode +
+    "\nreturn loescheEingang('x1');");
+
+  await f(
+    async (id, pruefen) => {
+      ruf.push(pruefen ? "antrag:pruefen" : "antrag:loeschen");
+      return probe;
+    },
+    async () => {
+      ruf.push("nachweise");
+      if (nachweisFehler) throw new Error("Nur Administratoren");
+      return { ok: true };
+    },
+    async () => { ruf.push("liste"); },
+    (d) => d,
+    (m) => meldungen.push(String(m)),
+    () => bestaetigt
+  );
+  return { ruf, meldungen };
+}
+
+const hAb = await fahreLoeschweg({ bestaetigt: false });
+pruefe("H8  ein Abbruch der Rueckfrage loescht nichts",
+       hAb.ruf.join(",") === "antrag:pruefen", hAb.ruf.join(","));
+
+const hFehl = await fahreLoeschweg({ bestaetigt: true, nachweisFehler: true });
+pruefe("H9  scheitern die Nachweise, bleibt der Antrag STEHEN",
+       !hFehl.ruf.includes("antrag:loeschen"), hFehl.ruf.join(","));
+pruefe("H10 und es kommt eine sichtbare Meldung",
+       hFehl.meldungen.length === 1 && /Nachweise/.test(hFehl.meldungen[0]),
+       JSON.stringify(hFehl.meldungen));
+
+const hOk = await fahreLoeschweg({ bestaetigt: true });
+pruefe("H11 im Normalfall: Probe, Nachweise, Antrag, Liste -- in DIESER Folge",
+       hOk.ruf.join(",") === "antrag:pruefen,nachweise,antrag:loeschen,liste",
+       hOk.ruf.join(","));
+pruefe("H12 und ohne eine einzige Fehlermeldung",
+       hOk.meldungen.length === 0, JSON.stringify(hOk.meldungen));
+
+// --- H13-H14  Der oeffentliche Weg schickt seinen Token mit ------------
+//
+// ⚠️ Das Hochladen eines Nachweises macht die Familie OHNE Konto, das
+// Loeschen ausschliesslich die Geschaeftsstelle. Ginge der Aufruf ohne
+// Authorization-Kopf raus, antwortete der Gateway 403 und der Antrag
+// bliebe fuer immer stehen.
+
+const dbAntragQuelle = readFileSync(REPO + "/db-antrag.js", "utf8");
+const nwLoeschen = zieheFunktion(dbAntragQuelle, "loescheNachweiseAntrag");
+pruefe("H13 loescheNachweiseAntrag schickt einen Bearer-Token mit",
+       /Authorization/.test(nwLoeschen) && /antragToken\(\)/.test(nwLoeschen));
+pruefe("H14 und ladeNachweisHoch weiterhin KEINEN",
+       !/Authorization/.test(zieheFunktion(dbAntragQuelle, "ladeNachweisHoch")));
+
+// =====================================================================
 
 console.log("");
 console.log("Pruefstand Antrag loeschen");
