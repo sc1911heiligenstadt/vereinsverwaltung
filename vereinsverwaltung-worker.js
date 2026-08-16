@@ -1582,11 +1582,19 @@ const BUCHHALTUNG_SCHEMA = [
 // Vereinsstammdaten
 // ---------------------------------------------------------------------
 
+// ⚠️ "verein_name" stand hier bis zum 16.08.2026 als Pflichtfeld und ist
+// ERSATZLOS entfernt -- der Name kommt jetzt aus der Konstante VEREIN_NAME
+// (Begruendung dort). In der Live-Datenbank stand "asd" darin und wurde auf
+// beiden oeffentlichen Formularen und im Mandatstext angezeigt.
+// Der Wert bleibt als Karteileiche in der Tabelle stehen und wird nirgends
+// mehr gelesen; loeschen muss ihn niemand.
 const EINSTELLUNGEN = {
-  verein_name:      { gruppe: "sepa", label: "Name des Vereins (Glaeubiger)", max: 70, pflicht: true },
   verein_iban:      { gruppe: "sepa", label: "IBAN des Vereinskontos", max: 34, pflicht: true, iban: true },
   verein_bic:       { gruppe: "sepa", label: "BIC des Vereinskontos", max: 11 },
-  glaeubiger_id:    { gruppe: "sepa", label: "Glaeubiger-Identifikationsnummer", max: 35, pflicht: true },
+  // ⚠️ "glaeubiger" prueft die Pruefziffer -- pflicht allein hat "asdasd"
+  // durchgelassen, und der Wert steht im unterschriebenen Mandatstext.
+  glaeubiger_id:    { gruppe: "sepa", label: "Glaeubiger-Identifikationsnummer (Aufbau DE..ZZZ + 11 Zeichen)",
+                      max: 35, pflicht: true, glaeubiger: true },
   // {jahr} und {periode} werden beim Erzeugen der SEPA-Datei ersetzt.
   // Steht {periode} nicht im Muster, haengt die Rate hinten an -- ein
   // Jahreslauf setzt gar nichts ein und sieht aus wie bisher.
@@ -1648,6 +1656,37 @@ function ibanGueltig(roh) {
   return rest === 1;
 }
 
+// Pruefziffer der SEPA-Glaeubiger-Identifikationsnummer (Creditor
+// Identifier). Gleiche Notwendigkeit wie bei der IBAN: eine falsche
+// Glaeubiger-ID weist die komplette Einreichung ab, nicht eine Zeile --
+// und sie steht zusaetzlich im Mandatstext, den der Antragsteller
+// unterschreibt.
+//
+// ⚠️ Der Aufbau ist NICHT der einer IBAN: Stellen 5-7 sind der Creditor
+// Business Code (frei waehlbar, in Deutschland fast immer "ZZZ") und
+// werden bei der Rechnung WEGGELASSEN. Wer sie mitrechnet, weist jede
+// echte ID ab. Gerechnet wird ueber nationale Kennung + Land + Pruefziffer,
+// Modulo 97 muss 1 ergeben.
+//
+// An den offiziellen Beispielen der EPC-Unterlagen gegengerechnet
+// (DE98ZZZ09999999999, FR72ZZZ123456, NL42ZZZ123456780001) -- alle drei
+// werden von dieser Fassung als gueltig erkannt und aus der nationalen
+// Kennung heraus zeichengleich reproduziert.
+function glaeubigerIdGueltig(roh) {
+  const s = String(roh || "").replace(/\s+/g, "").toUpperCase();
+  // Land(2) + Pruefziffer(2) + Business Code(3) + nationale Kennung(1-28)
+  if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]{3}[A-Z0-9]{1,28}$/.test(s)) return false;
+  const um = s.slice(7) + s.slice(0, 4);
+  let rest = 0;
+  for (const zeichen of um) {
+    const wert = zeichen >= "0" && zeichen <= "9"
+      ? zeichen
+      : String(zeichen.charCodeAt(0) - 55);
+    for (const ziffer of wert) rest = (rest * 10 + Number(ziffer)) % 97;
+  }
+  return rest === 1;
+}
+
 // Gibt null zurueck, wenn die Tabelle noch nicht existiert -- das ist
 // kein Serverfehler, sondern eine noch nicht gelaufene Einrichtung.
 // handleMigration legt sie an; der Reiter stoesst das beim Oeffnen an.
@@ -1688,7 +1727,19 @@ async function handleEinstellungen(env, me, corsHeaders) {
       wert: r.zahl ? String(einstellungZahl(werte, s)) : (werte[s] || "")
     };
   });
-  const fehlend = felder.filter((f) => f.pflicht && !f.wert).map((f) => f.label);
+  // ⚠️ Ein Pflichtfeld mit unbrauchbarem Inhalt zaehlt hier wie ein leeres.
+  // Es steht bewusst in derselben Liste "fehlend", statt ein neues Feld zu
+  // bekommen: die Oberflaeche zeigt diese Liste schon an, ein zusaetzliches
+  // Feld haette sie stillschweigend ignoriert -- eine Warnung, die niemand
+  // sieht, ist keine. Der Zusatz im Text sagt, dass etwas DRIN steht.
+  const fehlend = felder.filter((f) => {
+    if (!f.pflicht) return false;
+    if (!f.wert) return true;
+    const regel = EINSTELLUNGEN[f.schluessel];
+    if (regel.iban && !ibanGueltig(f.wert)) return true;
+    if (regel.glaeubiger && !glaeubigerIdGueltig(f.wert)) return true;
+    return false;
+  }).map((f) => f.label + (f.wert ? " (eingetragen, aber ungueltig)" : ""));
   return json({ ok: true, felder, vollstaendig: !fehlend.length, fehlend }, 200, corsHeaders);
 }
 
@@ -1716,6 +1767,15 @@ async function handleEinstellungSetzen(body, env, me, corsHeaders) {
 
   if (regel.iban && wert && !ibanGueltig(wert)) {
     return json({ error: "Die IBAN ist nicht gueltig (Pruefziffer stimmt nicht)" }, 400, corsHeaders);
+  }
+  // ⚠️ Hier abweisen, nicht erst beim Erzeugen der SEPA-Datei. Der Wert
+  // steht im Mandatstext des oeffentlichen Formulars -- er wird also
+  // unterschrieben, lange bevor die erste Lastschrift laeuft.
+  if (regel.glaeubiger && wert && !glaeubigerIdGueltig(wert)) {
+    return json({ error: "Die Glaeubiger-Identifikationsnummer ist nicht gueltig. " +
+                  "Sie hat den Aufbau DE + 2 Pruefziffern + ZZZ + 11 Zeichen " +
+                  "(Beispiel: DE98ZZZ09999999999) und wird von der Deutschen " +
+                  "Bundesbank vergeben." }, 400, corsHeaders);
   }
   if (regel.zahl) {
     const n = parseInt(wert, 10);
@@ -2823,6 +2883,16 @@ async function handleSepaErzeugen(body, env, me, corsHeaders) {
   if (!ibanGueltig(cfg.verein_iban)) {
     return json({ error: "Die hinterlegte Vereins-IBAN ist ungueltig" }, 400, corsHeaders);
   }
+  // ⚠️ Zweite Bremse hinter handleEinstellungSetzen, nicht statt dessen: in
+  // der Live-Datenbank stand bereits "asdasd", also ein Wert, der VOR der
+  // Pruefung hineingekommen ist. Ohne diese Zeile ginge er mit der ersten
+  // Einreichung an die Bank -- und die weist die ganze Datei ab.
+  if (!glaeubigerIdGueltig(cfg.glaeubiger_id)) {
+    return json({ error: "Die hinterlegte Glaeubiger-Identifikationsnummer ist ungueltig. " +
+                  "Sie steht in den Vereinsstammdaten und hat den Aufbau " +
+                  "DE + 2 Pruefziffern + ZZZ + 11 Zeichen.",
+                  code: "stammdaten" }, 400, corsHeaders);
+  }
 
   const nurPruefen = !!body.pruefen;
   const ausfuehrung = istIsoDatum(body.ausfuehrung_am) ? body.ausfuehrung_am : lauf.faelligkeit;
@@ -2984,7 +3054,7 @@ async function handleSepaErzeugen(body, env, me, corsHeaders) {
       "      <PmtTpInf><SvcLvl><Cd>SEPA</Cd></SvcLvl><LclInstrm><Cd>CORE</Cd></LclInstrm>" +
       "<SeqTp>" + g.seq + "</SeqTp></PmtTpInf>\n" +
       "      <ReqdColltnDt>" + xmlEsc(ausfuehrung) + "</ReqdColltnDt>\n" +
-      "      <Cdtr><Nm>" + xmlEsc(sepaText(cfg.verein_name, 70)) + "</Nm></Cdtr>\n" +
+      "      <Cdtr><Nm>" + xmlEsc(sepaText(VEREIN_NAME, 70)) + "</Nm></Cdtr>\n" +
       "      <CdtrAcct><Id><IBAN>" +
       xmlEsc(String(cfg.verein_iban).replace(/\s+/g, "").toUpperCase()) + "</IBAN></Id></CdtrAcct>\n" +
       "      <CdtrAgt>" + (cdtrBic
@@ -3008,7 +3078,7 @@ async function handleSepaErzeugen(body, env, me, corsHeaders) {
     "      <CreDtTm>" + heute.toISOString().slice(0, 19) + "</CreDtTm>\n" +
     "      <NbOfTxs>" + posten.length + "</NbOfTxs>\n" +
     "      <CtrlSum>" + centAlsBetrag(summeCent) + "</CtrlSum>\n" +
-    "      <InitgPty><Nm>" + xmlEsc(sepaText(cfg.verein_name, 70)) + "</Nm></InitgPty>\n" +
+    "      <InitgPty><Nm>" + xmlEsc(sepaText(VEREIN_NAME, 70)) + "</Nm></InitgPty>\n" +
     "    </GrpHdr>\n" +
     bloecke.join("\n") + "\n" +
     "  </CstmrDrctDbtInitn>\n" +
@@ -3601,7 +3671,7 @@ async function handleVorabankuendigung(body, env, me, corsHeaders) {
     periodeText: pInfo.periode === "jahr" ? "" : pInfo.text,
     bezeichnung: lauf.bezeichnung,
     glaeubiger_id: cfg.glaeubiger_id || "",
-    verein_name: cfg.verein_name || "",
+    verein_name: VEREIN_NAME,
     anzahl: liste.length,
     mitEmail: liste.filter((e) => e.email).length,
     summeCent: liste.reduce((s, e) => s + e.betrag_cent, 0),
@@ -3650,10 +3720,29 @@ const UNTERSCHRIFT_MAX = 150000;
 const ANTRAG_JE_IP_STUNDE = 5;
 const ANTRAG_JE_IP_TAG = 20;
 
-// Nur fuer den Mandatstext des oeffentlichen Formulars. Sind die
-// Vereinsstammdaten noch nicht eingetragen, soll das Formular trotzdem
-// benutzbar sein -- ein Antragsteller kann nichts dafuer.
-const VEREIN_FALLBACK = "1. SC 1911 Heiligenstadt e.V.";
+// ⚠️ Der Name des Vereins ist eine KONSTANTE, keine Einstellung mehr.
+//
+// Bis zum 16.08.2026 stand er als Pflichtfeld "verein_name" in der Tabelle
+// "einstellung" und wurde von dort in den Begruessungstext, den
+// Mandatstext, den Papierantrag, den Verbandsbogen UND die SEPA-Datei
+// gezogen. In der Live-Datenbank stand darin "asd" -- eine Probeeingabe.
+// Auf beiden oeffentlichen Formularen las sich das als "Willkommen beim
+// asd", und der Mandatstext lautete "Ich ermaechtige den asd": ein
+// Lastschriftmandat, das den Glaeubiger nicht benennt.
+//
+// Warum ein Fallback das NICHT gefangen hat: "cfg.verein_name || FALLBACK"
+// greift nur beim leeren Feld. "asd" ist nicht leer, also gewinnt es.
+// Genauso prueft "pflicht: true" nur auf Vorhandensein, nicht auf Sinn.
+//
+// Der Verein hat genau einen Namen, er ist nicht geheim (er steht in rund
+// 200 Dateien der Flotte im Klartext) und er aendert sich nicht. Damit
+// gehoerte er nie in dieselbe Tabelle wie IBAN und Glaeubiger-ID -- die
+// stehen dort, weil sie NICHT ins oeffentliche Repo duerfen. Er ist
+// mitgewandert, ohne dass es ihn betraf.
+//
+// ⚠️ Wer ihn wieder konfigurierbar macht, holt den Fehler zurueck. Eine
+// Umbenennung des Vereins ist ein Deploy -- wie an den 200 anderen Stellen.
+const VEREIN_NAME = "1. SC 1911 Heiligenstadt e.V.";
 
 const EMAIL_MUSTER = /^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/;
 
@@ -4099,8 +4188,18 @@ async function handleAntragInfo(env, corsHeaders) {
   return json({
     offen,
     nachwuchs_offen: nachwuchsOffen,
-    verein: (cfg && cfg.verein_name) || VEREIN_FALLBACK,
-    glaeubiger_id: (cfg && cfg.glaeubiger_id) || null,
+    // ⚠️ Der Name kommt aus der Konstante, NICHT mehr aus den Einstellungen.
+    // Das ist die Stelle, die bis zum 16.08.2026 "asd" an beide oeffentlichen
+    // Formulare ausgeliefert hat. Weil der Wert hier im Server entsteht,
+    // wirkt die Korrektur auch fuer Browser, die das alte JS noch im
+    // Cache haben -- ein ?v= erreicht die gerade nicht.
+    verein: VEREIN_NAME,
+    // ⚠️ Eine unbrauchbare Glaeubiger-ID wird WEGGELASSEN, nicht angezeigt.
+    // baueMandatstext() laesst die Zeile bei null von selbst aus. Lieber
+    // ein Mandat ohne die Nummer -- sie ist dort ein Hinweis -- als eines,
+    // das eine falsche nennt.
+    glaeubiger_id: (cfg && glaeubigerIdGueltig(cfg.glaeubiger_id))
+      ? cfg.glaeubiger_id : null,
     sparten: sparten.results || [],
     beitraege: klassen
   }, 200, corsHeaders);
@@ -4468,7 +4567,10 @@ async function handleAntragDetail(body, env, me, corsHeaders) {
     // seine Oberflaeche danach aus -- die Schranke ist aber diese Antwort,
     // nicht das Feld.
     nur_nachwuchs: nurNachwuchs,
-    verein: { name: cfg.verein_name || "", tfv_nr: cfg.tfv_vereinsnummer || "" },
+    // ⚠️ Der Name aus der Konstante: dieses Feld wird auf den Verbandsbogen
+    // AO21 GEDRUCKT. Aus den Einstellungen gelesen stand dort "asd" --
+    // sichtbar aber erst auf dem fertigen Blatt beim Verband.
+    verein: { name: VEREIN_NAME, tfv_nr: cfg.tfv_vereinsnummer || "" },
     dubletten: aehnlich.dubletten,
     haushalte: aehnlich.haushalte,
     // Die naechste freie Mitgliedsnummer ist eine Angabe ueber den

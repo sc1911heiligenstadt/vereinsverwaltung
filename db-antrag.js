@@ -26,6 +26,14 @@ const ANTRAG_VERSION = "1.0";
 
 const ANTRAG_CHANGELOG = [
   {
+    version: "Der Verein steht mit seinem richtigen Namen im Formular",
+    datum: "2026-08-16",
+    punkte: [
+      "Begrüßung und SEPA-Mandat nennen den Verein jetzt mit seinem vollen Namen. Er stand bisher in den Vereinsstammdaten und war dort mit einem Probewert überschrieben — im Mandatstext war dadurch nicht erkennbar, wem die Einzugsermächtigung erteilt wird.",
+      "Die Gläubiger-Identifikationsnummer erscheint nur noch, wenn sie gültig ist. Steht keine brauchbare Nummer bereit, bleibt die Zeile weg statt eine falsche zu nennen — das Formular kann trotzdem ausgefüllt und abgeschickt werden."
+    ]
+  },
+  {
     version: "Anträge lassen sich hier löschen",
     datum: "2026-08-14",
     punkte: [

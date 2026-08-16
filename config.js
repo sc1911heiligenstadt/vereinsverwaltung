@@ -39,6 +39,16 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Vereinsname steht fest, Gläubiger-ID wird geprüft",
+    datum: "2026-08-16",
+    punkte: [
+      "Der Name des Vereins ist kein Eingabefeld mehr, sondern steht fest in der App. Er war bisher Teil der Vereinsstammdaten, und ein dort eingetragener Probewert erschien dadurch im Begrüßungstext beider öffentlicher Formulare, im Text des SEPA-Mandats, auf dem Papierantrag und auf dem Verbandsbogen.",
+      "Die Gläubiger-Identifikationsnummer wird jetzt auf ihre Prüfziffer geprüft — genau wie die IBAN. Ein Zahlendreher darin fiel bisher erst der Bank auf, und die weist dann die komplette Einreichung ab, nicht die eine Zeile.",
+      "Ist die hinterlegte Nummer unbrauchbar, erscheint sie nicht mehr im Mandatstext des Antragsformulars, und die Vereinsstammdaten melden sich als unvollständig. Eine SEPA-Datei lässt sich dann nicht erzeugen.",
+      "Die IBAN, die BIC und die Gläubiger-ID bleiben unverändert Einstellungen — sie gehören nicht in den Programmcode."
+    ]
+  },
+  {
     version: "Neue Anträge nur noch per SEPA-Lastschrift",
     datum: "2026-08-14",
     punkte: [

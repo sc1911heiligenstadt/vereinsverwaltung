@@ -38,9 +38,21 @@ function pUnterschrift(titel, bild, ortDatum) {
     pEsc(titel) + "</span></div></div>";
 }
 
-// Die Vereins-Bankverbindung steht in der Datenbank, nicht im Code --
-// dieses Repo ist öffentlich. Fehlen die Stammdaten noch, bleibt die
-// Zeile kürzer statt falsch dazustehen.
+// ⚠️ Der Vereinsname steht im CODE, die Bankverbindung in der Datenbank.
+// Das ist kein Widerspruch: IBAN und Gläubiger-ID gehören nicht in ein
+// öffentliches Repo, der Vereinsname ist dagegen nicht geheim und steht
+// flottenweit in rund 200 Dateien im Klartext. Aus der Einstellung gelesen
+// stand hier bis zum 16.08.2026 der Live-Wert "asd" auf dem Papierantrag.
+//
+// ⚠️ Zweiter Ort neben VEREIN_NAME im Worker -- dieselbe bewusste Doppelung
+// wie bei ANTRAG_WORKER_URL und RHYTHMUS_RATEN. Wer den einen ändert,
+// ändert den anderen. Beide Strings müssen zeichengleich bleiben: der
+// Papierantrag trägt das SEPA-Mandat, und darin muss derselbe Gläubiger
+// stehen wie in der Lastschriftdatei.
+const VEREIN_NAME_PAPIER = "1. SC 1911 Heiligenstadt e.V.";
+
+// Fehlen die Bankdaten noch, bleibt die Zeile kürzer statt falsch
+// dazustehen.
 function pFusszeile(e) {
   const cfg = e || {};
   const teile = [];
@@ -48,7 +60,7 @@ function pFusszeile(e) {
     teile.push("IBAN: " + cfg.verein_iban + (cfg.verein_bic ? ", BIC: " + cfg.verein_bic : ""));
   }
   if (cfg.glaeubiger_id) teile.push("Gläubiger-ID: " + cfg.glaeubiger_id);
-  return '<div class="fuss">' + pEsc(cfg.verein_name || "1. SC 1911 Heiligenstadt e.V.") +
+  return '<div class="fuss">' + pEsc(VEREIN_NAME_PAPIER) +
     (teile.length ? "<br>" + pEsc(teile.join(" · ")) : "") + "</div>";
 }
 

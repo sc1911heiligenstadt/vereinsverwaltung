@@ -761,13 +761,18 @@ async function erzeugeTfvAntrag() {
 
   try {
     // Vereinsname und Verbandsnummer kommen seit der Passstellen-Rolle mit
-    // dem Antrag mit. ⚠️ `anEinstellungen` bleibt als Rückfall stehen: es
-    // stammt aus `vv-einstellungen`, das neben diesen beiden Werten die
+    // dem Antrag mit. ⚠️ `anEinstellungen` bleibt für die VERBANDSNUMMER als
+    // Rückfall stehen: es stammt aus `vv-einstellungen`, das neben ihr die
     // Vereins-IBAN führt und deshalb nur der Geschäftsstelle antwortet.
+    //
+    // ⚠️ Für den NAMEN gibt es diesen Rückfall seit dem 16.08.2026 nicht
+    // mehr: er steht als Konstante im Worker und kommt immer gefüllt an.
+    // `anEinstellungen.verein_name` gibt es nicht mehr -- der Schlüssel war
+    // frei eingebbar, und in der Live-Datenbank stand "asd" darin.
     const verein = anAktuell.verein || {};
     const { bytes, hinweise } = await tfvAntragErzeugen({
       antrag: anAktuell.antrag,
-      vereinsname: verein.name || (anEinstellungen && anEinstellungen.verein_name) || "",
+      vereinsname: verein.name || "",
       vereinsNr: verein.tfv_nr || (anEinstellungen && anEinstellungen.tfv_vereinsnummer) || "",
       unterschriftOrt: anAktuell.antrag.inhalt.unterschrift_ort,
       datum: anAktuell.antrag.signatur_zeit || anAktuell.antrag.eingang_am
