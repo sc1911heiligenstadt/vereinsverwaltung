@@ -16,6 +16,7 @@
 //   E  Das Fenster zwischen Deploy und erster Migration
 //   F  Das Raster des Verbandsformulars
 //   G  Gleichheit des geteilten Formularkerns
+//   I  Elternkodex: Kenntnisnahme mit eigener Unterschrift
 
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
@@ -93,6 +94,7 @@ const env = { VV_DB: d1(db) };
 db.exec("ALTER TABLE person DROP COLUMN nationalitaet");
 db.exec("ALTER TABLE aufnahmeantrag DROP COLUMN quelle");
 db.exec("ALTER TABLE aufnahmeantrag DROP COLUMN nachweis_owner");
+db.exec("ALTER TABLE aufnahmeantrag DROP COLUMN unterschrift_elternkodex_datei");
 
 const me = { username: "pruefer", isAdmin: true, canEdit: true, canAdmin: true };
 const cors = {};
@@ -110,6 +112,8 @@ pruefe("A1 Altstand: person.nationalitaet fehlt", !spalten("person").has("nation
 pruefe("A2 Altstand: aufnahmeantrag.quelle fehlt", !spalten("aufnahmeantrag").has("quelle"));
 pruefe("A3 Altstand: aufnahmeantrag.nachweis_owner fehlt",
        !spalten("aufnahmeantrag").has("nachweis_owner"));
+pruefe("A3b Altstand: unterschrift_elternkodex_datei fehlt",
+       !spalten("aufnahmeantrag").has("unterschrift_elternkodex_datei"));
 
 const mig1 = await W.handleMigration(env, me, cors);
 pruefe("A4 Migration antwortet 200", mig1.status === 200, "status " + mig1.status);
@@ -117,6 +121,8 @@ pruefe("A5 person.nationalitaet ist da", spalten("person").has("nationalitaet"))
 pruefe("A6 aufnahmeantrag.quelle ist da", spalten("aufnahmeantrag").has("quelle"));
 pruefe("A7 aufnahmeantrag.nachweis_owner ist da",
        spalten("aufnahmeantrag").has("nachweis_owner"));
+pruefe("A7b unterschrift_elternkodex_datei ist da",
+       spalten("aufnahmeantrag").has("unterschrift_elternkodex_datei"));
 
 // Die Vorgabe der Spalte ist der Grund, warum ein alter Antrag ohne
 // weiteres Zutun als "antrag" gilt.
@@ -200,6 +206,9 @@ function nw(mehr) {
     unterschrift: SIG, unterschrift_gesetzl: SIG, unterschrift_gesetzl2: SIG,
     gesetzl_name: "Erika Mustermann", gesetzl2_name: "Hans Mustermann",
     nationalitaet: "deutsch",
+    einwilligung_elternkodex: true,
+    elternkodex_version: "1.0 (Stand 23.03.2026)",
+    unterschrift_elternkodex: SIG,
     spielerlaubnis: { art: "erstausstellung" },
     sparten: ["sp-1"]
   }, mehr);
@@ -648,6 +657,131 @@ pruefe("H35 Das Oval faengt keine Klicks ab", /\.kamera-oval[\s\S]{0,300}pointer
 // Escape schliesst gestaffelt: erst die Kamera, dann der Zuschnitt.
 pruefe("H36 Escape schliesst zuerst die Kamera",
        /kamera-overlay"\)\.hidden\) \{ schliesseKamera\(\); return; \}/.test(nachwuchsJs));
+
+// ======================================================================
+console.log("I  Elternkodex");
+// ======================================================================
+
+// Der Kodex verpflichtet die Eltern. Verlangt wird er deshalb genau dann,
+// wenn es welche gibt, die unterschreiben: Nachwuchs-Anmeldung UND
+// minderjaehrig.
+pruefe("I1 Ohne Haekchen wird abgewiesen",
+       !!W.pruefeAntrag(nw({ einwilligung_elternkodex: false }), sparten, HEUTE, "nachwuchs")
+         .fehler);
+pruefe("I2 Haekchen fehlt ganz: abgewiesen",
+       !!W.pruefeAntrag(nw({ einwilligung_elternkodex: undefined }), sparten, HEUTE, "nachwuchs")
+         .fehler);
+pruefe("I3 Ein wahrheitsaehnlicher Wert genuegt nicht",
+       !!W.pruefeAntrag(nw({ einwilligung_elternkodex: "ja" }), sparten, HEUTE, "nachwuchs")
+         .fehler);
+pruefe("I4 Ohne Unterschrift wird abgewiesen",
+       !!W.pruefeAntrag(nw({ unterschrift_elternkodex: "" }), sparten, HEUTE, "nachwuchs")
+         .fehler);
+
+const i5 = W.pruefeAntrag(nw(), sparten, HEUTE, "nachwuchs");
+pruefe("I5 Erklaerung steht im Inhalt", i5.satz && i5.satz.inhalt.einwilligung_elternkodex === true);
+pruefe("I6 Fassung wandert mit",
+       i5.satz && i5.satz.inhalt.elternkodex_version === "1.0 (Stand 23.03.2026)");
+pruefe("I7 Unterschrift liegt NEBEN dem Inhalt, nicht darin",
+       i5.satz && i5.satz.unterschrift_elternkodex === SIG &&
+       i5.satz.inhalt.unterschrift_elternkodex === undefined);
+
+// ⚠️ Der allgemeine Aufnahmeantrag kennt den Kodex nicht -- er darf durch
+// die neue Pflicht nicht enger werden.
+const i8 = W.pruefeAntrag(nw({ einwilligung_elternkodex: false,
+                               unterschrift_elternkodex: "",
+                               nationalitaet: "", spielerlaubnis: undefined }),
+                          sparten, HEUTE);
+pruefe("I8 Allgemeiner Antrag braucht den Kodex nicht", !!i8.satz, i8.fehler);
+pruefe("I9 Allgemeiner Antrag: Erklaerung false", i8.satz &&
+       i8.satz.inhalt.einwilligung_elternkodex === false);
+pruefe("I10 Allgemeiner Antrag: keine Kodex-Unterschrift",
+       i8.satz && i8.satz.unterschrift_elternkodex === null);
+
+// Ein Volljaehriger meldet sich selbst an: dann gibt es niemanden, der
+// als Erziehungsberechtigter unterschreibt. Das Formular blendet die
+// Karte aus, der Server verlangt sie folgerichtig auch nicht.
+const erw = { geburtsdatum: "2000-05-01", gesetzl_name: "", gesetzl2_name: "",
+              unterschrift_gesetzl: "", unterschrift_gesetzl2: "",
+              einwilligung_elternkodex: false, unterschrift_elternkodex: "" };
+const i11 = W.pruefeAntrag(nw(erw), sparten, HEUTE, "nachwuchs");
+pruefe("I11 Volljaehriger braucht den Kodex nicht", !!i11.satz, i11.fehler);
+
+// Gegen die echte Datenbank: die Unterschrift muss in ihrer eigenen
+// Spalte landen und darf nicht im JSON stecken.
+const i12res = await W.handleAntragSenden(nw(), env, request, cors, "nachwuchs");
+pruefe("I12 Antrag mit Kodex wird angenommen", i12res.status === 200, "status " + i12res.status);
+const i12b = await i12res.json();
+const zk = db.prepare("SELECT * FROM aufnahmeantrag WHERE id = ?").get(i12b.id);
+pruefe("I13 Unterschrift steht in der eigenen Spalte",
+       zk.unterschrift_elternkodex_datei === SIG);
+pruefe("I14 Die Unterschrift steckt NICHT im JSON",
+       !/unterschrift_elternkodex/.test(zk.antrag_json));
+pruefe("I15 Die Erklaerung steckt im JSON",
+       JSON.parse(zk.antrag_json).einwilligung_elternkodex === true);
+
+// Detail liefert sie an die Verwaltung zurueck.
+const i16 = await (await W.handleAntragDetail({ id: i12b.id }, env, me, cors)).json();
+pruefe("I16 Detail liefert die Kodex-Unterschrift",
+       i16.antrag && i16.antrag.unterschrift_elternkodex === SIG);
+
+// Das Fenster zwischen Deploy und Migration: ohne die Spalte wird
+// sichtbar abgewiesen statt still verloren.
+const db3 = new DatabaseSync(":memory:");
+for (const anw of schema.split(";").map((s) => s.trim()).filter(Boolean)) db3.exec(anw + ";");
+db3.exec("ALTER TABLE aufnahmeantrag DROP COLUMN unterschrift_elternkodex_datei");
+db3.exec("CREATE TABLE IF NOT EXISTS einstellung (schluessel TEXT PRIMARY KEY, wert TEXT, " +
+         "geaendert_am TEXT, geaendert_von TEXT)");
+db3.exec("INSERT INTO einstellung (schluessel, wert) VALUES ('nachwuchs_offen','1')");
+db3.exec("INSERT INTO sparte (id, name, aktiv, erstellt_am, erstellt_von) " +
+         "VALUES ('sp-1', 'Fussball', 1, '2026-01-01', 'test')");
+const W3 = new Function(quelle + "\nreturn {handleAntragSenden};")();
+const i17 = await W3.handleAntragSenden(nw(), { VV_DB: d1(db3) }, request, cors, "nachwuchs");
+pruefe("I17 Ohne Spalte wird sichtbar abgewiesen (503)", i17.status === 503,
+       "status " + i17.status);
+
+// --- Das Formular selbst ----------------------------------------------
+
+
+pruefe("I18 Es gibt eine eigene Kodex-Karte", /id="a-karte-kodex"/.test(nwHtml));
+pruefe("I19 Die Karte ist anfangs verborgen",
+       /id="a-karte-kodex" hidden/.test(nwHtml));
+pruefe("I20 Der Kodex laesst sich herunterladen",
+       /href="elternkodex\.pdf" download/.test(nwHtml));
+pruefe("I21 Es gibt ein Haekchen zur Kenntnisnahme", /id="a-ew-kodex"/.test(nwHtml));
+pruefe("I22 Es gibt eine eigene Unterschriftsflaeche",
+       /id="a-sig-kodex" class="unterschrift-feld"/.test(nwHtml));
+pruefe("I23 Die Karte haengt an der Minderjaehrigkeit",
+       /\$\("a-karte-kodex"\)\.hidden = !minder/.test(nachwuchsJs));
+pruefe("I24 Das Zeichenfeld wird erst beim Sichtbarwerden vermessen",
+       /sigPadKodex = sigFeldPflegen\(sigPadKodex, "a-sig-kodex", minder\)/.test(nachwuchsJs));
+pruefe("I25 Der Client prueft das Haekchen selbst",
+       /einwilligung_elternkodex[\s\S]{0,200}herunterladen/.test(nachwuchsJs));
+pruefe("I26 Die Fassung steht als Konstante im Code",
+       /const ELTERNKODEX_VERSION = "1\.0 \(Stand 23\.03\.2026\)"/.test(nachwuchsJs));
+pruefe("I27 Die Fassung steht auch am Haekchen im Formular",
+       /Version 1\.0, Stand 23\.03\.2026/.test(nwHtml));
+
+// Die Schrittnummern zaehlen durch, statt fest addiert zu sein -- sonst
+// braucht jede bedingte Karte eine Fallunterscheidung in jeder Zeile
+// darunter.
+pruefe("I28 Die Schritte werden durchgezaehlt",
+       /function nummeriereSchritte\(\)/.test(nachwuchsJs));
+pruefe("I29 Der Kodex steht in der Schrittliste",
+       /\["nr-kodex",\s*"Elternkodex",\s*"a-karte-kodex"\]/.test(nachwuchsJs));
+pruefe("I30 Keine festen Summanden mehr",
+       !/\(6 \+ n\) \+ " — Unterschriften"/.test(nachwuchsJs));
+
+// Verwaltung und Papierantrag geben sie wieder.
+const druckJs = readFileSync(REPO + "/antrag-druck.js", "utf8");
+pruefe("I31 Der Papierantrag zeigt die Kenntnisnahme",
+       /Kenntnisnahme des Elternkodex/.test(druckJs));
+pruefe("I32 Der Papierantrag druckt sie nur, wenn sie vorliegt",
+       /a\.unterschrift_elternkodex\s*\n?\s*\?/.test(druckJs));
+pruefe("I33 Die Antragsansicht zeigt die Unterschrift",
+       /a\.unterschrift_elternkodex/.test(antraegeJs));
+pruefe("I34 Die Antragsansicht nennt die Fassung",
+       /elternkodex_version/.test(antraegeJs));
 
 // ======================================================================
 

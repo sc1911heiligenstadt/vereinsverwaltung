@@ -39,6 +39,16 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Elternkodex in der Nachwuchs-Anmeldung",
+    datum: "2026-08-18",
+    punkte: [
+      "Wer ein Kind anmeldet, lädt im Formular den Elternkodex des Vereins herunter, bestätigt die Kenntnisnahme und unterschreibt sie gesondert. Ohne beides nimmt der Server die Anmeldung nicht an.",
+      "Die Unterschrift steht im Antrag neben den übrigen und wird auf dem Papierantrag mit ausgedruckt — zusammen mit der Fassung des Kodex, die unterschrieben wurde.",
+      "Meldet sich jemand volljähriges selbst an, entfällt der Abschnitt: der Kodex verpflichtet die Eltern, und dann gibt es keine.",
+      "Der allgemeine Aufnahmeantrag ist unverändert — er führt den Kodex nicht."
+    ]
+  },
+  {
     version: "Vereinsname steht fest, Gläubiger-ID wird geprüft",
     datum: "2026-08-16",
     punkte: [

@@ -1472,6 +1472,13 @@ async function handleMigration(env, me, corsHeaders) {
   if (!antragDa.has("quelle")) {
     antragFehlend.push("ALTER TABLE aufnahmeantrag ADD COLUMN quelle TEXT NOT NULL DEFAULT 'antrag'");
   }
+  // Die Kenntnisnahme des Elternkodex ist eine eigene Erklaerung mit
+  // eigener Unterschrift -- deshalb eine eigene SPALTE und nicht ein
+  // weiteres Feld im JSON: eine Data-URL von rund 19 KB in antrag_json
+  // zoege die Antragsliste mit, die keine Unterschrift anzeigt.
+  if (!antragDa.has("unterschrift_elternkodex_datei")) {
+    antragFehlend.push("ALTER TABLE aufnahmeantrag ADD COLUMN unterschrift_elternkodex_datei TEXT");
+  }
   // Schluessel des abgeschotteten Bereichs, in dem die Nachweise liegen
   // (Geburtsurkunde, Spielerpass, Abmeldung). Die Dateien selbst liegen
   // in Nextcloud beim admin-worker -- hier steht nur, wo.
@@ -3953,6 +3960,25 @@ function pruefeAntrag(roh, erlaubteSparten, heute, quelle) {
     }
   }
 
+  // Der Elternkodex. Nur bei der Nachwuchs-Anmeldung und nur bei
+  // Minderjaehrigen: er verpflichtet die Eltern, Angehoerigen und Fans am
+  // Spielfeldrand, und wer sich mit 18 selbst anmeldet, hat hier
+  // niemanden, der fuer ihn unterschreibt. Das Formular blendet die Karte
+  // in genau diesem Fall aus.
+  let kodex = null;
+  let kodexVersion = null;
+  if (istNachwuchs && minderjaehrig) {
+    if (roh.einwilligung_elternkodex !== true) {
+      return { fehler: "Der Elternkodex muss gelesen und anerkannt werden" };
+    }
+    kodex = pruefeUnterschrift(roh.unterschrift_elternkodex,
+                               "Die Unterschrift unter dem Elternkodex");
+    if (kodex.fehler) return { fehler: kodex.fehler };
+    // Welcher Text unterschrieben wurde. Ohne die Fassung liesse sich das
+    // in zwei Jahren nicht mehr sagen -- der Kodex wird fortgeschrieben.
+    kodexVersion = sauber(roh.elternkodex_version, 60) || null;
+  }
+
   // Der Spielerlaubnisantrag. Nur bei der Nachwuchs-Anmeldung verlangt --
   // und dort vollstaendig, sonst faellt der halbe Bogen erst beim Verband
   // auf.
@@ -4028,12 +4054,17 @@ function pruefeAntrag(roh, erlaubteSparten, heute, quelle) {
         // null -- ein leerer Block im JSON saehe aus wie ein vergessenes
         // Formular.
         nationalitaet: istNachwuchs ? nationalitaet : null,
-        spielerlaubnis
+        spielerlaubnis,
+        // Die Erklaerung ins JSON, die Unterschrift daneben in ihre
+        // eigene Spalte -- wie bei den drei anderen auch.
+        einwilligung_elternkodex: kodex !== null,
+        elternkodex_version: kodexVersion
       },
       sparten,
       unterschrift: unterschrift.wert,
       unterschrift_gesetzl: gesetzl ? gesetzl.wert : null,
-      unterschrift_gesetzl2: gesetzl2 ? gesetzl2.wert : null
+      unterschrift_gesetzl2: gesetzl2 ? gesetzl2.wert : null,
+      unterschrift_elternkodex: kodex ? kodex.wert : null
     }
   };
 }
@@ -4229,6 +4260,21 @@ async function hatGesetzl2Spalte(env) {
   return gesetzl2SpalteDa;
 }
 
+// Dasselbe fuer die Unterschrift unter dem Elternkodex. Wieder NUR das
+// Ja gemerkt, aus demselben Grund wie oben.
+let kodexSpalteDa = false;
+async function hatKodexSpalte(env) {
+  if (kodexSpalteDa) return true;
+  try {
+    const r = await env.VV_DB.prepare("PRAGMA table_info(aufnahmeantrag)").all();
+    kodexSpalteDa = (r.results || [])
+      .some((s) => s.name === "unterschrift_elternkodex_datei");
+  } catch {
+    return false;
+  }
+  return kodexSpalteDa;
+}
+
 // Die Staatsangehoerigkeit haengt an person, nicht an aufnahmeantrag --
 // eigene Probe. Auch hier nur das Ja gemerkt.
 let nationalitaetSpalteDa = false;
@@ -4313,6 +4359,17 @@ async function handleAntragSenden(body, env, request, corsHeaders, quelle) {
                 503, corsHeaders);
   }
 
+  // Dieselbe Ueberlegung wie bei der zweiten Unterschrift: die
+  // Kenntnisnahme des Elternkodex ist der Zweck der Karte im Formular.
+  // Faende sie hier keine Spalte, waere der Antrag angenommen und die
+  // Bestaetigung weg -- und niemand wuesste davon.
+  const kodexSpalte = await hatKodexSpalte(env);
+  if (satz.unterschrift_elternkodex && !kodexSpalte) {
+    return json({ error: "Das Formular wird gerade umgestellt. Bitte in wenigen Minuten " +
+                         "noch einmal absenden oder die Geschaeftsstelle anrufen." },
+                503, corsHeaders);
+  }
+
   const zweiteSpalte = await hatGesetzl2Spalte(env);
   if (satz.unterschrift_gesetzl2 && !zweiteSpalte) {
     // Lieber sichtbar abweisen als still verlieren: die Unterschrift des
@@ -4329,13 +4386,16 @@ async function handleAntragSenden(body, env, request, corsHeaders, quelle) {
     "INSERT INTO aufnahmeantrag (id, eingang_am, antrag_json, sparten_json, " +
     "unterschrift_datei, unterschrift_gesetzl_datei, " +
     (zweiteSpalte ? "unterschrift_gesetzl2_datei, " : "") +
+    (kodexSpalte ? "unterschrift_elternkodex_datei, " : "") +
     (istNachwuchs ? "quelle, nachweis_owner, " : "") +
     "signatur_ip, signatur_agent, signatur_zeit, status) " +
     "VALUES (?,?,?,?,?,?," + (zweiteSpalte ? "?," : "") +
+    (kodexSpalte ? "?," : "") +
     (istNachwuchs ? "?,?," : "") + "?,?,?,'neu')"
   ).bind(...[id, jetzt, JSON.stringify(satz.inhalt), JSON.stringify(satz.sparten),
              satz.unterschrift, satz.unterschrift_gesetzl]
            .concat(zweiteSpalte ? [satz.unterschrift_gesetzl2] : [])
+           .concat(kodexSpalte ? [satz.unterschrift_elternkodex] : [])
            // Beim allgemeinen Antrag gar nicht erst benennen: die Spalte
            // hat die Vorgabe 'antrag', und ein Deploy vor der Migration
            // laesst ihn so unveraendert durchlaufen.
@@ -4549,6 +4609,7 @@ async function handleAntragDetail(body, env, me, corsHeaders) {
       unterschrift: zeile.unterschrift_datei || null,
       unterschrift_gesetzl: zeile.unterschrift_gesetzl_datei || null,
       unterschrift_gesetzl2: zeile.unterschrift_gesetzl2_datei || null,
+      unterschrift_elternkodex: zeile.unterschrift_elternkodex_datei || null,
       signatur_ip: zeile.signatur_ip || null,
       signatur_agent: zeile.signatur_agent || null,
       signatur_zeit: zeile.signatur_zeit || null,
@@ -4677,7 +4738,8 @@ async function handleAntragLoeschen(body, env, me, corsHeaders) {
     quelle: zeile.quelle || "antrag",
     nachweis_owner: zeile.nachweis_owner || null,
     unterschriften: ["unterschrift_datei", "unterschrift_gesetzl_datei",
-                     "unterschrift_gesetzl2_datei"].filter((s) => zeile[s]).length
+                     "unterschrift_gesetzl2_datei",
+                     "unterschrift_elternkodex_datei"].filter((s) => zeile[s]).length
   };
 
   if (body.pruefen) return json({ ok: true, pruefung: true, ...bericht }, 200, corsHeaders);

@@ -419,8 +419,45 @@
       </div>
     </div>
 
+    <!-- Der Elternkodex ist eine eigene Erklärung mit eigener Unterschrift und
+         kein viertes Häkchen im Block darüber: er verpflichtet nicht das Kind,
+         sondern die Eltern, Angehörigen und Fans, und er gilt weiter, wenn die
+         Aufnahme längst beschlossen ist. Wer ihn unter die Erklärungen mischte,
+         hätte später keinen Beleg dafür, dass genau dieser Text gelesen wurde.
+         Nur bei Minderjährigen sichtbar — ein volljähriger Spieler meldet sich
+         selbst an, dann gibt es hier keine unterschreibenden Eltern. -->
+    <div class="karte" id="a-karte-kodex" hidden>
+      <div class="schritt-nummer" id="nr-kodex">6 — Elternkodex</div>
+      <p>Der Elternkodex regelt, wie sich Eltern, Angehörige und Fans bei Training,
+      Spielen, Turnieren und Vereinsfahrten verhalten — wo man steht, warum
+      Anfeuern erwünscht und Coachen von außen nicht erwünscht ist, der Umgang
+      mit Schiedsrichtern und Gegnern, und auf welchem Weg Anliegen besprochen
+      werden.</p>
+
+      <div class="knopfreihe" style="margin:14px 0">
+        <a class="btn" id="btn-kodex-laden" href="elternkodex.pdf" download
+           target="_blank" rel="noopener">Elternkodex herunterladen (PDF)</a>
+      </div>
+
+      <label class="ankreuz">
+        <input type="checkbox" id="a-ew-kodex">
+        <span>Wir haben den Elternkodex des Vereins
+        (Version 1.0, Stand 23.03.2026) heruntergeladen, gelesen und erkennen ihn
+        an. *</span>
+      </label>
+
+      <div class="unterschrift-block">
+        <div class="unterschrift-titel">Unterschrift der Erziehungsberechtigten
+          — Kenntnisnahme des Elternkodex</div>
+        <canvas id="a-sig-kodex" class="unterschrift-feld"></canvas>
+        <div class="knopfreihe">
+          <button class="btn grau klein" id="btn-sig-kodex-loeschen" type="button">Neu zeichnen</button>
+        </div>
+      </div>
+    </div>
+
     <div class="karte">
-      <div class="schritt-nummer" id="nr-unterschrift">6 — Unterschriften</div>
+      <div class="schritt-nummer" id="nr-unterschrift">7 — Unterschriften</div>
       <p class="fussnote">Mit dem Finger, dem Stift oder der Maus in die Felder
       unterschreiben. Die Unterschriften gelten für den Aufnahmeantrag, den
       Spielerlaubnisantrag und — bei Lastschrift — für das SEPA-Mandat.</p>
@@ -471,7 +508,7 @@
          DFBnet Pass-Online hochlädt. Bei Rückkehrern und einer
          Namensänderung liegt es dort bereits. -->
     <div class="karte" id="sp-passbild-karte" hidden>
-      <div class="schritt-nummer" id="nr-passbild">7 — Passbild</div>
+      <div class="schritt-nummer" id="nr-passbild">8 — Passbild</div>
       <p class="fussnote">Für den Spielerpass wird ein Bild vom Kopf gebraucht. Ein Foto
       mit dem Handy genügt — den Ausschnitt wählen Sie danach selbst.</p>
 
@@ -496,7 +533,7 @@
     </div>
 
     <div class="karte">
-      <div class="schritt-nummer" id="nr-nachweise">8 — Nachweise</div>
+      <div class="schritt-nummer" id="nr-nachweise">9 — Nachweise</div>
       <p class="fussnote">Der Verband verlangt Anlagen zum Spielerlaubnisantrag. Ein
       Foto mit dem Handy genügt. Sie werden getrennt von den übrigen Daten und nur für
       die Geschäftsstelle einsehbar abgelegt.</p>
@@ -622,7 +659,7 @@
 
 <script src="signature-pad.js?v=1.0"></script>
 <script src="antrag-felder.js?v=1.1"></script>
-<script src="db-antrag.js?v=1.7"></script>
-<script src="nachwuchs.js?v=1.3"></script>
+<script src="db-antrag.js?v=1.8"></script>
+<script src="nachwuchs.js?v=1.4"></script>
 </body>
 </html>

@@ -180,6 +180,10 @@ function papierAntragHtml(opt) {
            "Landessportbund und Fachverbände", ja(i.einwilligung_datenschutz)) +
     pZeile("Veröffentlichung von Fotos von Vereinsveranstaltungen (freiwillig)",
            ja(i.einwilligung_fotos)) +
+    (i.einwilligung_elternkodex
+      ? pZeile("Elternkodex des Vereins heruntergeladen, gelesen und anerkannt" +
+               (i.elternkodex_version ? " — Fassung " + i.elternkodex_version : ""), "ja")
+      : "") +
     "</table>" +
     "<p>Die Erhebung, Verarbeitung und Nutzung personenbezogener Daten erfolgt nach der " +
     "Datenschutz-Grundverordnung und dem Bundesdatenschutzgesetz. Über die Verarbeitung " +
@@ -191,6 +195,19 @@ function papierAntragHtml(opt) {
     pUnterschrift(i.minderjaehrig
       ? "Unterschrift gesetzlicher Vertreter" : "Unterschrift Mitglied",
       i.minderjaehrig ? a.unterschrift_gesetzl : a.unterschrift, ortDatum) +
+    // Eigene Unterschrift, nicht die von oben mitbenutzt: der Elternkodex
+    // ist eine andere Erklaerung als die zum Datenschutz, und er wird
+    // gesondert unterschrieben. Nur die Nachwuchs-Anmeldung fuehrt ihn.
+    (a.unterschrift_elternkodex
+      ? "<h2>Kenntnisnahme des Elternkodex</h2>" +
+        '<p class="klein">Der Elternkodex regelt das Verhalten von Eltern, ' +
+        "Angehörigen und Fans bei Training, Spielen, Turnieren und " +
+        "Vereinsfahrten. Er wurde vor dem Absenden heruntergeladen und " +
+        "gelesen.</p>" +
+        pUnterschrift("Erziehungsberechtigte" +
+                      (i.gesetzl_name ? ": " + i.gesetzl_name : ""),
+                      a.unterschrift_elternkodex, ortDatum)
+      : "") +
     pFusszeile(opt.einstellungen) + "</div>";
 
   const seite4 =

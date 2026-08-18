@@ -507,6 +507,12 @@ function zeichneAntrag() {
       ? i.gesetzl2_name + (i.gesetzl2_verhaeltnis ? " (" + i.gesetzl2_verhaeltnis + ")" : "")
       : (i.minderjaehrig && i.allein_sorgeberechtigt ? "alleiniges Sorgerecht erklärt" : "")) +
     anZeile("Fotoeinwilligung", i.einwilligung_fotos ? "erteilt" : "nicht erteilt") +
+    // Nur bei der Nachwuchs-Anmeldung gefuehrt -- beim allgemeinen Antrag
+    // bleibt die Zeile weg statt "nicht anerkannt" zu behaupten.
+    (i.einwilligung_elternkodex
+      ? anZeile("Elternkodex", "gelesen und anerkannt" +
+                (i.elternkodex_version ? " (Fassung " + i.elternkodex_version + ")" : ""))
+      : "") +
     anZeile("Anmerkung", i.bemerkung) +
     anZeile("Ort der Unterschrift", i.unterschrift_ort) +
     "</tbody></table></div>" +
@@ -526,6 +532,10 @@ function zeichneAntrag() {
         ? '<div><div class="unterschrift-titel">Zweiter Erziehungsberechtigter</div>' +
           '<img alt="Unterschrift des zweiten Erziehungsberechtigten" src="' +
           esc(a.unterschrift_gesetzl2) + '"></div>' : "") +
+      (a.unterschrift_elternkodex
+        ? '<div><div class="unterschrift-titel">Elternkodex</div>' +
+          '<img alt="Unterschrift unter dem Elternkodex" src="' +
+          esc(a.unterschrift_elternkodex) + '"></div>' : "") +
     "</div>" +
     '<p class="fussnote">Unterschrieben am ' + esc(datumDe(a.signatur_zeit)) +
       ", Internetadresse " + esc(a.signatur_ip || "—") + ". Gerät: " +

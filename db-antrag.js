@@ -76,6 +76,15 @@ const ANTRAG_CHANGELOG = [
 // betrifft, geht dort zwischen Beitragsart und Familienverbund unter.
 const NACHWUCHS_CHANGELOG = [
   {
+    version: "Elternkodex wird mit angemeldet",
+    datum: "2026-08-18",
+    punkte: [
+      "Der Elternkodex des Vereins lässt sich im Formular herunterladen. Er regelt, wie sich Eltern, Angehörige und Fans bei Training, Spielen, Turnieren und Vereinsfahrten verhalten.",
+      "Die Kenntnisnahme wird angekreuzt und gesondert unterschrieben — die Unterschrift steht anschließend mit auf dem Antrag, den die Geschäftsstelle ausdruckt.",
+      "Gefragt wird nur dort, wo es Erziehungsberechtigte gibt: wer volljährig ist und sich selbst anmeldet, sieht den Abschnitt nicht."
+    ]
+  },
+  {
     version: "Beitrag nur noch per SEPA-Lastschrift",
     datum: "2026-08-14",
     punkte: [

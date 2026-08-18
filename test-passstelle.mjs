@@ -174,6 +174,9 @@ function antragBody(mehr) {
     unterschrift: SIG, unterschrift_gesetzl: SIG, unterschrift_gesetzl2: SIG,
     gesetzl_name: "Erika Mustermann", gesetzl2_name: "Hans Mustermann",
     nationalitaet: "deutsch",
+    einwilligung_elternkodex: true,
+    elternkodex_version: "1.0 (Stand 23.03.2026)",
+    unterschrift_elternkodex: SIG,
     spielerlaubnis: { art: "erstausstellung" },
     sparten: ["sp-1"]
   }, mehr);

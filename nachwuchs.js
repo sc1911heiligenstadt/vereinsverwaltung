@@ -12,6 +12,7 @@ let info = null;
 let sigPad = null;
 let sigPadGesetzl = null;
 let sigPadGesetzl2 = null;
+let sigPadKodex = null;
 let laeuft = false;
 
 // Schluessel des abgeschotteten Nachweis-Bereichs. Wird beim ERSTEN
@@ -30,6 +31,11 @@ const nachweisStand = {};   // slot -> "laeuft" | "fertig" | Fehlertext
 // Format 35x45 mm wie beim amtlichen Passbild. Der Puffer ist GENAU so
 // gross wie das Ergebnis: was im Dialog zu sehen ist, ist byte-genau das,
 // was gespeichert wird -- es gibt keine zweite Umrechnung beim Export.
+// Steht auf dem Dokument selbst (§ 9) und wandert mit der Bestätigung in
+// den Antrag. Wird der Kodex neu gefasst, gehoert die Zahl hier UND die
+// Zeile am Haekchen in nachwuchs.html geaendert.
+const ELTERNKODEX_VERSION = "1.0 (Stand 23.03.2026)";
+
 const PASSBILD_B = 350;
 const PASSBILD_H = 450;
 
@@ -191,13 +197,14 @@ function zeigeMinderjaehrig() {
   $("a-karte-gesetzl").hidden = !minder;
   $("a-sig-gesetzl-block").hidden = !minder;
 
-  const n = minder ? 0 : -1;
-  $("nr-fussball").textContent = (3 + n) + " — Spielerlaubnis";
-  $("nr-beitrag").textContent = (4 + n) + " — Beitragszahlung";
-  $("nr-einwilligung").textContent = (5 + n) + " — Erklärungen";
-  $("nr-unterschrift").textContent = (6 + n) + " — Unterschriften";
-  zeigePassbildKarte();   // vergibt 7/8 je nachdem, ob ein Bild verlangt ist
+  // Der Elternkodex verpflichtet die Eltern, nicht das Kind -- ohne
+  // unterschreibende Erziehungsberechtigte gibt es hier nichts zu
+  // bestätigen. Deshalb dieselbe Bedingung wie bei ihrer Karte.
+  $("a-karte-kodex").hidden = !minder;
 
+  zeigePassbildKarte();   // nummeriert alles durch, siehe nummeriereSchritte()
+
+  sigPadKodex = sigFeldPflegen(sigPadKodex, "a-sig-kodex", minder);
   sigPadGesetzl = sigFeldPflegen(sigPadGesetzl, "a-sig-gesetzl", minder);
   zeigeZweitenVertreter();
   aktualisiereSigTitel();
@@ -271,12 +278,36 @@ function zeigeSpielerlaubnisArt() {
 // weg, rutschen die Nummern der Karten darunter -- eine springende
 // Zaehlung liest sich wie ein vergessener Abschnitt.
 function zeigePassbildKarte() {
-  const noetig = PASSBILD_ARTEN.includes(spielerlaubnisArt());
-  $("sp-passbild-karte").hidden = !noetig;
-  const minder = !$("a-karte-gesetzl").hidden;
-  const n = minder ? 0 : -1;
-  $("nr-passbild").textContent = (7 + n) + " — Passbild";
-  $("nr-nachweise").textContent = (7 + n + (noetig ? 1 : 0)) + " — Nachweise";
+  $("sp-passbild-karte").hidden = !PASSBILD_ARTEN.includes(spielerlaubnisArt());
+  nummeriereSchritte();
+}
+
+// Reihenfolge der nummerierten Karten. Der dritte Eintrag ist die Karte,
+// an deren Sichtbarkeit der Schritt haengt -- null heisst "immer da".
+const SCHRITTE = [
+  ["nr-fussball",     "Spielerlaubnis",  null],
+  ["nr-beitrag",      "Beitragszahlung", null],
+  ["nr-einwilligung", "Erklärungen",     null],
+  ["nr-kodex",        "Elternkodex",     "a-karte-kodex"],
+  ["nr-unterschrift", "Unterschriften",  null],
+  ["nr-passbild",     "Passbild",        "sp-passbild-karte"],
+  ["nr-nachweise",    "Nachweise",       null]
+];
+
+// ⚠ Durchgezaehlt, nicht fest addiert. Drei der Karten sind bedingt
+// (Erziehungsberechtigte und Elternkodex nur bei Minderjaehrigen, Passbild
+// nur bei Erstausstellung und Vereinswechsel). Mit festen Summanden
+// braucht jede weitere bedingte Karte eine neue Fallunterscheidung in
+// JEDER Zeile darunter -- so wird sie ein Eintrag in der Liste oben.
+function nummeriereSchritte() {
+  // 1 ist "Das Kind", 2 sind die Erziehungsberechtigten (nur bei
+  // Minderjaehrigen). Beide tragen ihre Nummer fest im HTML.
+  let nr = $("a-karte-gesetzl").hidden ? 1 : 2;
+  for (const [id, titel, karte] of SCHRITTE) {
+    if (karte && $(karte).hidden) continue;
+    nr++;
+    $(id).textContent = nr + " — " + titel;
+  }
 }
 
 function pruefeIbanFeld() {
@@ -771,13 +802,29 @@ function sammle() {
     // Erziehungsberechtigten.
     unterschrift: sigPad ? sigPad.toDataURL() : "",
     unterschrift_gesetzl: sigPadGesetzl ? sigPadGesetzl.toDataURL() : "",
-    unterschrift_gesetzl2: zweiter && sigPadGesetzl2 ? sigPadGesetzl2.toDataURL() : ""
+    unterschrift_gesetzl2: zweiter && sigPadGesetzl2 ? sigPadGesetzl2.toDataURL() : "",
+    // Der Elternkodex geht nur den minderjaehrigen Fall an. Die Version
+    // wandert mit: sonst laesst sich in zwei Jahren nicht mehr sagen,
+    // welchen Text jemand unterschrieben hat.
+    einwilligung_elternkodex: minder && $("a-ew-kodex").checked,
+    elternkodex_version: minder && $("a-ew-kodex").checked ? ELTERNKODEX_VERSION : "",
+    unterschrift_elternkodex: minder && sigPadKodex ? sigPadKodex.toDataURL() : ""
   });
 }
 
 // Nur die Faelle, die sich ohne Rundlauf sagen lassen. Massgeblich bleibt
 // die Pruefung des Servers.
 function pruefeEigeneFelder(daten) {
+  if (!$("a-karte-kodex").hidden) {
+    if (!daten.einwilligung_elternkodex) {
+      return "Bitte den Elternkodex herunterladen, lesen und die Kenntnisnahme " +
+             "bestätigen.";
+    }
+    if (!daten.unterschrift_elternkodex) {
+      return "Es fehlt die Unterschrift der Erziehungsberechtigten unter dem " +
+             "Elternkodex.";
+    }
+  }
   if (!daten.nationalitaet.trim()) {
     return "Der Verband verlangt die Staatsangehörigkeit des Kindes.";
   }
@@ -950,6 +997,9 @@ function verdrahten() {
   $("btn-sig-loeschen").addEventListener("click", () => { if (sigPad) sigPad.clear(); });
   $("btn-sig-gesetzl-loeschen").addEventListener("click", () => {
     if (sigPadGesetzl) sigPadGesetzl.clear();
+  });
+  $("btn-sig-kodex-loeschen").addEventListener("click", () => {
+    if (sigPadKodex) sigPadKodex.clear();
   });
   $("btn-sig-gesetzl2-loeschen").addEventListener("click", () => {
     if (sigPadGesetzl2) sigPadGesetzl2.clear();
