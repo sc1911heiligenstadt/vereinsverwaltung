@@ -747,7 +747,7 @@ pruefe("I18 Es gibt eine eigene Kodex-Karte", /id="a-karte-kodex"/.test(nwHtml))
 pruefe("I19 Die Karte ist anfangs verborgen",
        /id="a-karte-kodex" hidden/.test(nwHtml));
 pruefe("I20 Der Kodex laesst sich herunterladen",
-       /href="elternkodex\.pdf" download/.test(nwHtml));
+       /href="elternkodex\.pdf\?v=\d+" download/.test(nwHtml));
 pruefe("I21 Es gibt ein Haekchen zur Kenntnisnahme", /id="a-ew-kodex"/.test(nwHtml));
 pruefe("I22 Es gibt eine eigene Unterschriftsflaeche",
        /id="a-sig-kodex" class="unterschrift-feld"/.test(nwHtml));
