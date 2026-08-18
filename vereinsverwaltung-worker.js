@@ -5422,6 +5422,14 @@ async function handleKodexInfo(env, corsHeaders) {
   const cfg = await ladeEinstellungen(env);
   return json({
     offen: einstellungZahl(cfg, "kodex_offen") === 1,
+    // ⚠️ Sagt der Seite VORHER, ob das Absenden ueberhaupt gehen kann.
+    // Ohne diese Angabe fuellte eine Familie das Formular aus,
+    // unterschriebe -- und erfuehre erst beim Absenden, dass die Tabelle
+    // noch fehlt. Das Fenster ist echt: die Tabelle entsteht in
+    // handleMigration, und die verlangt eine Rolle; nach einem Deploy
+    // existiert sie also erst, wenn jemand die Verwaltung geoeffnet hat.
+    // Lieber vorn abweisen als hinten, nach der Arbeit.
+    bereit: await hatKodexTabelle(env),
     verein: VEREIN_NAME,
     kodex_version: ELTERNKODEX_VERSION
   }, 200, corsHeaders);

@@ -675,11 +675,27 @@ const G3 = await g3.json();
 pruefe("G7 Sie nennt den Vereinsnamen", /1\. SC 1911/.test(G3.verein), G3.verein);
 pruefe("G8 Sie nennt die Fassung", G3.kodex_version === W2.ELTERNKODEX_VERSION);
 
+// ⚠️ Und sie sagt VORHER, dass noch nichts angenommen werden kann. Ohne
+// die Angabe fuellte eine Familie das Formular aus, unterschriebe -- und
+// erfuehre erst beim Absenden vom 503.
+pruefe("G8b Sie meldet die fehlende Ablage", G3.bereit === false, "bereit=" + G3.bereit);
+pruefe("G8c Der Schalter steht trotzdem auf offen", G3.offen === true);
+
 // Nach der Migration greift derselbe Worker.
 await W2.handleMigration(envLeer, me, cors);
 const g4 = await W2.handleKodexSenden(koerper(), envLeer, anfrage(), cors);
 pruefe("G9 Nach der Migration nimmt derselbe Worker an", g4.status === 200,
        "status " + g4.status);
+
+const g5 = await W2.handleKodexInfo(envLeer, cors);
+pruefe("G10 Und die Info meldet dann Bereitschaft", (await g5.json()).bereit === true);
+
+// Die Seite darf das Formular nicht zeigen, solange bereit false ist.
+pruefe("G11 Die Seite wertet bereit aus",
+       /kodexInfo\.bereit === false/.test(readFileSync(REPO + "/kodex.js", "utf8")));
+pruefe("G12 Und zeigt dann kein Formular",
+       /kodexInfo\.bereit === false[\s\S]{0,600}return;/.test(
+         readFileSync(REPO + "/kodex.js", "utf8")));
 
 // ======================================================================
 console.log("H  Zusagen der Browser-Seiten");

@@ -68,6 +68,22 @@ async function start() {
     return;
   }
 
+  // ⚠️ Der Server sagt, ob er die Erklaerung auch ANNEHMEN kann. Fehlt die
+  // Ablage noch (frisch ausgerollt, die Einrichtung laeuft beim ersten
+  // Oeffnen der Verwaltung), dann gar kein Formular: sonst unterschreibt
+  // eine Familie und erfaehrt erst beim Absenden davon.
+  if (kodexInfo.bereit === false) {
+    const schirm = $("zu-schirm");
+    schirm.innerHTML =
+      "<h2>Gleich verfügbar</h2>" +
+      "<p>Diese Seite wird gerade eingerichtet und nimmt in wenigen Minuten " +
+      "Erklärungen an. Bitte später noch einmal aufrufen.</p>" +
+      '<p class="fussnote">Hilft das nicht, freut sich die Geschäftsstelle über ' +
+      "einen Anruf: 03606 612206.</p>";
+    schirm.hidden = false;
+    return;
+  }
+
   $("formular").hidden = false;
   $("k-datum").value = datumDe(heuteIso());
 
