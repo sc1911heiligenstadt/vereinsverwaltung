@@ -115,7 +115,7 @@ const KODEX_CHANGELOG = [
     version: "Elternkodex lässt sich nachreichen",
     datum: "2026-08-18",
     punkte: [
-      "Eltern, deren Kind schon Mitglied ist, können die Kenntnisnahme des Elternkodex ueber einen Link nachreichen — ohne Vereinskonto und ohne die Anmeldung zu wiederholen.",
+      "Eltern, deren Kind schon in der Abteilung Fußball spielt, können die Kenntnisnahme des Elternkodex über einen Link nachreichen — ohne Vereinskonto und ohne die Anmeldung zu wiederholen.",
       "Der Kodex wird auf der Seite heruntergeladen, angekreuzt und am Bildschirm unterschrieben. Die Fassung des Textes wird mitgespeichert.",
       "Nach dem Absenden erscheint eine Bestätigungsseite mit allen Angaben und der Unterschrift. Sie ist die eigene Kopie der Erklärung und lässt sich drucken oder als PDF sichern.",
       "Bei mehreren Kindern führt ein Knopf direkt zur nächsten Erklärung — Name und Ort bleiben stehen, unterschrieben wird erneut."

@@ -5517,6 +5517,27 @@ async function handleKodexSenden(body, env, request, corsHeaders) {
 // Elternkodex in der Verwaltung (angemeldet)
 // ---------------------------------------------------------------------
 
+// ⚠️ Der Elternkodex gilt AUSSCHLIESSLICH der Abteilung Fussball
+// (Michel-Vorgabe vom 18.08.2026). Der Verein hat weitere Abteilungen mit
+// minderjaehrigen Mitgliedern -- Turnen, Volleyball, Handball --, und die
+// sollen weder angeschrieben werden noch als "offen" in der Liste stehen.
+//
+// ⚠️ Gematcht wird ueber den NAMEN, nicht ueber eine feste Id: die
+// Sparten-Ids sind Zufallswerte (uuid() in handleSpartenInit), eine
+// verdrahtete Id waere in einer neu aufgesetzten Datenbank falsch.
+//
+// ⚠️ Und zwar EXAKT, nicht mit Platzhalter. Ein LIKE '%ussball%' zoege
+// "Freizeit-Fussball" mit -- eine der acht von Hand angelegten
+// Abteilungen, die keine Jugendmannschaften hat. Verglichen wird
+// normalisiert (klein, ss statt ß), damit "Fussball" und "Fußball"
+// dasselbe treffen.
+const KODEX_SPARTE_NAMEN = new Set(["fussball"]);
+
+function istKodexSparte(name) {
+  return KODEX_SPARTE_NAMEN.has(
+    String(name || "").toLowerCase().replace(/ß/g, "ss").trim());
+}
+
 // Die Liste beantwortet zwei Fragen auf einmal: welche Kinder haben noch
 // nicht, und welche Erklaerungen passen zu keinem Kind. Die zweite Liste
 // ist die wichtigere -- ohne sie waere eine Erklaerung mit abweichender
@@ -5538,16 +5559,27 @@ async function handleKodexListe(body, env, me, corsHeaders) {
   const stichtag = istIsoDatum(sauber(body.stichtag, 10) || "")
     ? sauber(body.stichtag, 10) : new Date().toISOString().slice(0, 10);
 
-  // Sparte einschraenken, wenn gewuenscht. Der Kodex gilt dem
-  // Jugendbereich des Fussballs; ein Verein mit Dart und Wandern hat dort
-  // auch minderjaehrige Mitglieder, die er nicht anschreiben will.
-  const sparteId = sauber(body.sparte_id, 40);
+  // ⚠️ KEIN Filter aus dem Koerper mehr. Die Abteilung ist eine
+  // fachliche Festlegung des Vereins, keine Ansichtssache des Aufrufers --
+  // ein mitgeschicktes sparte_id wird ignoriert wie status und person_id
+  // beim Antrag.
   const spartenR = await env.VV_DB
     .prepare("SELECT id, name FROM sparte WHERE aktiv = 1 ORDER BY sortierung, name").all();
   const spartenListe = spartenR.results || [];
-  if (sparteId && !spartenListe.some((s) => s.id === sparteId)) {
-    return json({ error: "Unbekannte Abteilung" }, 400, corsHeaders);
+  const kodexSparten = spartenListe.filter((s) => istKodexSparte(s.name));
+
+  // ⚠️ Findet sich die Abteilung nicht, wird NICHT ungefiltert geliefert.
+  // Eine Liste aller minderjaehrigen Mitglieder saehe wie ein Ergebnis aus
+  // und waere fachlich falsch -- Turnkinder stuenden als "offen" darin.
+  // Lieber sichtbar sagen, dass die Abteilung fehlt (umbenannt,
+  // stillgelegt, Datenbank neu aufgesetzt).
+  if (!kodexSparten.length) {
+    return json({ error: "Die Abteilung Fussball wurde nicht gefunden. Der Elternkodex " +
+                         "gilt nur ihr. Bitte pruefen, ob die Abteilung aktiv ist und " +
+                         "wie sie geschrieben ist." }, 409, corsHeaders);
   }
+  const sparteIds = kodexSparten.map((s) => s.id);
+  const platzhalter = sparteIds.map(() => "?").join(",");
 
   // Alle minderjaehrigen Mitglieder im Bestand zum Stichtag. Das Alter
   // wird in SQL gerechnet (alterSql) -- ein Filter im Browser haette die
@@ -5558,16 +5590,37 @@ async function handleKodexListe(body, env, me, corsHeaders) {
   // Was nicht ausgeliefert wird, steht auch nicht im Netzwerk-Tab.
   const alter = alterSql(stichtag);
   const bestand = bestandSql(stichtag);
+  const inSparte =
+    "EXISTS (SELECT 1 FROM mitgliedschaft_sparte ms WHERE ms.mitgliedschaft_id = m.id " +
+    "AND ms.sparte_id IN (" + platzhalter + ") " +
+    "AND (ms.austritt IS NULL OR ms.austritt >= '" + stichtag + "')) ";
+
   const kinderR = await env.VV_DB.prepare(
     "SELECT p.id, p.vorname, p.nachname, p.geburtsdatum, m.mitgliedsnummer " +
     "FROM person p JOIN mitgliedschaft m ON m.person_id = p.id " +
     "WHERE " + bestand + " AND " + alter + " IS NOT NULL AND " + alter + " < 18 " +
-    (sparteId
-      ? "AND EXISTS (SELECT 1 FROM mitgliedschaft_sparte ms WHERE ms.mitgliedschaft_id = m.id " +
-        "AND ms.sparte_id = ? AND (ms.austritt IS NULL OR ms.austritt >= '" + stichtag + "')) "
-      : "") +
+    "AND " + inSparte +
     "ORDER BY p.nachname, p.vorname"
-  ).bind(...(sparteId ? [sparteId] : [])).all();
+  ).bind(...sparteIds).all();
+
+  // ⚠️ Zweite Abfrage: minderjaehrige Mitglieder AUSSERHALB des Fussballs.
+  // Sie stehen nicht in der Soll-Liste -- aber wenn eine Erklaerung auf
+  // eines von ihnen passt, ist das kein Schreibfehler, sondern ein Kind
+  // aus einer anderen Abteilung. Ohne diese Unterscheidung sucht die
+  // Geschaeftsstelle in "Nicht zuzuordnen" nach einem Tippfehler, den es
+  // nicht gibt. Nur Name und Geburtsdatum, nichts weiter -- gebraucht wird
+  // allein der Abgleichsschluessel.
+  const fremdR = await env.VV_DB.prepare(
+    "SELECT p.vorname, p.nachname, p.geburtsdatum " +
+    "FROM person p JOIN mitgliedschaft m ON m.person_id = p.id " +
+    "WHERE " + bestand + " AND " + alter + " IS NOT NULL AND " + alter + " < 18 " +
+    "AND NOT " + inSparte
+  ).bind(...sparteIds).all();
+  const fremdeSchluessel = new Set();
+  for (const f of fremdR.results || []) {
+    const k = kodexSchluessel(f.vorname, f.nachname, f.geburtsdatum);
+    if (k) fremdeSchluessel.add(k);
+  }
 
   // Die Unterschrift bleibt hier draussen: 19 KB je Zeile mal
   // dreihundert Kinder fuer eine Liste, die keine davon anzeigt. Sie holt
@@ -5629,17 +5682,21 @@ async function handleKodexListe(body, env, me, corsHeaders) {
       erz_email: b.erz_email,
       ort: b.ort,
       kodex_version: b.kodex_version,
-      // Eine Handzuordnung, die auf ein Kind zeigt, das nicht mehr in der
-      // Liste steht (Austritt, volljaehrig geworden, andere Abteilung).
-      // Sie ist kein Fehler, aber sie gehoert nicht als "unbekannt"
-      // ausgewiesen.
-      zugeordnet: !!b.person_id
+      // Eine Handzuordnung, die auf ein Kind zeigt, das nicht in der Liste
+      // steht (Austritt, volljaehrig geworden, andere Abteilung). Sie ist
+      // kein Fehler, aber sie gehoert nicht als "unbekannt" ausgewiesen.
+      zugeordnet: !!b.person_id,
+      // ⚠️ Der Grund macht den Unterschied zwischen "Tippfehler suchen"
+      // und "nichts zu tun": das Kind IST Mitglied und minderjaehrig, nur
+      // nicht im Fussball. Der Kodex gilt es nicht an.
+      andere_abteilung: !b.person_id && fremdeSchluessel.has(b.abgleich_schluessel)
     }));
 
   return json({
     stichtag,
-    sparten: spartenListe,
-    sparte_id: sparteId || "",
+    // Welche Abteilung der Abgleich zugrunde legt -- die Oberflaeche nennt
+    // sie, damit niemand die Zahl fuer den ganzen Verein liest.
+    abteilung: kodexSparten.map((s) => s.name).join(", "),
     kodex_version: ELTERNKODEX_VERSION,
     kinder,
     offene_eingaenge: offeneEingaenge,

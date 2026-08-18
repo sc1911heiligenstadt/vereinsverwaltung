@@ -6,6 +6,13 @@
 //   2. Welche Erklaerungen sind eingegangen, passen aber zu keinem Kind?
 //      (Karte „Nicht zuzuordnen")
 //
+// ⚠️ Der Kodex gilt AUSSCHLIESSLICH der Abteilung Fussball
+// (Michel-Vorgabe vom 18.08.2026). Es gibt deshalb keinen
+// Abteilungs-Filter: die Abteilung ist eine Festlegung des Vereins, keine
+// Ansichtssache. Der Server entscheidet sie und nennt sie in der Antwort
+// (`abteilung`); die Oberflaeche zeigt sie im Stand mit an, damit niemand
+// die Zahl fuer den ganzen Verein liest.
+//
 // ⚠️ Die zweite Frage ist die wichtigere. Eine Erklaerung mit abweichender
 // Schreibweise ist abgegeben, die Familie haelt sie fuer erledigt -- ohne
 // diese Karte stuende sie in keiner Uebersicht und niemand erfuehre davon.
@@ -22,7 +29,6 @@ const KO_SICHT = {
 
 let koSicht = "offen";
 let koDaten = null;      // die letzte Antwort von vv-kodex-liste
-let koSparte = "";
 let koSuche = "";
 // Bei der Handzuordnung: die Erklaerung, fuer die gerade ein Kind gesucht
 // wird. Ohne den Merker wuesste der Klick auf ein Kind nicht, wohin.
@@ -39,7 +45,7 @@ async function ladeKodex() {
 
   let antwort;
   try {
-    antwort = await ladeKodexListe({ sparte_id: koSparte });
+    antwort = await ladeKodexListe();
   } catch (e) {
     // Die Tabelle entsteht in der Migration. Antwortet der Server mit 409,
     // ist sie noch nicht da -- das ist keine Stoerung, sondern eine noch
@@ -51,7 +57,6 @@ async function ladeKodex() {
   }
 
   koDaten = antwort;
-  zeichneKodexSparten();
   zeichneKodexStand();
   zeichneKodexReiter();
   zeichneKodexListe();
@@ -80,10 +85,15 @@ function zeichneKodexStand() {
   const offen = kinder.length - fertig;
   const anteil = kinder.length ? Math.round((fertig / kinder.length) * 100) : 0;
 
+  // ⚠️ Die Abteilung wird MITGENANNT. Ohne sie liest man „4 von 12" als
+  // Aussage über den ganzen Verein — der Kodex gilt aber nur dem Fußball.
+  const abteilung = koDaten.abteilung || "Fußball";
+
   $("ko-stand").innerHTML =
     '<div class="hinweis ' + (offen === 0 && kinder.length ? "erfolg" : "info") + '">' +
       "<strong>" + fertig + " von " + kinder.length + "</strong> minderjährigen " +
-      "Mitgliedern liegt die Kenntnisnahme vor (" + anteil + " %)." +
+      "Mitgliedern der Abteilung <strong>" + esc(abteilung) + "</strong> liegt die " +
+      "Kenntnisnahme vor (" + anteil + " %)." +
       (offen ? " <strong>" + offen + "</strong> " +
                (offen === 1 ? "fehlt" : "fehlen") + " noch." : "") +
     "</div>" +
@@ -144,18 +154,6 @@ async function schalteKodex(wert) {
 // ---------------------------------------------------------------------
 // Filter
 // ---------------------------------------------------------------------
-
-function zeichneKodexSparten() {
-  const ziel = $("ko-sparte");
-  // Nur neu aufbauen, wenn nötig -- sonst verliert das Feld bei jedem
-  // Laden seine Auswahl.
-  if (ziel.dataset.gefuellt === "1") { ziel.value = koSparte; return; }
-  ziel.innerHTML = '<option value="">Alle Abteilungen</option>' +
-    (koDaten.sparten || []).map((s) =>
-      '<option value="' + esc(s.id) + '">' + esc(s.name) + "</option>").join("");
-  ziel.dataset.gefuellt = "1";
-  ziel.value = koSparte;
-}
 
 function zeichneKodexReiter() {
   const kinder = koDaten.kinder || [];
@@ -278,7 +276,12 @@ function zeichneKodexOffene() {
           // der Liste steht (ausgetreten, volljaehrig, andere Abteilung).
           // Kein Fehler -- aber ohne den Hinweis sähe es nach einem aus.
           (b.zugeordnet
-            ? ' <span class="chip ruhend">zugeordnet, nicht im Bestand</span>' : "") +
+            ? ' <span class="chip ruhend">zugeordnet, nicht in der Liste</span>' : "") +
+          // ⚠️ Nicht dasselbe wie „unbekannt": das Kind IST Mitglied und
+          // minderjährig, nur nicht im Fußball. Hier ist nichts zu tun —
+          // ohne den Vermerk sucht man einen Tippfehler, den es nicht gibt.
+          (b.andere_abteilung
+            ? ' <span class="chip ruhend">andere Abteilung — nichts zu tun</span>' : "") +
           "</td>" +
         "<td>" + esc(datumDe(b.kind_geburtsdatum)) + "</td>" +
         "<td>" + esc(b.mannschaft || "") + "</td>" +
@@ -434,11 +437,6 @@ function verdrahteKodex() {
   $("btn-ko-schliessen").addEventListener("click", () => { $("kodex-overlay").hidden = true; });
   $("kodex-overlay").addEventListener("click", (e) => {
     if (e.target === $("kodex-overlay")) $("kodex-overlay").hidden = true;
-  });
-
-  $("ko-sparte").addEventListener("change", () => {
-    koSparte = $("ko-sparte").value;
-    ladeKodex();
   });
 
   // Rein im Browser gefiltert: die Liste liegt schon vollstaendig da, ein

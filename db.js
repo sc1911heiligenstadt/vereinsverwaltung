@@ -115,8 +115,12 @@ const geladeneBibliotheken = {};
 // Abteilungsleiter: seine Mitgliedersicht ist auf seine Sparten begrenzt,
 // diese Liste ist es nicht -- an darfPersonenSehen gehaengt waere sie ein
 // Weg um seine Spartengrenze herum.
-async function ladeKodexListe(opt) {
-  return vvRequest("vv-kodex-liste", opt || {});
+//
+// ⚠️ KEINE Abteilung im Koerper. Der Kodex gilt allein dem Fussball, und
+// das entscheidet der Server -- ein mitgeschicktes sparte_id wuerde dort
+// ignoriert. Welche Abteilung zugrunde lag, steht in der Antwort.
+async function ladeKodexListe() {
+  return vvRequest("vv-kodex-liste", {});
 }
 
 // Eigene Aktion, weil die Unterschrift 19 KB traegt und die Liste sie

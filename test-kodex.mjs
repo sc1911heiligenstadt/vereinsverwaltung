@@ -77,7 +77,8 @@ const NAMEN = ["kodexSchluessel", "kodexNamensteil", "pruefeKodex", "hatKodexTab
                "handleKodexInfo", "handleKodexSenden", "handleKodexListe",
                "handleKodexDetail", "handleKodexZuordnen", "handleKodexLoeschen",
                "handleMigration", "KODEX_SCHEMA", "ELTERNKODEX_VERSION",
-               "KODEX_JE_IP_STUNDE", "KODEX_JE_IP_TAG", "EINSTELLUNGEN", "alterAm"];
+               "KODEX_JE_IP_STUNDE", "KODEX_JE_IP_TAG", "EINSTELLUNGEN", "alterAm",
+               "istKodexSparte", "KODEX_SPARTE_NAMEN"];
 
 // ⚠️ Eigener Kontext je Aufruf. hatKodexTabelle() merkt sich das Ja in
 // einer Modulvariablen -- genau wie hatNachwuchsSpalten. Abschnitt G
@@ -448,12 +449,18 @@ pruefe("E1 Liste antwortet 200", l1.status === 200, "status " + l1.status);
 const L = await l1.json();
 
 const namenIn = (o) => (o.kinder || []).map((k) => k.vorname + " " + k.nachname).sort();
-pruefe("E2 Nur minderjaehrige Mitglieder stehen drin",
+// ⚠️ Nur die Abteilung Fussball. Mia liegt im Dart und gehoert deshalb
+// NICHT in die Liste -- der Kodex gilt ihr nicht.
+pruefe("E2 Nur minderjaehrige Fussball-Mitglieder stehen drin",
        JSON.stringify(namenIn(L)) ===
-       JSON.stringify(["Anna-Lena Mustermann", "Mia Probst", "Tom Beispiel"]),
+       JSON.stringify(["Anna-Lena Mustermann", "Tom Beispiel"]),
        JSON.stringify(namenIn(L)));
 pruefe("E3 Der Erwachsene steht NICHT drin",
        !namenIn(L).some((n) => n.includes("Erwachsen")));
+pruefe("E3b Das Kind aus einer anderen Abteilung steht NICHT drin",
+       !namenIn(L).some((n) => n.includes("Mia")), JSON.stringify(namenIn(L)));
+pruefe("E3c Die Antwort nennt die zugrunde gelegte Abteilung",
+       /fussball/i.test(L.abteilung || ""), "abteilung=" + L.abteilung);
 
 const annaL = L.kinder.find((k) => k.vorname === "Anna-Lena");
 pruefe("E4 Die vertauschte Eingabe wird zugeordnet", !!annaL.bestaetigung_id,
@@ -486,20 +493,71 @@ pruefe("E15 Die Liste nennt keine Anschrift", !/strasse|plz/.test(listenText));
 pruefe("E16 Die Liste nennt keine Bankdaten", !/iban|bic/i.test(listenText));
 
 pruefe("E17 Der Stichtag wird zurueckgemeldet", L.stichtag === HEUTE, L.stichtag);
-pruefe("E18 Die Abteilungen kommen mit", (L.sparten || []).length >= 2);
+// ⚠️ KEIN Abteilungs-Filter in der Antwort mehr: die Abteilung ist eine
+// Festlegung des Vereins, keine Auswahl. Stattdessen ihr Name.
+pruefe("E18 Es gibt keine Abteilungs-Auswahl mehr", L.sparten === undefined);
+pruefe("E18b Ein mitgeschicktes sparte_id wird ignoriert", await (async () => {
+  const a = await W.handleKodexListe({ stichtag: HEUTE, sparte_id: "dart" }, env, me, cors);
+  const A = await a.json();
+  return a.status === 200 &&
+         JSON.stringify(namenIn(A)) === JSON.stringify(namenIn(L));
+})(), "eine fremde Abteilung im Koerper hat gewirkt");
 pruefe("E19 Das Schreibrecht wird mitgeteilt", L.darf_schreiben === true);
 
-// Sparten-Filter: der Kodex gilt dem Jugendfussball, nicht der Dart-Jugend.
-const l2 = await W.handleKodexListe({ stichtag: HEUTE, sparte_id: "fussball" }, env, me, cors);
-const L2 = await l2.json();
-pruefe("E20 Der Sparten-Filter greift",
-       JSON.stringify(namenIn(L2)) === JSON.stringify(["Anna-Lena Mustermann", "Tom Beispiel"]),
-       JSON.stringify(namenIn(L2)));
-pruefe("E21 Mia aus der Dart-Abteilung fehlt dann",
-       !namenIn(L2).some((n) => n.includes("Mia")));
+// Die Namenserkennung der Abteilung. Exakt, nicht mit Platzhalter --
+// "Freizeit-Fussball" hat keine Jugendmannschaften und darf nicht
+// mitgezogen werden.
+pruefe("E20 'Fussball' wird erkannt", W.istKodexSparte("Fussball"));
+pruefe("E20b 'Fußball' mit Eszett ebenso", W.istKodexSparte("Fußball"));
+pruefe("E20c Gross und klein egal", W.istKodexSparte("FUSSBALL"));
+pruefe("E20d Leerzeichen am Rand egal", W.istKodexSparte("  Fussball "));
+pruefe("E20e 'Freizeit-Fussball' wird NICHT erkannt",
+       !W.istKodexSparte("Freizeit-Fussball"));
+pruefe("E20f 'Fussball Herren' wird NICHT erkannt",
+       !W.istKodexSparte("Fussball Herren"));
+pruefe("E20g Andere Abteilungen nicht", !W.istKodexSparte("Turnen")
+       && !W.istKodexSparte("Darts") && !W.istKodexSparte("Handball"));
+pruefe("E20h Leer nicht", !W.istKodexSparte("") && !W.istKodexSparte(null));
 
-const l3 = await W.handleKodexListe({ stichtag: HEUTE, sparte_id: "erfunden" }, env, me, cors);
-pruefe("E22 Eine erfundene Abteilung wird abgewiesen", l3.status === 400, "status " + l3.status);
+// ⚠️ Eine Erklaerung fuer ein Kind aus einer anderen Abteilung ist KEIN
+// Schreibfehler. Ohne die Unterscheidung sucht die Geschaeftsstelle in
+// "Nicht zuzuordnen" nach einem Tippfehler, den es nicht gibt.
+await W.handleKodexSenden(koerper({
+  kind_vorname: "Mia", kind_nachname: "Probst", kind_geburtsdatum: "2012-01-30",
+  erz_name: "Jan Probst"
+}), env, anfrage("4.4.4.4"), cors);
+const lMia = await W.handleKodexListe({ stichtag: HEUTE }, env, me, cors);
+const LMia = await lMia.json();
+const eintragMia = (LMia.offene_eingaenge || []).find((o) => o.kind_vorname === "Mia");
+pruefe("E21 Die Erklaerung fuer das Dart-Kind steht in offene_eingaenge", !!eintragMia,
+       JSON.stringify((LMia.offene_eingaenge || []).map((o) => o.kind_vorname)));
+pruefe("E21b Und ist als andere Abteilung ausgewiesen",
+       eintragMia && eintragMia.andere_abteilung === true,
+       "andere_abteilung=" + (eintragMia && eintragMia.andere_abteilung));
+pruefe("E21c Der echte Schreibfehler ist NICHT so ausgewiesen",
+       (LMia.offene_eingaenge || []).find((o) => o.kind_vorname === "Lucas")
+         .andere_abteilung === false);
+db.exec("DELETE FROM elternkodex_bestaetigung WHERE kind_vorname = 'Mia'");
+
+// ⚠️ Fehlt die Abteilung, wird NICHT ungefiltert geliefert. Eine Liste
+// aller minderjaehrigen Mitglieder saehe wie ein Ergebnis aus und waere
+// fachlich falsch.
+db.exec("UPDATE sparte SET name = 'Fussball (alt)' WHERE id = 'fussball'");
+const lOhne = await W.handleKodexListe({ stichtag: HEUTE }, env, me, cors);
+pruefe("E22 Ohne die Abteilung antwortet die Liste 409", lOhne.status === 409,
+       "status " + lOhne.status);
+const lOhneT = (await lOhne.json()).error;
+pruefe("E22b Der Text nennt die Abteilung", /Fussball/.test(lOhneT), lOhneT);
+pruefe("E22c Und liefert KEINE Kinder", !/kinder/.test(lOhneT));
+db.exec("UPDATE sparte SET name = 'fussball' WHERE id = 'fussball'");
+
+// Eine stillgelegte Abteilung zaehlt ebenfalls nicht -- die Abfrage
+// nimmt nur aktive.
+db.exec("UPDATE sparte SET aktiv = 0 WHERE id = 'fussball'");
+const lStill = await W.handleKodexListe({ stichtag: HEUTE }, env, me, cors);
+pruefe("E22d Eine stillgelegte Abteilung fuehrt auf 409", lStill.status === 409,
+       "status " + lStill.status);
+db.exec("UPDATE sparte SET aktiv = 1 WHERE id = 'fussball'");
 
 // Ein Stichtag, an dem Mia noch nicht 18, Anna-Lena aber noch nicht
 // geboren ist: das Alter wird wirklich zum Stichtag gerechnet.
@@ -761,6 +819,34 @@ pruefe("H25 Der Link zum Verteilen steht in der Verwaltung",
          .test(kodexVerw));
 pruefe("H26 Die Karte mit dem Link haengt am Schreibrecht",
        /darf_schreiben[\s\S]{0,160}ko-verteilen-karte/.test(kodexVerw));
+
+// ⚠️ Die Begrenzung auf den Fussball muss UEBERALL stehen, wo der Kodex
+// auftaucht -- Michel-Vorgabe vom 18.08.2026. Eine Seite, die sie nicht
+// nennt, laedt Eltern anderer Abteilungen zu einer Erklaerung ein, die
+// niemand braucht.
+pruefe("H28 Die Eltern-Seite nennt die Abteilung",
+       /Abteilung Fußball/.test(kodexHtml), "kodex.html nennt sie nicht");
+pruefe("H29 Sie sagt es VOR dem Formular, nicht erst im Info-Reiter",
+       kodexHtml.indexOf("Abteilung Fußball") < kodexHtml.indexOf('id="k-kind-vorname"'));
+pruefe("H30 Der Info-Reiter nennt sie ebenfalls",
+       (kodexHtml.match(/Abteilung Fußball/g) || []).length >= 2,
+       "" + (kodexHtml.match(/Abteilung Fußball/g) || []).length);
+pruefe("H31 Der Seitentitel nennt sie", /<title>[^<]*Fußball/.test(kodexHtml));
+
+pruefe("H32 Die Verwaltung nennt die Begrenzung",
+       /nur der Abteilung Fußball/.test(indexHtml));
+pruefe("H33 Es gibt keinen Abteilungs-Filter mehr",
+       !/id="ko-sparte"/.test(indexHtml) && !/ko-sparte/.test(kodexVerw));
+pruefe("H34 Der Stand nennt die Abteilung mit",
+       /koDaten\.abteilung/.test(kodexVerw));
+pruefe("H35 Der Vermerk 'andere Abteilung' wird gezeigt",
+       /andere_abteilung/.test(kodexVerw));
+pruefe("H36 Der Zugriff schickt keine Abteilung mit",
+       /function ladeKodexListe\(\)/.test(readFileSync(REPO + "/db.js", "utf8")));
+
+// Der Server ist die Wahrheit, nicht der Browser.
+pruefe("H37 Die Abteilung ist im Server festgelegt",
+       W.KODEX_SPARTE_NAMEN instanceof Set && W.KODEX_SPARTE_NAMEN.has("fussball"));
 
 // Der Anmeldeweg und dieser Weg muessen dieselbe Fassung unterschreiben.
 const nachwuchsJs = readFileSync(REPO + "/nachwuchs.js", "utf8");
