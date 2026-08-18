@@ -384,6 +384,13 @@ function zeichneKodexOffene() {
           // ohne den Vermerk sucht man einen Tippfehler, den es nicht gibt.
           (b.andere_abteilung
             ? ' <span class="chip ruhend">andere Abteilung — nichts zu tun</span>' : "") +
+          // ⚠️ Auch hier, nicht nur in der Kinderliste. Genau diese Zeilen
+          // sind die ungeklärten — eine davon mehrfach ersetzt zu sehen ist
+          // der Hinweis, der die Geschäftsstelle zum Nachfragen bringt.
+          // Beim ersten Wurf stand der Chip nur oben; im Browser gemessen
+          // gefunden, nicht durch Lesen des Codes.
+          (b.ersetzt ? ' <span class="chip ruhend">' + b.ersetzt +
+                       "× ersetzt</span>" : "") +
           "</td>" +
         "<td>" + esc(datumDe(b.kind_geburtsdatum)) + "</td>" +
         "<td>" + esc(b.mannschaft || "") + "</td>" +

@@ -1099,6 +1099,16 @@ pruefe("J27 pruefeAntrag liest die Fassung NICHT aus dem Koerper",
 pruefe("J28 Sondern setzt die Server-Konstante",
        /kodexVersion = ELTERNKODEX_VERSION/.test(wOhneKomm));
 
+// ⚠️ BEIDE Listen muessen die Zahl zeigen, nicht nur eine. Beim ersten Wurf
+// stand der Chip allein in der Kinderliste -- in "Nicht zuzuordnen" fehlte
+// er, ausgerechnet dort, wo die ungeklaerten Faelle stehen. Gefunden beim
+// Messen im Browser, nicht beim Lesen des Codes; deshalb steht die Zusage
+// jetzt hier.
+pruefe("J29 Die Kinderliste zeigt die Zahl der Ersetzungen",
+       /k\.ersetzt \? ' <span class="chip ruhend">' \+ k\.ersetzt/.test(kodexVerw));
+pruefe("J30 Die Liste \u201eNicht zuzuordnen\u201c ebenfalls",
+       /b\.ersetzt \? ' <span class="chip ruhend">' \+ b\.ersetzt/.test(kodexVerw));
+
 // ======================================================================
 
 console.log("");
