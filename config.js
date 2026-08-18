@@ -39,6 +39,17 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Ersetzte Erklärungen bleiben nachweisbar",
+    datum: "2026-08-18",
+    punkte: [
+      "Wird eine Erklärung für dasselbe Kind ein zweites Mal abgeschickt, gilt weiterhin die neuere — die vorige bleibt jetzt aber vollständig erhalten, samt ihrer Unterschrift. Vorher war sie fort, und niemand konnte hinterher sehen, dass es sie überhaupt gab. Der Link für die Eltern kommt bewusst ohne Zugangscode aus, und Name und Geburtstag eines Kindes sind im Verein kein Geheimnis; ein Beleg darf deshalb nicht still verschwinden.",
+      "Beide Listen zeigen an der Zeile, wie oft ersetzt wurde. Im Detail stehen die ersetzten Fassungen untereinander — mit ihrer Unterschrift und dem Vermerk, ob die Ersetzung vom selben Anschluss kam wie die ursprüngliche Erklärung. Eine Familie, die sich selbst korrigiert, sendet in aller Regel vom selben; steht dort „anderer Anschluss“, lohnt eine Rückfrage.",
+      "Derselbe Klick zweimal — Doppelklick oder wackeliges Netz — bleibt folgenlos: keine zweite Zeile, kein Eintrag im Verlauf, kein Strich auf der Bremse.",
+      "Die Bremse gegen Massenzusendungen zählt jetzt Vorgänge statt Zeilen. Wer immer dasselbe Kind schickte, lief vorher komplett an ihr vorbei.",
+      "Welche Fassung des Kodex in der Nachwuchs-Anmeldung unterschrieben wurde, bestimmt jetzt der Server. Vorher kam die Angabe aus dem Browser — eine veraltete Seite im Zwischenspeicher schrieb damit die falsche Fassung in den Beleg."
+    ]
+  },
+  {
     version: "Elternkodex nachreichen und abgleichen",
     datum: "2026-08-18",
     punkte: [
@@ -50,8 +61,7 @@ const CHANGELOG = [
       "Findet sich die Abteilung Fußball nicht (umbenannt oder stillgelegt), sagt der Reiter das — statt eine Liste aller minderjährigen Mitglieder zu zeigen, die wie ein Ergebnis aussieht.",
       "Die Liste lässt sich nach jeder Spalte sortieren — ein Klick auf die Überschrift, ein zweiter dreht die Richtung um. Der Zeitpunkt der Unterschrift steht dafür in einer eigenen Spalte „Unterschrieben am“; Kinder ohne Unterschrift stehen dabei immer am Ende, in beide Richtungen.",
       "Jede Erklärung lässt sich einzeln ansehen — mit Unterschrift, Zeitpunkt und der Fassung des Kodex, die gelesen wurde. Testeinträge und zurückgezogene Erklärungen lassen sich löschen.",
-      "Ein zweites Absenden für dasselbe Kind ersetzt die vorige Erklärung statt eine zweite anzulegen — die vorige bleibt dabei aber vollständig erhalten, samt ihrer Unterschrift. Die Liste zeigt an der Zeile, wie oft ersetzt wurde; im Detail stehen die ersetzten Fassungen untereinander. Der Link kommt ohne Zugangscode aus, und Name und Geburtstag eines Kindes sind im Verein kein Geheimnis — deshalb darf kein Beleg still verschwinden.",
-      "Kommt eine Ersetzung von einem anderen Anschluss als die ursprüngliche Erklärung, steht das im Detail dabei. Eine Familie, die sich selbst korrigiert, sendet in aller Regel vom selben Anschluss."
+      "Ein zweites Absenden derselben Familie für dasselbe Kind ersetzt die vorige Erklärung statt eine zweite anzulegen."
     ]
   },
   {
