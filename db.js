@@ -105,6 +105,36 @@ async function importiereBlock(saetze, optionen) {
 // xlsx.full.min.js sind ~900 KB, die beim taeglichen Blick in die
 // Mitgliederliste niemand braucht. Flottenregel.
 const geladeneBibliotheken = {};
+// --- Elternkodex ------------------------------------------------------
+
+// Der Abgleich: welche minderjaehrigen Mitglieder haben die Kenntnisnahme
+// abgegeben, welche nicht -- und welche Erklaerungen passen zu keinem Kind.
+//
+// ⚠️ Recht ist darfNachwuchs (Geschaeftsstelle, Schatzmeister, Passstelle,
+// Administrator), NICHT darfPersonenSehen. Der Grund ist der
+// Abteilungsleiter: seine Mitgliedersicht ist auf seine Sparten begrenzt,
+// diese Liste ist es nicht -- an darfPersonenSehen gehaengt waere sie ein
+// Weg um seine Spartengrenze herum.
+async function ladeKodexListe(opt) {
+  return vvRequest("vv-kodex-liste", opt || {});
+}
+
+// Eigene Aktion, weil die Unterschrift 19 KB traegt und die Liste sie
+// nicht anzeigt.
+async function ladeKodexDetail(id) {
+  return vvRequest("vv-kodex-detail", { id });
+}
+
+// Handzuordnung fuer den Fall, dass der Namensabgleich nicht trifft. Eine
+// leere person_id hebt sie wieder auf.
+async function ordneKodexZu(id, personId) {
+  return vvRequest("vv-kodex-zuordnen", { id, person_id: personId || "" });
+}
+
+async function loescheKodex(id) {
+  return vvRequest("vv-kodex-loeschen", { id });
+}
+
 function ladeBibliothek(url) {
   if (geladeneBibliotheken[url]) return geladeneBibliotheken[url];
   geladeneBibliotheken[url] = new Promise((erfuellen, ablehnen) => {

@@ -1510,6 +1510,21 @@ async function handleMigration(env, me, corsHeaders) {
     "geaendert_am TEXT, geaendert_von TEXT)"
   ).run();
 
+  // Nachgereichte Kenntnisnahmen des Elternkodex. EIGENE Tabelle und
+  // nicht ein Feld an mitgliedschaft: die Erklaerung gibt nicht das Kind
+  // ab, sondern die Erziehungsberechtigten, sie traegt eine eigene
+  // Unterschrift und eine eigene Fassung des Textes -- und sie kommt von
+  // aussen, bevor irgendjemand sie einer Person zugeordnet hat. Ein
+  // Haekchen an der Mitgliedschaft koennte nichts davon belegen.
+  //
+  // ⚠️ person_id ist die HANDZUORDNUNG, nicht der Regelweg. Der Abgleich
+  // laeuft ueber abgleich_schluessel; die Spalte greift nur, wenn der
+  // Name so anders geschrieben ist, dass er nicht findet -- dann setzt
+  // die Geschaeftsstelle ihn von Hand. Fremdschluessel, damit keine
+  // Zuordnung auf eine Person zeigt, die es nicht gibt (Personen werden
+  // in dieser App nie geloescht, der Verweis kann also nicht faul werden).
+  for (const sql of KODEX_SCHEMA) await env.VV_DB.prepare(sql).run();
+
   // Buchhaltung (Stufe 4). Die Tabellen standen im Plan, aber nie im
   // eingespielten Schema -- die Datenbank laeuft seit Juli produktiv, ein
   // zweites Einspielen gibt es nicht. Sie entstehen deshalb hier.
@@ -1635,6 +1650,15 @@ const EINSTELLUNGEN = {
   // verschiedenen Zeiten gebraucht -- die Nachwuchsanmeldung vor allem zum
   // Saisonwechsel.
   nachwuchs_offen:  { gruppe: "antrag", label: "Nachwuchs-Anmeldung ist geoeffnet (1 = ja, 0 = nein)",
+                      zahl: true, vorgabe: 1, min: 0, max_wert: 1 },
+
+  // Dritter Schalter aus demselben Grund wie der zweite. Das
+  // Nachreichen des Elternkodex ist eine Aktion mit Anfang und Ende:
+  // der Link geht an alle Eltern, und wenn genug zurueck ist, wird er
+  // zugedreht. Haenge man ihn an nachwuchs_offen, schloesse man mit dem
+  // Kodex die Anmeldung mit -- ausgerechnet zum Saisonwechsel, wo beides
+  // gleichzeitig laeuft.
+  kodex_offen:      { gruppe: "antrag", label: "Nachreichen des Elternkodex ist geoeffnet (1 = ja, 0 = nein)",
                       zahl: true, vorgabe: 1, min: 0, max_wert: 1 }
 };
 
@@ -5194,6 +5218,550 @@ function bestandSql(stichtag) {
          " AND (m.austritt IS NULL OR m.austritt >= " + d + ")";
 }
 
+// ---------------------------------------------------------------------
+// Elternkodex nachreichen
+// ---------------------------------------------------------------------
+//
+// Die Nachwuchs-ANMELDUNG erhebt die Kenntnisnahme des Elternkodex seit
+// dem 18.08.2026 mit. Wer schon Mitglied ist, hat sie nie abgegeben --
+// und genau dafuer ist dieser Weg da: ein Link an alle Eltern, hinter dem
+// der Kodex heruntergeladen, angekreuzt und unterschrieben wird, ohne
+// Konto und ohne dass eine Anmeldung wiederholt werden muss.
+//
+// ⚠️ Die Erklaerung haengt NICHT an mitgliedschaft, sondern in einer
+// eigenen Tabelle. Sie kommt von aussen, bevor sie jemand einer Person
+// zugeordnet hat; sie traegt eine eigene Unterschrift und die Fassung des
+// Textes, der gelesen wurde. Ein Haekchen an der Mitgliedschaft koennte
+// nichts davon belegen -- und in zwei Jahren waere nicht mehr sagbar, was
+// jemand unterschrieben hat.
+
+const KODEX_SCHEMA = [
+  "CREATE TABLE IF NOT EXISTS elternkodex_bestaetigung (" +
+  "id TEXT PRIMARY KEY, " +
+  "eingang_am TEXT NOT NULL, " +
+  "kind_vorname TEXT NOT NULL, " +
+  "kind_nachname TEXT NOT NULL, " +
+  "kind_geburtsdatum TEXT NOT NULL, " +
+  // Freitext. Der Verein fuehrt die Mannschaften nicht in dieser
+  // Datenbank (das tut der Kadermanager), und der Jahrgang steht ueber
+  // das Geburtsdatum ohnehin fest. Als Angabe der Eltern ist sie
+  // trotzdem nuetzlich: sie sagt der Geschaeftsstelle, bei welchem
+  // Trainerteam nachzufassen ist.
+  "mannschaft TEXT, " +
+  "erz_name TEXT NOT NULL, " +
+  "erz_email TEXT, " +
+  "ort TEXT, " +
+  "kodex_version TEXT NOT NULL, " +
+  "unterschrift_datei TEXT NOT NULL, " +
+  // Der normalisierte Abgleichsschluessel. Steht als SPALTE da und wird
+  // nicht bei jeder Abfrage neu gerechnet: an ihm haengt der eindeutige
+  // Index, und der ist die einzige Klammer gegen die Doppelbestaetigung
+  // aus einem zweiten Klick oder einem Netzwerk-Wiederholer.
+  "abgleich_schluessel TEXT NOT NULL, " +
+  "person_id TEXT REFERENCES person(id), " +
+  "zugeordnet_am TEXT, " +
+  "zugeordnet_von TEXT, " +
+  "signatur_ip TEXT, " +
+  "signatur_agent TEXT, " +
+  "signatur_zeit TEXT)",
+
+  // ⚠️ Der eindeutige Index ist kein Beiwerk, sondern der Grund, warum
+  // das Absenden ein UPSERT sein darf. Ohne ihn legten zwei gleichzeitige
+  // Klicks zwei Erklaerungen fuer dasselbe Kind an, und die Liste zeigte
+  // dasselbe Kind zweimal als bestaetigt.
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_kodex_abgleich " +
+  "ON elternkodex_bestaetigung(abgleich_schluessel)"
+];
+
+// ⚠️ Die Fassung steht im SERVER, nicht im Browser-JS. Dieselbe Lehre wie
+// beim Vereinsnamen: was der Server ausliefert, wirkt auch fuer Browser,
+// die das alte JS noch im Cache haben -- ein ?v= erreicht die gerade
+// nicht. Wird der Kodex neu gefasst, gehoeren drei Stellen geaendert:
+// diese Konstante, die PDF-Datei und deren ?v= im Downloadlink.
+//
+// ⚠️ nachwuchs.js hat fuer den Anmeldeweg eine EIGENE Konstante
+// ELTERNKODEX_VERSION. Beide muessen denselben Wert tragen, sonst
+// unterschreiben zwei Wege verschiedene Fassungen desselben Textes.
+const ELTERNKODEX_VERSION = "1.0 (Stand 23.03.2026)";
+
+// Eigene Grenzen, nicht die des Aufnahmeantrags mitbenutzt: hinter diesem
+// Link steht eine ganze Elternschaft, und in einem Haushalt mit drei
+// Kindern kommen drei Erklaerungen aus demselben Anschluss. Fuenf je
+// Stunde waeren dort zu wenig.
+const KODEX_JE_IP_STUNDE = 12;
+const KODEX_JE_IP_TAG = 40;
+
+// Ein Namensteil auf seine Vergleichsform gebracht: klein, ohne Umlaute,
+// ohne Akzente, ohne Satzzeichen.
+function kodexNamensteil(roh) {
+  return String(roh || "")
+    .toLowerCase()
+    .replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    // Zerlegt e-Akut in "e" + Akzentzeichen und wirft das Akzentzeichen
+    // weg. Ohne den Schritt waere "Jose" nicht "José".
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+// Der Abgleichsschluessel eines Kindes.
+//
+// ⚠️ Alle Namensteile werden SORTIERT. Das ist der Kern: Eltern tippen
+// den Namen ihres Kindes in die falsche Reihenfolge, in ein
+// Doppelnamenfeld oder mit Bindestrich, wo der Verein keinen hat -- und
+// eine wortgenaue Suche liefert dann ein lautlos leeres Ergebnis. Nach
+// dem Sortieren sind "Anna-Lena Mueller", "Anna Lena Müller" und
+// "Müller, Anna Lena" derselbe Schluessel.
+//
+// ⚠️ Preis dieser Toleranz: zwei Kinder, deren Namensteile eine
+// Vertauschung voneinander sind ("Max Thomas" und "Thomas Max"), fielen
+// zusammen -- aber nur, wenn sie zusaetzlich am selben Tag geboren sind.
+// Das Geburtsdatum ist deshalb Bestandteil des Schluessels und nicht nur
+// ein zweites Feld daneben.
+function kodexSchluessel(vorname, nachname, geburtsdatum) {
+  const teile = (String(vorname || "") + " " + String(nachname || ""))
+    .split(/[\s,.\-–_/]+/)
+    .map(kodexNamensteil)
+    .filter((t) => t.length > 0)
+    .sort();
+  if (!teile.length) return null;
+  return teile.join("|") + "|" + String(geburtsdatum || "").slice(0, 10);
+}
+
+// Wie bei den Antragsspalten: die Tabelle entsteht in handleMigration,
+// und der oeffentliche Endpunkt kann die nicht anstossen. Faende er die
+// Tabelle nicht, scheiterte jede Erklaerung mit einem nackten SQL-Fehler.
+//
+// ⚠️ Gemerkt wird NUR das Ja -- die Migration laeuft in einem anderen
+// Isolate als der oeffentliche Weg, ein Nein von hier erreichte sie nie
+// und dieser Worker wiese noch stundenlang ab, obwohl die Tabelle
+// laengst da ist.
+let kodexTabelleDa = false;
+async function hatKodexTabelle(env) {
+  if (kodexTabelleDa) return true;
+  try {
+    const r = await env.VV_DB.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'elternkodex_bestaetigung'"
+    ).first();
+    kodexTabelleDa = !!r;
+  } catch {
+    return false;
+  }
+  return kodexTabelleDa;
+}
+
+// Weissliste. Alles, was der Server selbst setzt (id, eingang_am,
+// kodex_version, person_id, die Signaturspuren), wird aus dem Koerper
+// NICHT gelesen -- derselbe Grund, aus dem pruefeAntrag status und
+// person_id ignoriert.
+function pruefeKodex(roh, heute) {
+  const kindVorname = sauber(roh.kind_vorname, 80);
+  const kindNachname = sauber(roh.kind_nachname, 80);
+  if (!kindVorname || !kindNachname) {
+    return { fehler: "Bitte Vor- und Nachnamen des Kindes angeben" };
+  }
+
+  const geburtsdatum = sauber(roh.kind_geburtsdatum, 10);
+  if (!geburtsdatum || !istIsoDatum(geburtsdatum)) {
+    return { fehler: "Das Geburtsdatum des Kindes fehlt oder ist kein gueltiges Datum" };
+  }
+  if (geburtsdatum > heute) return { fehler: "Das Geburtsdatum liegt in der Zukunft" };
+  if (geburtsdatum < "1900-01-01") return { fehler: "Das Geburtsdatum ist nicht plausibel" };
+
+  const erzName = sauber(roh.erz_name, 120);
+  if (!erzName) {
+    return { fehler: "Bitte den Namen der unterschreibenden Person angeben" };
+  }
+
+  // Freiwillig. Der Kodex verlangt keine Adresse und keine Erreichbarkeit
+  // -- die Anschrift steht ohnehin in der Mitgliederverwaltung. Eine
+  // E-Mail hilft nur beim Nachfassen, wenn der Name nicht zuzuordnen ist,
+  // und wird deshalb erbeten, nicht verlangt. Steht eine da, muss sie
+  // aber brauchbar sein: eine kaputte Adresse ist schlechter als keine,
+  // weil sie eine Erreichbarkeit behauptet, die es nicht gibt.
+  const erzEmail = sauber(roh.erz_email, 120);
+  if (erzEmail && !EMAIL_MUSTER.test(erzEmail)) {
+    return { fehler: "Die E-Mail-Adresse ist nicht gueltig. Sie darf auch leer bleiben." };
+  }
+
+  const mannschaft = sauber(roh.mannschaft, 60);
+  const ort = sauber(roh.ort, 80);
+
+  // Das Haekchen ist der Kern der Erklaerung, nicht Formsache: ohne es
+  // ist nichts anerkannt, und die Unterschrift darunter belegte nur, dass
+  // jemand gezeichnet hat.
+  if (roh.einwilligung_kodex !== true) {
+    return { fehler: "Bitte bestaetigen, dass der Elternkodex gelesen und anerkannt wird" };
+  }
+
+  const unterschrift = pruefeUnterschrift(roh.unterschrift, "Die Unterschrift");
+  if (unterschrift.fehler) return { fehler: unterschrift.fehler };
+
+  const schluessel = kodexSchluessel(kindVorname, kindNachname, geburtsdatum);
+  if (!schluessel) return { fehler: "Der Name des Kindes ist nicht verwertbar" };
+
+  return {
+    satz: {
+      kind_vorname: kindVorname,
+      kind_nachname: kindNachname,
+      kind_geburtsdatum: geburtsdatum,
+      mannschaft,
+      erz_name: erzName,
+      erz_email: erzEmail,
+      ort,
+      unterschrift: unterschrift.wert,
+      abgleich_schluessel: schluessel
+    }
+  };
+}
+
+// Oeffentlich. Liefert den Schalter, den Vereinsnamen und die Fassung des
+// Kodex -- alles drei aus dem Server, damit ein alter Cache im Browser
+// nichts Falsches behauptet.
+async function handleKodexInfo(env, corsHeaders) {
+  const cfg = await ladeEinstellungen(env);
+  return json({
+    offen: einstellungZahl(cfg, "kodex_offen") === 1,
+    verein: VEREIN_NAME,
+    kodex_version: ELTERNKODEX_VERSION
+  }, 200, corsHeaders);
+}
+
+// Oeffentlich. Der zweite Schreibpunkt der App ohne Anmeldung.
+//
+// ⚠️ Bewusst KEIN Zugriffscode. Der Link geht an eine ganze Elternschaft
+// weiter, an Trainergruppen und in Chats -- ein Code, den hunderte Leute
+// kennen, ist keiner, kostet aber jede zweite Familie einen Anruf. Die
+// Bremsen sind deshalb dieselben wie beim Aufnahmeantrag: ein Zaehlwerk je
+// Anschluss, ein Schalter zum Zudrehen und die Unterschrift selbst -- die
+// zeichnet kein Skript.
+async function handleKodexSenden(body, env, request, corsHeaders) {
+  const cfg = await ladeEinstellungen(env);
+  if (einstellungZahl(cfg, "kodex_offen") !== 1) {
+    return json({ error: "Das Nachreichen des Elternkodex ist zurzeit geschlossen. " +
+                         "Bitte wenden Sie sich an die Geschaeftsstelle." }, 403, corsHeaders);
+  }
+
+  if (!(await hatKodexTabelle(env))) {
+    return json({ error: "Das Formular wird gerade eingerichtet. Bitte in wenigen Minuten " +
+                         "noch einmal absenden oder die Geschaeftsstelle anrufen." },
+                503, corsHeaders);
+  }
+
+  const ip = request.headers.get("CF-Connecting-IP") || "unbekannt";
+  const agent = String(request.headers.get("User-Agent") || "").slice(0, 200);
+
+  // Eine Abfrage fuer beide Grenzen, wie beim Antrag.
+  const jetztMs = Date.now();
+  const seitStunde = new Date(jetztMs - 3600000).toISOString();
+  const seitTag = new Date(jetztMs - 86400000).toISOString();
+  const zaehler = await env.VV_DB.prepare(
+    "SELECT COUNT(*) AS tag, SUM(CASE WHEN eingang_am >= ? THEN 1 ELSE 0 END) AS stunde " +
+    "FROM elternkodex_bestaetigung WHERE signatur_ip = ? AND eingang_am >= ?"
+  ).bind(seitStunde, ip, seitTag).first();
+  if (zaehler && (Number(zaehler.stunde || 0) >= KODEX_JE_IP_STUNDE ||
+                  Number(zaehler.tag || 0) >= KODEX_JE_IP_TAG)) {
+    return json({ error: "Von diesem Anschluss sind gerade sehr viele Erklaerungen gekommen. " +
+                         "Bitte spaeter noch einmal versuchen oder die Geschaeftsstelle anrufen." },
+                429, corsHeaders);
+  }
+
+  const jetzt = new Date().toISOString();
+  const geprueft = pruefeKodex(body, jetzt.slice(0, 10));
+  if (geprueft.fehler) return json({ error: geprueft.fehler }, 400, corsHeaders);
+  const satz = geprueft.satz;
+
+  // ⚠️ EIN Befehl, nicht "erst schauen, dann schreiben". Zwei gleichzeitige
+  // Klicks aus demselben Formular liefen sonst beide durch die Pruefung
+  // und der zweite in eine Verletzung des eindeutigen Index -- der Familie
+  // erschiene ein Serverfehler, obwohl ihre Erklaerung angekommen ist.
+  // Die neuere Erklaerung ersetzt die aeltere: es ist dieselbe Familie
+  // fuer dasselbe Kind, und was zuletzt unterschrieben wurde, gilt.
+  //
+  // ⚠️ Die Handzuordnung (person_id) bleibt beim Ersetzen STEHEN. Sie ist
+  // Arbeit der Geschaeftsstelle; ein zweites Absenden derselben Familie
+  // darf sie nicht wegwischen.
+  const id = uuid();
+  await env.VV_DB.prepare(
+    "INSERT INTO elternkodex_bestaetigung (id, eingang_am, kind_vorname, kind_nachname, " +
+    "kind_geburtsdatum, mannschaft, erz_name, erz_email, ort, kodex_version, " +
+    "unterschrift_datei, abgleich_schluessel, signatur_ip, signatur_agent, signatur_zeit) " +
+    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) " +
+    "ON CONFLICT(abgleich_schluessel) DO UPDATE SET " +
+    "eingang_am = excluded.eingang_am, kind_vorname = excluded.kind_vorname, " +
+    "kind_nachname = excluded.kind_nachname, mannschaft = excluded.mannschaft, " +
+    "erz_name = excluded.erz_name, erz_email = excluded.erz_email, ort = excluded.ort, " +
+    "kodex_version = excluded.kodex_version, unterschrift_datei = excluded.unterschrift_datei, " +
+    "signatur_ip = excluded.signatur_ip, signatur_agent = excluded.signatur_agent, " +
+    "signatur_zeit = excluded.signatur_zeit"
+  ).bind(id, jetzt, satz.kind_vorname, satz.kind_nachname, satz.kind_geburtsdatum,
+         satz.mannschaft, satz.erz_name, satz.erz_email, satz.ort, ELTERNKODEX_VERSION,
+         satz.unterschrift, satz.abgleich_schluessel, ip, agent, jetzt).run();
+
+  await protokolliere(env, null, "elternkodex-eingegangen", "elternkodex_bestaetigung",
+                      id, { nachname: satz.kind_nachname });
+
+  return json({ ok: true, eingang_am: jetzt, kodex_version: ELTERNKODEX_VERSION },
+              200, corsHeaders);
+}
+
+// ---------------------------------------------------------------------
+// Elternkodex in der Verwaltung (angemeldet)
+// ---------------------------------------------------------------------
+
+// Die Liste beantwortet zwei Fragen auf einmal: welche Kinder haben noch
+// nicht, und welche Erklaerungen passen zu keinem Kind. Die zweite Liste
+// ist die wichtigere -- ohne sie waere eine Erklaerung mit abweichender
+// Schreibweise eingegangen und nirgends sichtbar, und niemand haette
+// davon erfahren.
+//
+// Recht: darfNachwuchs, wie bei den Nachwuchs-Antraegen (Geschaeftsstelle,
+// Schatzmeister, Passstelle, Administrator). Kein Schreibrecht -- die
+// Zuordnung von Hand und das Loeschen haengen unveraendert an
+// darfSchreiben.
+async function handleKodexListe(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfNachwuchs) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+
+  if (!(await hatKodexTabelle(env))) {
+    return json({ error: EINRICHTUNG_FEHLT }, 409, corsHeaders);
+  }
+
+  const stichtag = istIsoDatum(sauber(body.stichtag, 10) || "")
+    ? sauber(body.stichtag, 10) : new Date().toISOString().slice(0, 10);
+
+  // Sparte einschraenken, wenn gewuenscht. Der Kodex gilt dem
+  // Jugendbereich des Fussballs; ein Verein mit Dart und Wandern hat dort
+  // auch minderjaehrige Mitglieder, die er nicht anschreiben will.
+  const sparteId = sauber(body.sparte_id, 40);
+  const spartenR = await env.VV_DB
+    .prepare("SELECT id, name FROM sparte WHERE aktiv = 1 ORDER BY sortierung, name").all();
+  const spartenListe = spartenR.results || [];
+  if (sparteId && !spartenListe.some((s) => s.id === sparteId)) {
+    return json({ error: "Unbekannte Abteilung" }, 400, corsHeaders);
+  }
+
+  // Alle minderjaehrigen Mitglieder im Bestand zum Stichtag. Das Alter
+  // wird in SQL gerechnet (alterSql) -- ein Filter im Browser haette die
+  // Geburtsdaten aller Mitglieder ausgeliefert, um die Haelfte
+  // wegzuwerfen.
+  //
+  // ⚠️ Bankdaten und Anschriften kommen hier gar nicht erst im SQL vor.
+  // Was nicht ausgeliefert wird, steht auch nicht im Netzwerk-Tab.
+  const alter = alterSql(stichtag);
+  const bestand = bestandSql(stichtag);
+  const kinderR = await env.VV_DB.prepare(
+    "SELECT p.id, p.vorname, p.nachname, p.geburtsdatum, m.mitgliedsnummer " +
+    "FROM person p JOIN mitgliedschaft m ON m.person_id = p.id " +
+    "WHERE " + bestand + " AND " + alter + " IS NOT NULL AND " + alter + " < 18 " +
+    (sparteId
+      ? "AND EXISTS (SELECT 1 FROM mitgliedschaft_sparte ms WHERE ms.mitgliedschaft_id = m.id " +
+        "AND ms.sparte_id = ? AND (ms.austritt IS NULL OR ms.austritt >= '" + stichtag + "')) "
+      : "") +
+    "ORDER BY p.nachname, p.vorname"
+  ).bind(...(sparteId ? [sparteId] : [])).all();
+
+  // Die Unterschrift bleibt hier draussen: 19 KB je Zeile mal
+  // dreihundert Kinder fuer eine Liste, die keine davon anzeigt. Sie holt
+  // das Detail.
+  const bestR = await env.VV_DB.prepare(
+    "SELECT id, eingang_am, kind_vorname, kind_nachname, kind_geburtsdatum, mannschaft, " +
+    "erz_name, erz_email, ort, kodex_version, abgleich_schluessel, person_id, zugeordnet_am " +
+    "FROM elternkodex_bestaetigung ORDER BY eingang_am DESC"
+  ).all();
+  const bestaetigungen = bestR.results || [];
+
+  // Zwei Zuordnungswege, und die Handzuordnung gewinnt. Sie ist die
+  // Korrektur eines Falls, in dem der Schluessel nicht getroffen hat --
+  // wuerde der Schluessel sie ueberstimmen, waere die Korrektur wirkungslos.
+  const nachPerson = new Map();
+  const nachSchluessel = new Map();
+  for (const b of bestaetigungen) {
+    if (b.person_id) nachPerson.set(b.person_id, b);
+    else if (!nachSchluessel.has(b.abgleich_schluessel)) {
+      nachSchluessel.set(b.abgleich_schluessel, b);
+    }
+  }
+
+  const benutzt = new Set();
+  const kinder = (kinderR.results || []).map((k) => {
+    const treffer = nachPerson.get(k.id)
+      || nachSchluessel.get(kodexSchluessel(k.vorname, k.nachname, k.geburtsdatum));
+    if (treffer) benutzt.add(treffer.id);
+    return {
+      person_id: k.id,
+      mitgliedsnummer: k.mitgliedsnummer,
+      vorname: k.vorname,
+      nachname: k.nachname,
+      geburtsdatum: k.geburtsdatum,
+      bestaetigung_id: treffer ? treffer.id : null,
+      bestaetigt_am: treffer ? treffer.eingang_am : null,
+      kodex_version: treffer ? treffer.kodex_version : null,
+      erz_name: treffer ? treffer.erz_name : null,
+      mannschaft: treffer ? treffer.mannschaft : null,
+      // Sagt der Geschaeftsstelle, ob sie diesen Treffer nachgesehen hat
+      // oder ob der Namensabgleich ihn gefunden hat.
+      von_hand: treffer ? !!treffer.person_id : false
+    };
+  });
+
+  // Was zu keinem Kind gehoert. Nie stillschweigend weglassen: eine
+  // Erklaerung liegt vor, die Familie haelt sie fuer erledigt -- und ohne
+  // diese Liste stuende sie in keiner Uebersicht.
+  const offeneEingaenge = bestaetigungen
+    .filter((b) => !benutzt.has(b.id))
+    .map((b) => ({
+      id: b.id,
+      eingang_am: b.eingang_am,
+      kind_vorname: b.kind_vorname,
+      kind_nachname: b.kind_nachname,
+      kind_geburtsdatum: b.kind_geburtsdatum,
+      mannschaft: b.mannschaft,
+      erz_name: b.erz_name,
+      erz_email: b.erz_email,
+      ort: b.ort,
+      kodex_version: b.kodex_version,
+      // Eine Handzuordnung, die auf ein Kind zeigt, das nicht mehr in der
+      // Liste steht (Austritt, volljaehrig geworden, andere Abteilung).
+      // Sie ist kein Fehler, aber sie gehoert nicht als "unbekannt"
+      // ausgewiesen.
+      zugeordnet: !!b.person_id
+    }));
+
+  return json({
+    stichtag,
+    sparten: spartenListe,
+    sparte_id: sparteId || "",
+    kodex_version: ELTERNKODEX_VERSION,
+    kinder,
+    offene_eingaenge: offeneEingaenge,
+    darf_schreiben: !!rolle.darfSchreiben
+  }, 200, corsHeaders);
+}
+
+// Eine Erklaerung im Ganzen, samt Unterschrift. Eigene Aktion, damit die
+// Liste die Bilder nicht mitschleppt.
+async function handleKodexDetail(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfNachwuchs) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+
+  const id = sauber(body.id, 40);
+  if (!id) return json({ error: "Keine Erklaerung angegeben" }, 400, corsHeaders);
+
+  const z = await env.VV_DB.prepare(
+    "SELECT b.*, p.vorname AS p_vorname, p.nachname AS p_nachname " +
+    "FROM elternkodex_bestaetigung b LEFT JOIN person p ON p.id = b.person_id " +
+    "WHERE b.id = ?"
+  ).bind(id).first();
+  if (!z) return json({ error: "Die Erklaerung wurde nicht gefunden" }, 404, corsHeaders);
+
+  return json({
+    id: z.id,
+    eingang_am: z.eingang_am,
+    kind_vorname: z.kind_vorname,
+    kind_nachname: z.kind_nachname,
+    kind_geburtsdatum: z.kind_geburtsdatum,
+    mannschaft: z.mannschaft,
+    erz_name: z.erz_name,
+    erz_email: z.erz_email,
+    ort: z.ort,
+    kodex_version: z.kodex_version,
+    unterschrift: z.unterschrift_datei,
+    person_id: z.person_id,
+    person_name: z.person_id ? ((z.p_vorname || "") + " " + (z.p_nachname || "")).trim() : null,
+    zugeordnet_am: z.zugeordnet_am,
+    zugeordnet_von: z.zugeordnet_von,
+    // Die Signaturspur gehoert zum Beleg: sie sagt, wann und von wo die
+    // Erklaerung kam. Ohne sie ist die Unterschrift ein Bild ohne Herkunft.
+    signatur_zeit: z.signatur_zeit,
+    darf_schreiben: !!rolle.darfSchreiben
+  }, 200, corsHeaders);
+}
+
+// Handzuordnung. Nur fuer den Fall, dass der Namensabgleich nicht trifft
+// -- der Regelweg braucht sie nicht.
+//
+// ⚠️ An darfSchreiben, nicht an darfNachwuchs: die Passstelle darf die
+// Liste lesen, aber die Zuordnung ist eine Feststellung des Vereins
+// darueber, wessen Erklaerung das ist. Dieselbe Grenze wie beim
+// Statuswechsel eines Antrags.
+async function handleKodexZuordnen(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfSchreiben) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+
+  const id = sauber(body.id, 40);
+  if (!id) return json({ error: "Keine Erklaerung angegeben" }, 400, corsHeaders);
+
+  const vorhanden = await env.VV_DB
+    .prepare("SELECT id FROM elternkodex_bestaetigung WHERE id = ?").bind(id).first();
+  if (!vorhanden) return json({ error: "Die Erklaerung wurde nicht gefunden" }, 404, corsHeaders);
+
+  // Leere person_id hebt die Zuordnung auf. Das ist der Rueckweg aus einem
+  // Fehlgriff -- ohne ihn bliebe eine falsche Zuordnung fuer immer stehen,
+  // und das richtige Kind waere weiter offen.
+  const personId = sauber(body.person_id, 40);
+  if (!personId) {
+    await env.VV_DB.prepare(
+      "UPDATE elternkodex_bestaetigung SET person_id = NULL, zugeordnet_am = NULL, " +
+      "zugeordnet_von = NULL WHERE id = ?"
+    ).bind(id).run();
+    await protokolliere(env, me.username, "elternkodex-zuordnung-aufgehoben",
+                        "elternkodex_bestaetigung", id, {});
+    return json({ ok: true, person_id: null }, 200, corsHeaders);
+  }
+
+  const person = await env.VV_DB
+    .prepare("SELECT id, vorname, nachname FROM person WHERE id = ?").bind(personId).first();
+  if (!person) return json({ error: "Die Person wurde nicht gefunden" }, 404, corsHeaders);
+
+  // Zwei Erklaerungen auf dasselbe Kind waeren keine Verbesserung
+  // gegenueber keiner: die Liste zeigte einen von beiden Treffern, und
+  // welchen, entschiede die Sortierung.
+  const schon = await env.VV_DB.prepare(
+    "SELECT id FROM elternkodex_bestaetigung WHERE person_id = ? AND id <> ?"
+  ).bind(personId, id).first();
+  if (schon) {
+    return json({ error: "Diesem Kind ist bereits eine andere Erklaerung zugeordnet. " +
+                         "Bitte dort zuerst die Zuordnung aufheben." }, 409, corsHeaders);
+  }
+
+  const jetzt = new Date().toISOString();
+  await env.VV_DB.prepare(
+    "UPDATE elternkodex_bestaetigung SET person_id = ?, zugeordnet_am = ?, " +
+    "zugeordnet_von = ? WHERE id = ?"
+  ).bind(personId, jetzt, me.username, id).run();
+
+  await protokolliere(env, me.username, "elternkodex-zugeordnet",
+                      "elternkodex_bestaetigung", id,
+                      { person_id: personId, nachname: person.nachname });
+
+  return json({ ok: true, person_id: personId,
+                person_name: ((person.vorname || "") + " " + (person.nachname || "")).trim() },
+              200, corsHeaders);
+}
+
+// Fuer Testeinträge und zurueckgezogene Erklaerungen. Das Loeschen nimmt
+// die Unterschrift mit -- sie steht in derselben Zeile, es gibt keine
+// Datei daneben.
+async function handleKodexLoeschen(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfSchreiben) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+
+  const id = sauber(body.id, 40);
+  if (!id) return json({ error: "Keine Erklaerung angegeben" }, 400, corsHeaders);
+
+  const z = await env.VV_DB.prepare(
+    "SELECT kind_vorname, kind_nachname FROM elternkodex_bestaetigung WHERE id = ?"
+  ).bind(id).first();
+  if (!z) return json({ error: "Die Erklaerung wurde nicht gefunden" }, 404, corsHeaders);
+
+  await env.VV_DB.prepare("DELETE FROM elternkodex_bestaetigung WHERE id = ?").bind(id).run();
+  await protokolliere(env, me.username, "elternkodex-geloescht",
+                      "elternkodex_bestaetigung", id, { nachname: z.kind_nachname });
+
+  return json({ ok: true }, 200, corsHeaders);
+}
+
 async function handleBuchInit(env, me, corsHeaders) {
   const rolle = await ladeRolle(env, me);
   if (!rolle.darfBuchen) {
@@ -6857,10 +7425,20 @@ export default {
     // aufgerufenen Weg statt an einer Behauptung des Clients, und sie
     // laesst sich nicht umschreiben. Derselbe Grund, aus dem die
     // Weissliste status und person_id ignoriert.
+    //
+    // Seit dem 18.08.2026 stehen hier zwei weitere Aktionen: das
+    // NACHREICHEN des Elternkodex. Es ist kein Aufnahmeantrag -- wer den
+    // Link bekommt, ist schon Mitglied -- braucht aber aus demselben
+    // Grund keine Anmeldung: die Eltern haben kein Vereinskonto.
     if (body.action === "vv-antrag-info" || body.action === "vv-antrag-senden" ||
-        body.action === "vv-nachwuchs-senden") {
+        body.action === "vv-nachwuchs-senden" ||
+        body.action === "vv-kodex-info" || body.action === "vv-kodex-senden") {
       try {
         if (body.action === "vv-antrag-info") return await handleAntragInfo(env, corsHeaders);
+        if (body.action === "vv-kodex-info") return await handleKodexInfo(env, corsHeaders);
+        if (body.action === "vv-kodex-senden") {
+          return await handleKodexSenden(body, env, request, corsHeaders);
+        }
         return await handleAntragSenden(body, env, request, corsHeaders,
           body.action === "vv-nachwuchs-senden" ? "nachwuchs" : "antrag");
       } catch (e) {
@@ -6953,6 +7531,12 @@ export default {
         case "vv-sicherung":       return handleSicherung(env, me, corsHeaders);
         case "vv-sicherung-jetzt": return handleSicherungJetzt(env, me, corsHeaders);
         case "vv-sparten-init":    return handleSpartenInit(env, me, corsHeaders);
+        // Elternkodex. Lesen ab darfNachwuchs, Zuordnen und Loeschen erst
+        // ab darfSchreiben -- geprueft im jeweiligen Handler.
+        case "vv-kodex-liste":     return handleKodexListe(body, env, me, corsHeaders);
+        case "vv-kodex-detail":    return handleKodexDetail(body, env, me, corsHeaders);
+        case "vv-kodex-zuordnen":  return handleKodexZuordnen(body, env, me, corsHeaders);
+        case "vv-kodex-loeschen":  return handleKodexLoeschen(body, env, me, corsHeaders);
         default:
           return json({ error: "Unbekannte Aktion" }, 400, corsHeaders);
       }

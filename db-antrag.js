@@ -1,4 +1,6 @@
-// Zugriff fuer antrag.html -- die einzige Seite dieser App ohne Anmeldung.
+// Zugriff fuer die OEFFENTLICHEN Seiten dieser App: antrag.html,
+// nachwuchs.html und -- seit dem 18.08.2026 -- kodex.html. Sie sind die
+// einzigen Wege der App, die ohne Anmeldung funktionieren.
 //
 // Bewusst NICHT db.js: das schickt bei jedem Aufruf einen Bearer-Token mit
 // und wirft NotLoggedInError, wenn keiner da ist. Hier gibt es keinen und
@@ -104,6 +106,23 @@ const NACHWUCHS_CHANGELOG = [
   }
 ];
 
+// Eigener Block fuer kodex.html. Der Weg richtet sich an eine andere
+// Gruppe (Familien, deren Kind schon Mitglied ist) und wird zu anderen
+// Zeiten gebraucht als eine Anmeldung -- in NACHWUCHS_CHANGELOG ginge er
+// zwischen Spielerlaubnis und Passbild unter.
+const KODEX_CHANGELOG = [
+  {
+    version: "Elternkodex lässt sich nachreichen",
+    datum: "2026-08-18",
+    punkte: [
+      "Eltern, deren Kind schon Mitglied ist, können die Kenntnisnahme des Elternkodex ueber einen Link nachreichen — ohne Vereinskonto und ohne die Anmeldung zu wiederholen.",
+      "Der Kodex wird auf der Seite heruntergeladen, angekreuzt und am Bildschirm unterschrieben. Die Fassung des Textes wird mitgespeichert.",
+      "Nach dem Absenden erscheint eine Bestätigungsseite mit allen Angaben und der Unterschrift. Sie ist die eigene Kopie der Erklärung und lässt sich drucken oder als PDF sichern.",
+      "Bei mehreren Kindern führt ein Knopf direkt zur nächsten Erklärung — Name und Ort bleiben stehen, unterschrieben wird erneut."
+    ]
+  }
+];
+
 // Sitzungstoken aus demselben localStorage-Schluessel wie die uebrige
 // Flotte -- alle laufen unter derselben Origin. Diese Seite verlangt ihn
 // nicht: sie ist der einzige Weg der App, der auch OHNE Konto
@@ -160,7 +179,15 @@ async function antragRequest(action, body) {
 
   const daten = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error((daten && daten.error) || ("Fehler " + res.status));
+    const fehler = new Error((daten && daten.error) || ("Fehler " + res.status));
+    // ⚠️ Der Status wird MITGEGEBEN, obwohl die beiden Antragsseiten ihn
+    // nicht lesen. Auf einem Weg ohne Anmeldung ist ein 401 keine Aussage
+    // ueber den Aufrufer, sondern heisst: der Worker kennt diese Aktion
+    // nicht (noch nicht deployt, umbenannt). Ohne den Status stuende dem
+    // Nutzer "Nicht angemeldet" auf einer Seite, die nie eine Anmeldung
+    // verlangt -- und er suchte den Fehler bei sich.
+    fehler.status = res.status;
+    throw fehler;
   }
   return daten;
 }
@@ -179,6 +206,27 @@ function sendeAntrag(daten) {
 // einer Behauptung des Clients und laesst sich nicht umschreiben.
 function sendeNachwuchsAntrag(daten) {
   return antragRequest("vv-nachwuchs-senden", daten);
+}
+
+// --- Elternkodex nachreichen (ohne Login) -----------------------------
+
+// Schalter, Vereinsname und die Fassung des Kodex. Alles drei aus dem
+// Server: was er ausliefert, wirkt auch fuer Browser, die das alte JS
+// noch im Cache haben.
+function ladeKodexInfo() {
+  return antragRequest("vv-kodex-info");
+}
+
+// ⚠️ Eigene Aktion, kein Feld im Koerper einer bestehenden. Wie bei
+// vv-nachwuchs-senden haengt damit die Herkunft am aufgerufenen Weg statt
+// an einer Behauptung des Clients.
+//
+// ⚠️ Der Server baut den Eintrag aus einzelnen, gecappten Feldern selbst
+// zusammen -- nie ein rohes Objekt. Ein Weg ohne Anmeldung ist eine
+// schwaechere Vertrauensstufe, und der Absender darf nichts setzen, was
+// der Server besser weiss (Fassung, Zeitpunkt, Zuordnung).
+function sendeKodex(daten) {
+  return antragRequest("vv-kodex-senden", daten);
 }
 
 // --- Nachweise (Gateway, ohne Login) ----------------------------------

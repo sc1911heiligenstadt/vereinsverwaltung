@@ -121,6 +121,16 @@ async function start() {
       // Passstelle ohnehin mit 403, die Karte zeigte also nur Fehler.
       $("an-formular-karte").hidden = true;
       ladeAntraege();
+
+      // Der Elternkodex ist Nachwuchsarbeit und haengt am selben Recht.
+      // ⚠️ Die Liste nennt Namen und Geburtsdaten ALLER minderjaehrigen
+      // Mitglieder -- fuer die Passstelle mehr, als sie in den Antraegen
+      // sieht. Bewusst so: ohne den Bestand gaebe es keinen Abgleich, und
+      // die Jugendspieler kennt sie ueber die Spielerpaesse ohnehin.
+      // Zuordnen und Loeschen bleiben ihr verwehrt (darfSchreiben, im
+      // Server geprueft, und die Karte mit dem Link bleibt verborgen).
+      $("nav-kodex").hidden = false;
+      ladeKodex();
     }
     return;
   }
@@ -151,6 +161,12 @@ async function start() {
   // Aufnahmeanträge enthalten Bankdaten und werden zu Mitgliedschaften --
   // dasselbe Recht wie das Anlegen von Hand.
   $("nav-antraege").hidden = !meineRechte.darfSchreiben;
+
+  // Der Elternkodex hängt an darfNachwuchs, NICHT an darfPersonenSehen:
+  // die Mitgliedersicht des Abteilungsleiters ist auf seine Sparten
+  // begrenzt, diese Liste ist es nicht. An darfPersonenSehen gehängt wäre
+  // der Reiter ein Weg um seine Spartengrenze herum.
+  $("nav-kodex").hidden = !meineRechte.darfNachwuchs;
 
   // Der Reiter „Einstellungen“ trägt seit 2026-08-10 drei Blöcke mit drei
   // verschiedenen Rechten. Jeder ist oben einzeln versteckt; der Reiter
@@ -189,6 +205,11 @@ async function start() {
   // Steht bewusst hinter dem Block darüber: die Annahme eines Antrags
   // schreibt beitragsklasse_id und familienbeitrag, und diese beiden
   // Spalten legt erst die Migration an, die ladeStammdaten() anstößt.
+  // Steht wie die Antraege hinter ladeStammdaten(): die Tabelle
+  // elternkodex_bestaetigung entsteht in derselben Migration. Davor
+  // antwortete die Liste mit dem Hinweis auf die fehlende Einrichtung.
+  if (meineRechte.darfNachwuchs) ladeKodex();
+
   if (meineRechte.darfSchreiben) {
     ladeAntraege();
     ladeAntragSchalter();
@@ -827,6 +848,7 @@ function init() {
   $("btn-neu-abbrechen").addEventListener("click", () => { $("neu-overlay").hidden = true; });
   $("btn-neu-speichern").addEventListener("click", speichereNeu);
 
+  verdrahteKodex();
   impVerdrahten();
   rollenVerdrahten();
   beitraegeVerdrahten();

@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#1a56a0">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=1">
+<link rel="icon" href="/favicon.png?v=1" type="image/png">
+<title>Elternkodex bestätigen &mdash; 1. SC 1911 Heiligenstadt</title>
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="style.css?v=4.2">
+</head>
+<!-- Gleiche Grundklasse wie antrag.html und nachwuchs.html: die drei
+     öffentlichen Seiten teilen die schmalere Spaltenbreite. Die
+     Rechtsbündigkeit von „Info“ hängt an div.nav-right, nicht an einer
+     seitenspezifischen Klasse. -->
+<body class="antragseite">
+
+<!-- Die Dashboard-Pille erscheint NUR mit vorhandener Sitzung, das Wappen
+     immer. Eine Seite, auf der Eltern eine Erklärung unterschreiben, muss
+     auf den ersten Blick zum Verein gehören. -->
+<header>
+  <h1>Elternkodex</h1>
+  <a class="dashboard-pille" id="dashboard-pille" hidden
+     href="https://sc1911heiligenstadt.github.io/ToolsUebersicht/">&larr; Zurück zum Dashboard</a>
+  <div class="kopf-rechts">
+    <span id="verein-name">1. SC 1911 Heiligenstadt e.&nbsp;V.</span>
+    <img class="kopf-logo" src="https://sc1911heiligenstadt.github.io/logo.svg"
+         alt="1. SC 1911 e.V. Heilbad Heiligenstadt">
+  </div>
+</header>
+
+<nav>
+  <button data-tab="tab-formular" class="aktiv">Bestätigen</button>
+  <div class="nav-right">
+    <button data-tab="tab-info">Info</button>
+  </div>
+</nav>
+
+<main>
+
+<section id="tab-formular" class="tab aktiv">
+
+  <div id="lade-schirm" class="karte">
+    <p class="fussnote">Die Seite wird geladen …</p>
+  </div>
+
+  <div id="zu-schirm" class="karte" hidden>
+    <h2>Zurzeit keine Online-Bestätigung</h2>
+    <p>Das Nachreichen des Elternkodex ist im Augenblick geschlossen. Die
+    Geschäftsstelle nimmt Ihre Erklärung gerne auf dem üblichen Weg entgegen.</p>
+  </div>
+
+  <div id="formular" hidden>
+
+    <div class="karte">
+      <h2>Elternkodex des <span class="verein-name-text">1. SC 1911 Heiligenstadt e.&nbsp;V.</span></h2>
+      <p>Der Elternkodex regelt, wie sich Eltern, Angehörige und Fans bei Training,
+      Spielen, Turnieren und Vereinsfahrten verhalten — wo man steht, warum
+      Anfeuern erwünscht und Coachen von außen nicht erwünscht ist, der Umgang
+      mit Schiedsrichtern und Gegnern, und auf welchem Weg Anliegen besprochen
+      werden.</p>
+      <p>Wer sein Kind neu anmeldet, bestätigt ihn im Anmeldeformular mit.
+      <strong>Diese Seite ist für alle anderen</strong>: Ihr Kind ist schon
+      Mitglied, und die Erklärung wird nachgereicht. Es dauert zwei Minuten,
+      eine Anmeldung muss niemand wiederholen.</p>
+      <p class="fussnote">Pflichtfelder sind mit * gekennzeichnet.</p>
+    </div>
+
+    <div class="karte">
+      <div class="schritt-nummer">1 — Kodex lesen</div>
+      <p>Bitte den Elternkodex herunterladen und lesen. Er ist vier Seiten lang.</p>
+
+      <div class="knopfreihe" style="margin:14px 0">
+        <a class="btn" id="btn-kodex-laden" href="elternkodex.pdf?v=2" download
+           target="_blank" rel="noopener">Elternkodex herunterladen (PDF)</a>
+      </div>
+
+      <label class="ankreuz">
+        <input type="checkbox" id="k-ew-kodex">
+        <span>Wir haben den Elternkodex des Vereins
+        <span id="k-version-text">in der Fassung 1.0 (Stand 23.03.2026)</span>
+        heruntergeladen, gelesen und erkennen ihn an. *</span>
+      </label>
+    </div>
+
+    <!-- Name und Geburtsdatum sind zusammen der Schlüssel, mit dem die
+         Geschäftsstelle die Erklärung dem richtigen Kind zuordnet. Deshalb
+         steht hier der Hinweis, es so zu schreiben wie im Verein gemeldet
+         — abweichende Schreibweisen findet der Abgleich, aber ein
+         Rufname statt des gemeldeten Vornamens kostet eine Nachfrage. -->
+    <div class="karte">
+      <div class="schritt-nummer">2 — Um welches Kind geht es?</div>
+      <p class="fussnote">Bitte so schreiben, wie das Kind im Verein gemeldet ist.
+      Bei mehreren Kindern bitte für jedes Kind eine eigene Erklärung abgeben —
+      die Seite lässt sich danach gleich noch einmal ausfüllen.</p>
+
+      <div class="formraster">
+        <div class="feld">
+          <label for="k-kind-vorname">Vorname des Kindes *</label>
+          <input id="k-kind-vorname" autocomplete="off">
+        </div>
+        <div class="feld">
+          <label for="k-kind-nachname">Nachname des Kindes *</label>
+          <input id="k-kind-nachname" autocomplete="off">
+        </div>
+        <div class="feld">
+          <label for="k-kind-geburtsdatum">Geburtsdatum des Kindes *</label>
+          <input type="date" id="k-kind-geburtsdatum">
+        </div>
+        <div class="feld">
+          <label for="k-mannschaft">Mannschaft</label>
+          <input id="k-mannschaft" placeholder="z. B. E1-Junioren" autocomplete="off">
+        </div>
+      </div>
+    </div>
+
+    <div class="karte">
+      <div class="schritt-nummer">3 — Wer unterschreibt?</div>
+      <p class="fussnote">Es genügt die Unterschrift eines Erziehungsberechtigten.</p>
+
+      <div class="formraster">
+        <div class="feld">
+          <label for="k-erz-name">Name der Erziehungsberechtigten *</label>
+          <input id="k-erz-name" autocomplete="off">
+        </div>
+        <div class="feld">
+          <label for="k-erz-email">E-Mail-Adresse</label>
+          <input type="email" id="k-erz-email" autocomplete="off">
+          <p class="fussnote">Freiwillig. Wird nur gebraucht, wenn beim Zuordnen
+          etwas unklar bleibt.</p>
+        </div>
+        <div class="feld">
+          <label for="k-ort">Ort der Unterschrift</label>
+          <input id="k-ort" autocomplete="off">
+        </div>
+        <div class="feld">
+          <label>Datum</label>
+          <input id="k-datum" disabled>
+        </div>
+      </div>
+    </div>
+
+    <div class="karte">
+      <div class="schritt-nummer">4 — Unterschrift</div>
+      <p class="fussnote">Mit dem Finger, dem Stift oder der Maus in das Feld
+      unterschreiben.</p>
+
+      <div class="unterschrift-block">
+        <div class="unterschrift-titel">Unterschrift der Erziehungsberechtigten
+          — Kenntnisnahme des Elternkodex</div>
+        <canvas id="k-sig" class="unterschrift-feld"></canvas>
+        <div class="knopfreihe">
+          <button class="btn grau klein" id="btn-sig-loeschen" type="button">Neu zeichnen</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="karte">
+      <div id="k-meldung" class="hinweis fehler" hidden></div>
+      <div class="knopfreihe">
+        <button class="btn gross" id="btn-kodex-senden" type="button">Bestätigung absenden</button>
+      </div>
+      <p class="fussnote">Mit dem Absenden geht die Erklärung bei der Geschäftsstelle
+      ein. Zeitpunkt, Internetadresse und Gerätekennung werden als Nachweis der
+      Unterschrift mitgespeichert.</p>
+    </div>
+
+  </div>
+
+  <div id="danke" hidden>
+    <div class="karte">
+      <h2>Die Bestätigung ist eingegangen</h2>
+      <div class="hinweis erfolg" id="danke-kopf"></div>
+      <p>Vielen Dank. Die Geschäftsstelle ordnet die Erklärung Ihrem Kind zu. Sie
+      müssen nichts weiter tun.</p>
+      <p class="fussnote"><strong>Bitte sichern Sie sich diese Seite</strong> — sie ist
+      Ihre Kopie der Erklärung samt Unterschrift.</p>
+      <div class="knopfreihe nicht-drucken">
+        <button class="btn" id="btn-drucken" type="button">Drucken oder als PDF sichern</button>
+        <!-- Der häufigste nächste Schritt: das zweite Kind. Ohne diesen
+             Knopf müsste die Familie die Seite von Hand neu laden und
+             wüsste nicht, ob die erste Erklärung dabei verfällt. -->
+        <button class="btn grau" id="btn-weiteres-kind" type="button">Weiteres Kind bestätigen</button>
+      </div>
+    </div>
+    <div class="karte" id="danke-zusammenfassung"></div>
+  </div>
+
+</section>
+
+<section id="tab-info" class="tab">
+  <div class="karte">
+    <h2>Über diese Seite <span class="version-badge" id="info-version">1.0</span></h2>
+    <p>Diese Seite gehört zur Vereinsverwaltung des
+    <span class="verein-name-text">1. SC 1911 Heiligenstadt e.&nbsp;V.</span> Sie nimmt
+    die Kenntnisnahme des Elternkodex für Kinder auf, die bereits Mitglied sind.</p>
+    <p class="fussnote">Wer ein Kind <strong>neu</strong> anmeldet, braucht diese Seite
+    nicht — dort wird der Kodex im Formular mitbestätigt:
+    <a href="nachwuchs.html">Anmeldung Nachwuchs</a>.</p>
+    <p class="fussnote">Gespeichert werden: Name und Geburtsdatum des Kindes, die
+    angegebene Mannschaft, Name und — falls angegeben — E-Mail-Adresse der
+    unterschreibenden Person, Ort und Zeitpunkt, die Fassung des Kodex und die
+    Unterschrift. Die Angaben dienen allein dem Nachweis der Kenntnisnahme.</p>
+    <p class="fussnote">Fragen beantwortet die Geschäftsstelle:
+    Leineberg 2, 37308 Heilbad Heiligenstadt, Telefon 03606 612206,
+    <a href="mailto:info@sc1911-heiligenstadt.de">info@sc1911-heiligenstadt.de</a>.</p>
+    <p class="fussnote">
+      <a href="https://www.sc1911-heiligenstadt.de/satzung/" target="_blank" rel="noopener">Satzung</a> ·
+      <a href="https://www.sc1911-heiligenstadt.de/datenschutz/" target="_blank" rel="noopener">Datenschutzerklärung</a>
+    </p>
+  </div>
+
+  <div class="karte">
+    <h3>Was sich geändert hat</h3>
+    <div class="changelog-liste" id="info-changelog"></div>
+  </div>
+</section>
+
+</main>
+
+<script src="signature-pad.js?v=1.0"></script>
+<!-- Wegen $, esc, datumDe und heuteIso. Die Datei ist als teilbarer Kern
+     gebaut (eigene Helfer, kein globaler Zustand, keine Ausfuehrung beim
+     Laden) und wird damit von DREI oeffentlichen Seiten geladen. Der
+     Formularkern darin bleibt hier ungenutzt -- er wird nur aufgerufen,
+     wenn eine Seite ihn braucht. -->
+<script src="antrag-felder.js?v=1.1"></script>
+<script src="db-antrag.js?v=1.9"></script>
+<script src="kodex.js?v=1.0"></script>
+</body>
+</html>

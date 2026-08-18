@@ -39,6 +39,18 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Elternkodex nachreichen und abgleichen",
+    datum: "2026-08-18",
+    punkte: [
+      "Neuer Reiter „Elternkodex“: er zeigt, von welchen minderjährigen Mitgliedern die Kenntnisnahme vorliegt und von welchen noch nicht — mit Zähler, Suche und Filter auf eine Abteilung.",
+      "Eltern, deren Kind schon Mitglied ist, reichen die Erklärung über einen Link nach. Sie brauchen kein Vereinskonto und müssen keine Anmeldung wiederholen. Der Link steht im Reiter zum Kopieren, daneben ein Schalter, der die Seite wieder zudreht.",
+      "Erklärungen, die zu keinem Kind im Bestand passen — meist eine abweichende Schreibweise oder ein Rufname —, stehen in einer eigenen Liste „Nicht zuzuordnen“ und lassen sich von Hand zuordnen. Sie verschwinden nicht stillschweigend: die Familie hält ihre Erklärung für erledigt.",
+      "Abweichende Schreibweisen findet der Abgleich selbst: Umlaute, Groß- und Kleinschreibung, Bindestriche und vertauschte Vor- und Nachnamen führen auf dasselbe Kind, solange das Geburtsdatum stimmt.",
+      "Jede Erklärung lässt sich einzeln ansehen — mit Unterschrift, Zeitpunkt und der Fassung des Kodex, die gelesen wurde. Testeinträge und zurückgezogene Erklärungen lassen sich löschen.",
+      "Ein zweites Absenden derselben Familie für dasselbe Kind ersetzt die vorige Erklärung statt eine zweite anzulegen."
+    ]
+  },
+  {
     version: "Elternkodex in der Nachwuchs-Anmeldung",
     datum: "2026-08-18",
     punkte: [

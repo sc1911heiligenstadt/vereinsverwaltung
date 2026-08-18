@@ -721,3 +721,60 @@ CREATE TABLE einstellung (
   geaendert_am      TEXT,
   geaendert_von     TEXT
 );
+
+
+-- ---------------------------------------------------------------------
+-- 11) ELTERNKODEX
+-- ---------------------------------------------------------------------
+
+-- Nachgereichte Kenntnisnahmen des Elternkodex. Die Nachwuchs-ANMELDUNG
+-- erhebt sie seit dem 18.08.2026 mit; wer schon Mitglied ist, hat sie nie
+-- abgegeben. Diese Tabelle nimmt auf, was über den Eltern-Link
+-- (kodex.html) nachkommt.
+--
+-- Eigene Tabelle und kein Feld an mitgliedschaft: die Erklärung gibt nicht
+-- das Kind ab, sondern die Erziehungsberechtigten, sie trägt eine eigene
+-- Unterschrift und die Fassung des Textes, der gelesen wurde — und sie
+-- kommt von außen, bevor irgendjemand sie einer Person zugeordnet hat.
+CREATE TABLE elternkodex_bestaetigung (
+  id                TEXT PRIMARY KEY,
+  eingang_am        TEXT NOT NULL,
+
+  -- Wie die Eltern es geschrieben haben, unverändert. Der Abgleich läuft
+  -- über abgleich_schluessel; hier steht das Original, weil eine
+  -- Erklärung ein Beleg ist und kein Suchindex.
+  kind_vorname      TEXT NOT NULL,
+  kind_nachname     TEXT NOT NULL,
+  kind_geburtsdatum TEXT NOT NULL,           -- 'YYYY-MM-DD'
+
+  -- Freitext. Die Mannschaften führt der Kadermanager, nicht diese
+  -- Datenbank. Als Angabe der Eltern sagt sie der Geschäftsstelle, bei
+  -- welchem Trainerteam nachzufassen ist.
+  mannschaft        TEXT,
+
+  erz_name          TEXT NOT NULL,
+  erz_email         TEXT,                    -- freiwillig, nur zum Nachfassen
+  ort               TEXT,
+
+  -- Ohne die Fassung ließe sich in zwei Jahren nicht sagen, WAS jemand
+  -- unterschrieben hat. Der Kodex wird fortgeschrieben.
+  kodex_version     TEXT NOT NULL,
+  unterschrift_datei TEXT NOT NULL,          -- data:image/png;base64,…
+
+  -- Namensteile normalisiert und SORTIERT, dahinter das Geburtsdatum.
+  -- Steht als Spalte da, weil der eindeutige Index daran hängt — die
+  -- einzige Klammer gegen eine Doppelbestätigung aus einem zweiten Klick.
+  abgleich_schluessel TEXT NOT NULL,
+
+  -- HANDZUORDNUNG, nicht der Regelweg: greift nur, wenn der Name so
+  -- anders geschrieben ist, dass der Schlüssel nicht trifft.
+  person_id         TEXT REFERENCES person(id),
+  zugeordnet_am     TEXT,
+  zugeordnet_von    TEXT,
+
+  signatur_ip       TEXT,
+  signatur_agent    TEXT,
+  signatur_zeit     TEXT
+);
+
+CREATE UNIQUE INDEX idx_kodex_abgleich ON elternkodex_bestaetigung(abgleich_schluessel);

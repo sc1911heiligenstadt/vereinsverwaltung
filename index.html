@@ -26,6 +26,11 @@
   <button data-tab="tab-lauf" id="nav-lauf" hidden>Beitragslauf</button>
   <button data-tab="tab-zahlungen" id="nav-zahlungen" hidden>Zahlungen</button>
   <button data-tab="tab-antraege" id="nav-antraege" hidden>Anträge</button>
+  <!-- Eigener Reiter und kein Block in „Anträge“: dort geht es um die
+       Aufnahme nach § 4, hier um eine Erklärung von Familien, deren Kind
+       längst Mitglied ist. Zwei verschiedene Vorgänge mit zwei
+       verschiedenen Eingangswegen. -->
+  <button data-tab="tab-kodex" id="nav-kodex" hidden>Elternkodex</button>
   <!-- „Import“ und „Rollen“ hatten bis 2026-08-10 eigene Einträge und
        liegen seitdem im Reiter „Einstellungen“ (Michel-Vorgabe) — beides
        sind seltene Vorgänge, die den täglichen Ablauf nicht betreffen.
@@ -346,6 +351,76 @@
         <h2>Das öffentliche Formular</h2>
         <div id="an-schalter"></div>
         <div id="an-sparten"></div>
+      </div>
+
+    </section>
+
+    <!-- Elternkodex. Die Nachwuchs-ANMELDUNG erhebt die Kenntnisnahme seit
+         dem 18.08.2026 mit; wer schon Mitglied ist, hat sie nie abgegeben.
+         Dieser Reiter zeigt, wer noch fehlt, und nimmt auf, was über
+         kodex.html nachkommt. -->
+    <section id="tab-kodex" class="tab">
+
+      <div class="karte">
+        <h2>Elternkodex</h2>
+        <p class="fussnote">Der Abgleich läuft gegen die <strong>minderjährigen
+        Mitglieder im Bestand</strong>. Wer volljährig wird oder austritt,
+        verschwindet aus der Liste — die abgegebene Erklärung bleibt gespeichert.</p>
+        <div id="ko-erfolg" class="hinweis erfolg" hidden></div>
+        <div id="ko-fehler" class="hinweis fehler" hidden></div>
+        <div id="ko-stand"></div>
+      </div>
+
+      <!-- Der Link zum Verteilen und der Schalter. Nur für Rollen mit
+           Schreibrecht: den Eingangsweg des ganzen Vereins zuzudrehen ist
+           kein Leserecht. -->
+      <div class="karte" id="ko-verteilen-karte" hidden>
+        <h2>Der Link für die Eltern</h2>
+        <p class="fussnote">Dieser Link führt zur Seite, auf der Eltern den Kodex
+        herunterladen und unterschreiben. Er braucht kein Vereinskonto und darf
+        an alle Eltern, in Mannschafts-Chats und an die Trainerteams weitergegeben
+        werden.</p>
+        <div class="feld">
+          <label for="ko-link">Adresse</label>
+          <input id="ko-link" readonly>
+        </div>
+        <div class="knopfreihe">
+          <button class="btn" id="btn-ko-kopieren" type="button">Link kopieren</button>
+          <a class="btn grau" id="btn-ko-oeffnen" href="kodex.html"
+             target="_blank" rel="noopener">Seite ansehen</a>
+        </div>
+        <div id="ko-schalter"></div>
+      </div>
+
+      <div class="karte">
+        <div class="knopfreihe" id="ko-reiter"></div>
+        <div class="formraster">
+          <div class="feld">
+            <label for="ko-sparte">Abteilung</label>
+            <select id="ko-sparte"></select>
+          </div>
+          <div class="feld">
+            <label for="ko-suche">Suchen</label>
+            <input id="ko-suche" placeholder="Name des Kindes">
+          </div>
+        </div>
+      </div>
+
+      <div class="karte">
+        <div id="ko-liste"></div>
+      </div>
+
+      <!-- Erklärungen, die zu keinem Kind im Bestand passen. Diese Liste
+           ist der wichtigere Teil: ohne sie läge eine Erklärung mit
+           abweichender Schreibweise vor, die Familie hielte sie für
+           erledigt, und in keiner Übersicht stünde sie. -->
+      <div class="karte" id="ko-offen-karte" hidden>
+        <h2>Nicht zuzuordnen <span id="ko-offen-zahl" class="version-badge"></span></h2>
+        <p class="fussnote">Diese Erklärungen sind eingegangen, passen aber zu keinem
+        minderjährigen Mitglied im Bestand — meist eine abweichende Schreibweise oder
+        ein Rufname. Bitte von Hand zuordnen; die Familie hält ihre Erklärung für
+        erledigt.</p>
+        <div id="ko-offen-liste"></div>
       </div>
 
     </section>
@@ -852,6 +927,21 @@
   </div>
 </div>
 
+<!-- Eine Erklaerung im Ganzen, samt Unterschrift. Gleiches Muster wie das
+     Antrags-Overlay darunter: die Liste laedt die Bilder nicht mit. -->
+<div class="overlay" id="kodex-overlay" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="ko-titel">
+    <div class="dialog-kopf">
+      <h2 id="ko-titel">Kenntnisnahme des Elternkodex</h2>
+      <button class="dialog-zu" id="btn-ko-zu" aria-label="Schließen">&times;</button>
+    </div>
+    <div class="dialog-inhalt" id="ko-inhalt"></div>
+    <div class="dialog-fuss">
+      <button class="btn grau" id="btn-ko-schliessen">Schließen</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="antrag-overlay" hidden>
   <div class="dialog breit" role="dialog" aria-modal="true" aria-labelledby="an-titel">
     <div class="dialog-kopf">
@@ -867,8 +957,8 @@
 
 <footer>1. SC 1911 Heiligenstadt &mdash; interne Vereinsverwaltung</footer>
 
-<script src="config.js?v=4.6"></script>
-<script src="db.js?v=1.6"></script>
+<script src="config.js?v=4.7"></script>
+<script src="db.js?v=1.7"></script>
 <script src="import.js?v=1.2"></script>
 <script src="rollen.js?v=1.4"></script>
 <script src="beitraege.js?v=1.1"></script>
@@ -888,6 +978,7 @@
      andere Umrechnung. -->
 <script src="reha.js?v=1.0"></script>
 <script src="lsb.js?v=1.2"></script>
-<script src="app.js?v=2.9"></script>
+<script src="kodex-verwaltung.js?v=1.0"></script>
+<script src="app.js?v=3.0"></script>
 </body>
 </html>
