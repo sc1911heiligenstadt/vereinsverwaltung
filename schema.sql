@@ -778,3 +778,42 @@ CREATE TABLE elternkodex_bestaetigung (
 );
 
 CREATE UNIQUE INDEX idx_kodex_abgleich ON elternkodex_bestaetigung(abgleich_schluessel);
+
+-- Ersetzte Fassungen einer Kenntnisnahme (nachgeruestet 18.08.2026).
+--
+-- Der Nachreich-Weg hat bewusst keinen Zugriffscode, und der
+-- Abgleichsschluessel ist Name plus Geburtstag des Kindes -- beides weiss
+-- im Verein jeder. Ein zweites Absenden ersetzte die vorhandene Erklaerung
+-- bis dahin KOMMENTARLOS: die Unterschrift der Familie war fort, die Liste
+-- zeigte weiter "liegt vor", und niemand konnte sagen, dass etwas passiert
+-- war. Eine Erklaerung ist ein Beleg; ein Beleg darf nicht still
+-- verschwinden. Ersetzt wird weiter -- die neuere Fassung gilt --, aber die
+-- alte wandert vorher hierher, samt Unterschrift und Signaturspur.
+CREATE TABLE elternkodex_verlauf (
+  -- id der ersetzten Zeile plus ihr Eingangszeitpunkt: zusammen eindeutig,
+  -- damit zwei gleichzeitige Ersetzungen nicht zwei Kopien anlegen.
+  id                  TEXT PRIMARY KEY,
+  bestaetigung_id     TEXT NOT NULL,
+  abgleich_schluessel TEXT NOT NULL,
+  ersetzt_am          TEXT NOT NULL,
+  -- Der Anschluss der ERSETZENDEN Erklaerung. Der der alten steht in
+  -- signatur_ip; nur beide zusammen unterscheiden die Selbstkorrektur der
+  -- Familie von einer fremden Ueberschreibung.
+  ersetzt_von_ip      TEXT,
+  eingang_am          TEXT NOT NULL,
+  kind_vorname        TEXT,
+  kind_nachname       TEXT,
+  kind_geburtsdatum   TEXT,
+  mannschaft          TEXT,
+  erz_name            TEXT,
+  erz_email           TEXT,
+  ort                 TEXT,
+  kodex_version       TEXT,
+  unterschrift_datei  TEXT,
+  signatur_ip         TEXT,
+  signatur_agent      TEXT,
+  signatur_zeit       TEXT
+);
+
+CREATE INDEX idx_kodex_verlauf_zeile ON elternkodex_verlauf(bestaetigung_id);
+

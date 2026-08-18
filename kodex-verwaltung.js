@@ -308,7 +308,11 @@ function zeichneKodexListe() {
         // vor?" nur auf Umwegen.
         "<td>" + (k.bestaetigung_id
           ? '<span class="chip aktiv">liegt vor</span>' +
-            (k.von_hand ? ' <span class="chip ruhend">von Hand</span>' : "")
+            (k.von_hand ? ' <span class="chip ruhend">von Hand</span>' : "") +
+            // ⚠️ Eine ersetzte Erklärung sieht sonst aus wie jede andere.
+            // Die Familie korrigiert sich selbst — oder jemand Fremdes hat
+            // überschrieben; welches von beidem, steht im Detail.
+            (k.ersetzt ? ' <span class="chip ruhend">' + k.ersetzt + "× ersetzt</span>" : "")
           : '<span class="chip gekuendigt">offen</span>') + "</td>" +
         "<td>" + esc(k.bestaetigt_am ? datumDe(k.bestaetigt_am) : "") + "</td>" +
         "<td>" + esc(k.erz_name || "") + "</td>" +
@@ -444,6 +448,35 @@ async function zeigeKodexDetail(id) {
           'style="max-width:100%;background:#fff" src="' + esc(d.unterschrift) + '">'
         : '<div class="leer">Keine Unterschrift gespeichert.</div>') +
     "</div>" +
+    // ⚠️ Ersetzte Fassungen. Der Weg hat keinen Zugriffscode, und die
+    // Kennung ist Name plus Geburtstag des Kindes — beides weiß im Verein
+    // jeder. Ein zweites Absenden ersetzt deshalb, und ohne diesen Block
+    // wäre nicht zu sehen, DASS es eines gab. Der Anschluss unterscheidet
+    // die Selbstkorrektur der Familie von einer fremden Überschreibung.
+    ((d.verlauf || []).length
+      ? '<div class="hinweis warn" style="margin-top:14px">' +
+          "<strong>Diese Erklärung wurde " + d.verlauf.length + "× ersetzt.</strong> " +
+          "Eine Familie, die sich selbst korrigiert, sendet vom selben Anschluss. " +
+          "Steht unten „anderer Anschluss“, kam die Ersetzung von woanders — dann " +
+          "bitte bei der Familie nachfragen." +
+        "</div>" +
+        d.verlauf.map((v) =>
+          '<div class="unterschrift-block" style="margin-top:10px">' +
+            '<div class="unterschrift-titel">Ersetzt am ' + esc(datumDe(v.ersetzt_am)) +
+              " · eingegangen war sie am " + esc(datumDe(v.eingang_am)) +
+              " · " + (v.gleicher_anschluss
+                ? '<span class="chip aktiv">gleicher Anschluss</span>'
+                : '<span class="chip gekuendigt">anderer Anschluss</span>') +
+            "</div>" +
+            '<p class="fussnote">Unterschrieben von ' + esc(v.erz_name || "—") +
+              (v.ort ? ", " + esc(v.ort) : "") +
+              " · Fassung " + esc(v.kodex_version || "—") + "</p>" +
+            (v.unterschrift
+              ? '<img alt="Ersetzte Unterschrift" ' +
+                'style="max-width:100%;background:#fff" src="' + esc(v.unterschrift) + '">'
+              : '<div class="leer">Keine Unterschrift gespeichert.</div>') +
+          "</div>").join("")
+      : "") +
     (d.darf_schreiben
       ? '<div class="knopfreihe" style="margin-top:14px">' +
           '<button class="btn" id="btn-ko-zuordnen" data-id="' + esc(d.id) + '">' +

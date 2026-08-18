@@ -50,7 +50,8 @@ const CHANGELOG = [
       "Findet sich die Abteilung Fußball nicht (umbenannt oder stillgelegt), sagt der Reiter das — statt eine Liste aller minderjährigen Mitglieder zu zeigen, die wie ein Ergebnis aussieht.",
       "Die Liste lässt sich nach jeder Spalte sortieren — ein Klick auf die Überschrift, ein zweiter dreht die Richtung um. Der Zeitpunkt der Unterschrift steht dafür in einer eigenen Spalte „Unterschrieben am“; Kinder ohne Unterschrift stehen dabei immer am Ende, in beide Richtungen.",
       "Jede Erklärung lässt sich einzeln ansehen — mit Unterschrift, Zeitpunkt und der Fassung des Kodex, die gelesen wurde. Testeinträge und zurückgezogene Erklärungen lassen sich löschen.",
-      "Ein zweites Absenden derselben Familie für dasselbe Kind ersetzt die vorige Erklärung statt eine zweite anzulegen."
+      "Ein zweites Absenden für dasselbe Kind ersetzt die vorige Erklärung statt eine zweite anzulegen — die vorige bleibt dabei aber vollständig erhalten, samt ihrer Unterschrift. Die Liste zeigt an der Zeile, wie oft ersetzt wurde; im Detail stehen die ersetzten Fassungen untereinander. Der Link kommt ohne Zugangscode aus, und Name und Geburtstag eines Kindes sind im Verein kein Geheimnis — deshalb darf kein Beleg still verschwinden.",
+      "Kommt eine Ersetzung von einem anderen Anschluss als die ursprüngliche Erklärung, steht das im Detail dabei. Eine Familie, die sich selbst korrigiert, sendet in aller Regel vom selben Anschluss."
     ]
   },
   {

@@ -943,6 +943,163 @@ pruefe("H27 Anmeldung und Nachreichen nennen dieselbe Fassung",
        "Anmeldung " + fassungAnmeldung + " / Server " + W.ELTERNKODEX_VERSION);
 
 // ======================================================================
+console.log("J  Ersetzen hinterlaesst eine Spur (Sicherheits-Review 18.08.2026)");
+// ======================================================================
+//
+// Der Fund: der Weg hat bewusst keinen Zugriffscode, und der
+// Abgleichsschluessel ist Name plus Geburtstag des Kindes -- beides weiss
+// im Verein jeder. Ein zweites Absenden ersetzte die vorhandene Erklaerung
+// KOMMENTARLOS, und weil die Bremse ZEILEN zaehlte statt Vorgaengen und ein
+// Ersetzen keine neue Zeile anlegt, ging das unbegrenzt oft. Gemessen:
+// 22 von 22 Versuchen angenommen bei einer Stundengrenze von 12.
+
+// Ein Kommentar ist kein ausgefuehrter Code. Ohne diesen Filter traefe
+// J27 die Kommentarbloecke, in denen der alte Ausdruck erklaert WIRD --
+// gleiche Falle wie B5/H3 in test-vereinsname.mjs.
+function ohneKommentare(src) {
+  return src.split("\n").filter((z) => !/^\s*\/\//.test(z)).join("\n");
+}
+
+// Sauberer Stand fuer diesen Abschnitt.
+db.exec("DELETE FROM elternkodex_verlauf");
+db.exec("DELETE FROM elternkodex_bestaetigung");
+db.exec("DELETE FROM protokoll");
+
+const SIG_FAMILIE = "data:image/png;base64,AAAAfamilieAAAA==";
+const SIG_FREMD   = "data:image/png;base64,BBBBfremdBBBB==";
+const KIND_J = { kind_vorname: "Jonas", kind_nachname: "Beispiel",
+                 kind_geburtsdatum: "2014-09-09" };
+
+const jFamilie = await W.handleKodexSenden(Object.assign({}, KIND_J, {
+  erz_name: "Petra Beispiel", ort: "Heiligenstadt",
+  einwilligung_kodex: true, unterschrift: SIG_FAMILIE }), env, anfrage("10.0.0.1"), cors);
+pruefe("J1 Die erste Erklaerung kommt an", jFamilie.status === 200, "status " + jFamilie.status);
+const jZeile1 = db.prepare("SELECT * FROM elternkodex_bestaetigung").get();
+pruefe("J2 Noch nichts im Verlauf",
+       db.prepare("SELECT COUNT(*) AS n FROM elternkodex_verlauf").get().n === 0);
+
+// --- Derselbe Klick zweimal: kein Vorgang, keine Spur, kein Strich ---
+const jNochmal = await W.handleKodexSenden(Object.assign({}, KIND_J, {
+  erz_name: "Petra Beispiel", ort: "Heiligenstadt",
+  einwilligung_kodex: true, unterschrift: SIG_FAMILIE }), env, anfrage("10.0.0.1"), cors);
+pruefe("J3 Der identische zweite Klick antwortet 200",
+       jNochmal.status === 200, "status " + jNochmal.status);
+pruefe("J4 Er legt KEINE Verlaufszeile an",
+       db.prepare("SELECT COUNT(*) AS n FROM elternkodex_verlauf").get().n === 0);
+pruefe("J5 Er nennt den urspruenglichen Eingang",
+       (await jNochmal.json()).eingang_am === jZeile1.eingang_am);
+pruefe("J6 Er erzeugt keinen zweiten Protokolleintrag",
+       db.prepare("SELECT COUNT(*) AS n FROM protokoll WHERE aktion LIKE 'elternkodex-%'")
+         .get().n === 1);
+
+// --- Ein Fremder ersetzt: die alte Fassung MUSS erhalten bleiben ---
+const jFremd = await W.handleKodexSenden(Object.assign({}, KIND_J, {
+  erz_name: "Fremde Person", ort: "Anderswo",
+  einwilligung_kodex: true, unterschrift: SIG_FREMD }), env, anfrage("66.66.66.66"), cors);
+pruefe("J7 Die Ersetzung wird angenommen", jFremd.status === 200, "status " + jFremd.status);
+
+const jZeile2 = db.prepare("SELECT * FROM elternkodex_bestaetigung").get();
+const jVerlauf = db.prepare("SELECT * FROM elternkodex_verlauf").all();
+pruefe("J8 Es steht weiter genau EINE gueltige Erklaerung da",
+       db.prepare("SELECT COUNT(*) AS n FROM elternkodex_bestaetigung").get().n === 1);
+pruefe("J9 Die neuere Fassung gilt", jZeile2.unterschrift_datei === SIG_FREMD);
+
+// ⚠️ Der Kern des Fundes. Ohne diese Zeile ist die Unterschrift der
+// Familie unwiederbringlich fort -- und niemand koennte es sehen.
+pruefe("J10 Die ersetzte Fassung ist GESICHERT", jVerlauf.length === 1,
+       jVerlauf.length + " Verlaufszeilen");
+pruefe("J11 Mit der Unterschrift der Familie",
+       jVerlauf[0] && jVerlauf[0].unterschrift_datei === SIG_FAMILIE);
+pruefe("J12 Mit ihrem Namen", jVerlauf[0] && jVerlauf[0].erz_name === "Petra Beispiel");
+pruefe("J13 Sie haengt an der richtigen Zeile",
+       jVerlauf[0] && jVerlauf[0].bestaetigung_id === jZeile1.id);
+
+// ⚠️ Die beiden Anschluesse unterscheiden die Selbstkorrektur der Familie
+// von einer fremden Ueberschreibung. Nur einer davon reicht nicht.
+pruefe("J14 Der Anschluss der ERSETZENDEN steht dabei",
+       jVerlauf[0] && jVerlauf[0].ersetzt_von_ip === "66.66.66.66",
+       jVerlauf[0] && jVerlauf[0].ersetzt_von_ip);
+pruefe("J15 Der Anschluss der ERSETZTEN ebenfalls",
+       jVerlauf[0] && jVerlauf[0].signatur_ip === "10.0.0.1",
+       jVerlauf[0] && jVerlauf[0].signatur_ip);
+
+// --- Der Protokolleintrag muss auf eine Zeile zeigen, die es gibt ---
+const jProt = db.prepare(
+  "SELECT aktion, objekt_id FROM protokoll WHERE aktion LIKE 'elternkodex-%' ORDER BY zeit").all();
+const jIds = new Set(db.prepare("SELECT id FROM elternkodex_bestaetigung").all().map((r) => r.id));
+pruefe("J16 Das Ersetzen hat eine EIGENE Aktion",
+       jProt.some((p) => p.aktion === "elternkodex-ersetzt"),
+       jProt.map((p) => p.aktion).join(", "));
+pruefe("J17 KEIN Protokolleintrag zeigt ins Leere",
+       jProt.every((p) => jIds.has(p.objekt_id)),
+       jProt.filter((p) => !jIds.has(p.objekt_id)).length + " verwaist");
+
+// --- Die Bremse zaehlt VORGAENGE, nicht Zeilen ---
+// Dieselbe Kind-Kennung immer wieder. Vor dem Fix kam das komplett an der
+// Bremse vorbei, weil kein Ersetzen eine neue Zeile anlegte.
+let jGebremst = null;
+for (let i = 0; i < W.KODEX_JE_IP_STUNDE + 10; i++) {
+  const a = await W.handleKodexSenden(Object.assign({}, KIND_J, {
+    erz_name: "Angreifer " + i, ort: "Anderswo",
+    einwilligung_kodex: true, unterschrift: SIG_FREMD }), env, anfrage("66.66.66.66"), cors);
+  if (a.status === 429) { jGebremst = i; break; }
+}
+pruefe("J18 Wiederholtes Ueberschreiben laeuft in die Bremse", jGebremst !== null,
+       "nie gebremst nach " + (W.KODEX_JE_IP_STUNDE + 10) + " Versuchen");
+pruefe("J19 Und zwar innerhalb der Stundengrenze",
+       jGebremst === null || jGebremst <= W.KODEX_JE_IP_STUNDE, "bei " + jGebremst);
+
+// Eine andere Leitung bleibt frei -- die Bremse ist keine Sperre der Kennung.
+const jAndere = await W.handleKodexSenden(Object.assign({}, KIND_J, {
+  erz_name: "Wieder Petra", ort: "Heiligenstadt",
+  einwilligung_kodex: true, unterschrift: SIG_FAMILIE }), env, anfrage("10.0.0.1"), cors);
+pruefe("J20 Die Familie selbst kommt weiterhin durch",
+       jAndere.status === 200, "status " + jAndere.status);
+
+// --- Sichtbar in der Verwaltung: sonst waere es gesichert, aber blind ---
+const jListe = await W.handleKodexListe({}, env, me, cors);
+const jListeB = await jListe.json();
+const jOffen = (jListeB.offene_eingaenge || [])[0];
+pruefe("J21 Die Liste meldet, wie oft ersetzt wurde",
+       !!jOffen && jOffen.ersetzt > 0, jOffen ? "ersetzt=" + jOffen.ersetzt : "kein Eingang");
+
+const jDetail = await W.handleKodexDetail({ id: jZeile1.id }, env, me, cors);
+const jDetailB = await jDetail.json();
+pruefe("J22 Das Detail liefert den Verlauf",
+       Array.isArray(jDetailB.verlauf) && jDetailB.verlauf.length > 0,
+       "verlauf=" + (jDetailB.verlauf && jDetailB.verlauf.length));
+pruefe("J23 Samt der ersetzten Unterschrift",
+       (jDetailB.verlauf || []).some((v) => v.unterschrift === SIG_FAMILIE));
+pruefe("J24 Und der Angabe, ob der Anschluss derselbe war",
+       (jDetailB.verlauf || []).some((v) => v.gleicher_anschluss === false));
+
+// --- Ohne die Verlaufstabelle wird vorn abgewiesen, nicht hinten ---
+// Der Worker schreibt seit dem Fix in BEIDE Tabellen. Fehlt die zweite --
+// Worker neu, Migration seither nicht gelaufen --, liefe jede Erklaerung
+// in einen nackten SQL-Fehler. Eigener Worker-Kontext, weil
+// hatKodexTabelle sich nur das Ja merkt.
+const W3 = neuerWorker();
+db.exec("DROP TABLE IF EXISTS elternkodex_verlauf");
+pruefe("J25 Ohne die Verlaufstabelle meldet die Info NICHT bereit",
+       (await (await W3.handleKodexInfo(env, cors)).json()).bereit === false);
+const jOhne = await W3.handleKodexSenden(Object.assign({}, KIND_J, {
+  erz_name: "Irgendwer", einwilligung_kodex: true, unterschrift: SIG_FREMD
+}), env, anfrage("7.7.7.7"), cors);
+pruefe("J26 Und das Absenden antwortet 503 statt eines SQL-Fehlers",
+       jOhne.status === 503, "status " + jOhne.status);
+for (const sql of W.KODEX_SCHEMA) db.exec(sql);
+
+// --- Die Fassung des Anmeldewegs kommt aus dem SERVER ---
+// Sie stand bis zum 18.08.2026 als sauber(roh.elternkodex_version) im
+// Koerper: der Browser bestimmte, was er unterschrieben zu haben behauptet.
+const wOhneKomm = ohneKommentare(quelle);
+pruefe("J27 pruefeAntrag liest die Fassung NICHT aus dem Koerper",
+       !/roh\.elternkodex_version/.test(wOhneKomm),
+       "roh.elternkodex_version steht noch im Code");
+pruefe("J28 Sondern setzt die Server-Konstante",
+       /kodexVersion = ELTERNKODEX_VERSION/.test(wOhneKomm));
+
+// ======================================================================
 
 console.log("");
 console.log("─".repeat(60));

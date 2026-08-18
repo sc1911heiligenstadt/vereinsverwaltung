@@ -4000,7 +4000,16 @@ function pruefeAntrag(roh, erlaubteSparten, heute, quelle) {
     if (kodex.fehler) return { fehler: kodex.fehler };
     // Welcher Text unterschrieben wurde. Ohne die Fassung liesse sich das
     // in zwei Jahren nicht mehr sagen -- der Kodex wird fortgeschrieben.
-    kodexVersion = sauber(roh.elternkodex_version, 60) || null;
+    //
+    // ⚠️ Aus dem SERVER, nicht aus dem Koerper. Bis zum 18.08.2026 stand
+    // hier sauber(roh.elternkodex_version) -- der Browser bestimmte also,
+    // was er unterschrieben zu haben behauptet. Ein Browser mit altem
+    // nachwuchs.js im Cache schrieb damit die alte Fassung in den Beleg,
+    // einer ohne das Feld gar keine, und beides fiel nicht auf. Der
+    // Nachreich-Weg macht es seit jeher richtig; das hier war die
+    // Ausnahme. Die Weissliste ignoriert das Feld jetzt wie status und
+    // person_id.
+    kodexVersion = ELTERNKODEX_VERSION;
   }
 
   // Der Spielerlaubnisantrag. Nur bei der Nachwuchs-Anmeldung verlangt --
@@ -5270,7 +5279,50 @@ const KODEX_SCHEMA = [
   // Klicks zwei Erklaerungen fuer dasselbe Kind an, und die Liste zeigte
   // dasselbe Kind zweimal als bestaetigt.
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_kodex_abgleich " +
-  "ON elternkodex_bestaetigung(abgleich_schluessel)"
+  "ON elternkodex_bestaetigung(abgleich_schluessel)",
+
+  // ⚠️ Der Verlauf ersetzter Erklaerungen. Nachgeruestet am 18.08.2026
+  // nach dem Sicherheits-Review desselben Tages.
+  //
+  // Der Weg hat bewusst keinen Zugriffscode, und der Abgleichsschluessel
+  // ist Name plus Geburtstag des Kindes -- beides weiss im Verein jeder.
+  // Bis hierher ersetzte ein zweites Absenden die erste Erklaerung
+  // KOMMENTARLOS: die echte Unterschrift war fort, die Liste zeigte
+  // weiter "liegt vor", und niemand konnte sagen, dass etwas passiert
+  // war. Eine Erklaerung ist ein Beleg; ein Beleg darf nicht still
+  // verschwinden.
+  //
+  // Ersetzt wird weiterhin -- die neuere Fassung gilt --, aber die alte
+  // wandert vorher hierher, samt ihrer Unterschrift und ihrer eigenen
+  // Signaturspur. ersetzt_von_ip sagt zusaetzlich, WER ersetzt hat.
+  "CREATE TABLE IF NOT EXISTS elternkodex_verlauf (" +
+  // Die id der ersetzten Zeile plus ihr Eingangszeitpunkt. Zusammen
+  // eindeutig -- zwei gleichzeitige Ersetzungen legen damit nicht zwei
+  // Kopien derselben alten Erklaerung an (INSERT OR IGNORE unten).
+  "id TEXT PRIMARY KEY, " +
+  "bestaetigung_id TEXT NOT NULL, " +
+  "abgleich_schluessel TEXT NOT NULL, " +
+  "ersetzt_am TEXT NOT NULL, " +
+  // Der Anschluss, von dem die ERSETZENDE Erklaerung kam. Nicht der der
+  // alten -- der steht in signatur_ip. Ohne ihn liesse sich hinterher
+  // nicht unterscheiden, ob die Familie selbst korrigiert hat.
+  "ersetzt_von_ip TEXT, " +
+  "eingang_am TEXT NOT NULL, " +
+  "kind_vorname TEXT, " +
+  "kind_nachname TEXT, " +
+  "kind_geburtsdatum TEXT, " +
+  "mannschaft TEXT, " +
+  "erz_name TEXT, " +
+  "erz_email TEXT, " +
+  "ort TEXT, " +
+  "kodex_version TEXT, " +
+  "unterschrift_datei TEXT, " +
+  "signatur_ip TEXT, " +
+  "signatur_agent TEXT, " +
+  "signatur_zeit TEXT)",
+
+  "CREATE INDEX IF NOT EXISTS idx_kodex_verlauf_zeile " +
+  "ON elternkodex_verlauf(bestaetigung_id)"
 ];
 
 // ⚠️ Die Fassung steht im SERVER, nicht im Browser-JS. Dieselbe Lehre wie
@@ -5340,10 +5392,18 @@ let kodexTabelleDa = false;
 async function hatKodexTabelle(env) {
   if (kodexTabelleDa) return true;
   try {
+    // ⚠️ BEIDE Tabellen. Der Verlauf kam am 18.08.2026 dazu, und das
+    // Absenden schreibt seither in beide. Fehlte er -- Worker neu, aber
+    // die Migration seither nicht gelaufen --, liefe jede Erklaerung in
+    // einen nackten SQL-Fehler. Lieber vorn sagen "wird eingerichtet":
+    // handleKodexInfo reicht genau das an die Seite durch, und dann
+    // erscheint gar kein Formular statt einer Fehlermeldung nach der
+    // Unterschrift.
     const r = await env.VV_DB.prepare(
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'elternkodex_bestaetigung'"
+      "SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' " +
+      "AND name IN ('elternkodex_bestaetigung', 'elternkodex_verlauf')"
     ).first();
-    kodexTabelleDa = !!r;
+    kodexTabelleDa = !!r && Number(r.n) === 2;
   } catch {
     return false;
   }
@@ -5460,13 +5520,25 @@ async function handleKodexSenden(body, env, request, corsHeaders) {
   const agent = String(request.headers.get("User-Agent") || "").slice(0, 200);
 
   // Eine Abfrage fuer beide Grenzen, wie beim Antrag.
+  //
+  // ⚠️ Gezaehlt werden VORGAENGE, nicht Zeilen. Bis zum 18.08.2026 zaehlte
+  // hier allein elternkodex_bestaetigung -- und weil ein zweites Absenden
+  // derselben Kind-Kennung die vorhandene Zeile ersetzt statt eine neue
+  // anzulegen, wuchs der Zaehler dabei nie. Wer immer dieselbe Kennung
+  // schickte, kam an der Bremse komplett vorbei: im Pruefstand 22 von 22
+  // Versuchen angenommen bei einer Stundengrenze von 12. Jede Ersetzung
+  // legt jetzt eine Verlaufszeile an, und die zaehlt hier mit.
   const jetztMs = Date.now();
   const seitStunde = new Date(jetztMs - 3600000).toISOString();
   const seitTag = new Date(jetztMs - 86400000).toISOString();
   const zaehler = await env.VV_DB.prepare(
-    "SELECT COUNT(*) AS tag, SUM(CASE WHEN eingang_am >= ? THEN 1 ELSE 0 END) AS stunde " +
-    "FROM elternkodex_bestaetigung WHERE signatur_ip = ? AND eingang_am >= ?"
-  ).bind(seitStunde, ip, seitTag).first();
+    "SELECT COUNT(*) AS tag, SUM(CASE WHEN z >= ? THEN 1 ELSE 0 END) AS stunde FROM (" +
+    "SELECT eingang_am AS z FROM elternkodex_bestaetigung " +
+    "WHERE signatur_ip = ? AND eingang_am >= ? " +
+    "UNION ALL " +
+    "SELECT ersetzt_am AS z FROM elternkodex_verlauf " +
+    "WHERE ersetzt_von_ip = ? AND ersetzt_am >= ?)"
+  ).bind(seitStunde, ip, seitTag, ip, seitTag).first();
   if (zaehler && (Number(zaehler.stunde || 0) >= KODEX_JE_IP_STUNDE ||
                   Number(zaehler.tag || 0) >= KODEX_JE_IP_TAG)) {
     return json({ error: "Von diesem Anschluss sind gerade sehr viele Erklaerungen gekommen. " +
@@ -5479,17 +5551,83 @@ async function handleKodexSenden(body, env, request, corsHeaders) {
   if (geprueft.fehler) return json({ error: geprueft.fehler }, 400, corsHeaders);
   const satz = geprueft.satz;
 
+  // Steht zu dieser Kind-Kennung schon eine Erklaerung da?
+  //
+  // ⚠️ Das ist KEIN "erst schauen, dann schreiben" mit Luecke: geschrieben
+  // wird weiter unten mit demselben UPSERT wie bisher, der auch dann
+  // durchlaeuft, wenn zwei Klicks gleichzeitig ankommen. Der Blick hier
+  // entscheidet nur, ob vorher etwas gesichert werden muss.
+  const alt = await env.VV_DB.prepare(
+    "SELECT * FROM elternkodex_bestaetigung WHERE abgleich_schluessel = ?"
+  ).bind(satz.abgleich_schluessel).first();
+
+  // Derselbe Klick zweimal (Doppelklick, Netzwerk-Wiederholer, Zurueck und
+  // noch einmal absenden): identische Unterschrift, identische Angaben.
+  // Das ist keine neue Erklaerung -- weder eine Verlaufszeile noch ein
+  // Protokolleintrag noch ein Strich auf der Bremse. Der Familie
+  // antwortet es wie beim ersten Mal, denn fuer sie ist es dasselbe.
+  const unveraendert = alt
+    && alt.unterschrift_datei === satz.unterschrift
+    && (alt.erz_name || "") === (satz.erz_name || "")
+    && (alt.erz_email || "") === (satz.erz_email || "")
+    && (alt.mannschaft || "") === (satz.mannschaft || "")
+    && (alt.ort || "") === (satz.ort || "")
+    && alt.kodex_version === ELTERNKODEX_VERSION;
+  if (unveraendert) {
+    return json({ ok: true, eingang_am: alt.eingang_am, kodex_version: alt.kodex_version },
+                200, corsHeaders);
+  }
+
+  // ⚠️ Ersetzt wird -- aber nicht mehr spurlos. Bis zum 18.08.2026 war die
+  // alte Unterschrift danach fort. Der Weg hat bewusst keinen
+  // Zugriffscode, und die Kennung ist Name plus Geburtstag des Kindes:
+  // beides weiss im Verein jeder. Ein Fremder konnte damit die
+  // Unterschrift einer Familie durch seine eigene ersetzen, die Liste
+  // zeigte weiter "liegt vor", und niemand konnte es hinterher sehen.
+  // Eine Erklaerung ist ein Beleg; ein Beleg darf nicht still
+  // verschwinden. Die alte Fassung wandert deshalb zuerst in den Verlauf,
+  // samt Unterschrift und eigener Signaturspur.
+  //
+  // ⚠️ Eigene id je Sicherung, KEINE aus alt.id + Eingangszeit gebildete.
+  // Das war der erste Entwurf und die Gegenprobe hat ihn zerlegt: 22
+  // Ersetzungen im selben Millisekundenfenster tragen dieselbe
+  // Eingangszeit, die Kennung kollidierte, und INSERT OR IGNORE verwarf
+  // 21 Sicherungen still -- genau die Beweise, um die es hier geht. Und
+  // weil die Bremse unten die Verlaufszeilen zaehlt, kam der Angriff
+  // damit auch noch an ihr vorbei. Zwei gleichzeitige Ersetzungen
+  // derselben alten Zeile legen jetzt im schlimmsten Fall zwei Kopien
+  // desselben Belegs an. Das ist die richtige Richtung zum Irren: eine
+  // Kopie zuviel kann man ansehen, eine verlorene nicht.
+  if (alt) {
+    await env.VV_DB.prepare(
+      "INSERT INTO elternkodex_verlauf (id, bestaetigung_id, abgleich_schluessel, " +
+      "ersetzt_am, ersetzt_von_ip, eingang_am, kind_vorname, kind_nachname, kind_geburtsdatum, " +
+      "mannschaft, erz_name, erz_email, ort, kodex_version, unterschrift_datei, " +
+      "signatur_ip, signatur_agent, signatur_zeit) " +
+      "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+    ).bind(uuid(), alt.id, alt.abgleich_schluessel, jetzt, ip,
+           alt.eingang_am, alt.kind_vorname, alt.kind_nachname, alt.kind_geburtsdatum,
+           alt.mannschaft, alt.erz_name, alt.erz_email, alt.ort, alt.kodex_version,
+           alt.unterschrift_datei, alt.signatur_ip, alt.signatur_agent,
+           alt.signatur_zeit).run();
+  }
+
   // ⚠️ EIN Befehl, nicht "erst schauen, dann schreiben". Zwei gleichzeitige
   // Klicks aus demselben Formular liefen sonst beide durch die Pruefung
   // und der zweite in eine Verletzung des eindeutigen Index -- der Familie
   // erschiene ein Serverfehler, obwohl ihre Erklaerung angekommen ist.
-  // Die neuere Erklaerung ersetzt die aeltere: es ist dieselbe Familie
-  // fuer dasselbe Kind, und was zuletzt unterschrieben wurde, gilt.
+  // Die neuere Erklaerung ersetzt die aeltere: was zuletzt unterschrieben
+  // wurde, gilt -- die aeltere steht jetzt im Verlauf daneben.
   //
   // ⚠️ Die Handzuordnung (person_id) bleibt beim Ersetzen STEHEN. Sie ist
   // Arbeit der Geschaeftsstelle; ein zweites Absenden derselben Familie
   // darf sie nicht wegwischen.
-  const id = uuid();
+  //
+  // ⚠️ id NUR fuer den Einfuegefall. Beim Ersetzen behaelt die Zeile ihre
+  // alte id -- der Protokolleintrag unten muss deshalb die WIRKLICHE id
+  // nennen. Bis zum 18.08.2026 nannte er stets die frisch gewuerfelte, und
+  // 22 von 23 Eintraegen zeigten auf eine Zeile, die es nicht gab.
+  const id = alt ? alt.id : uuid();
   await env.VV_DB.prepare(
     "INSERT INTO elternkodex_bestaetigung (id, eingang_am, kind_vorname, kind_nachname, " +
     "kind_geburtsdatum, mannschaft, erz_name, erz_email, ort, kodex_version, " +
@@ -5506,8 +5644,15 @@ async function handleKodexSenden(body, env, request, corsHeaders) {
          satz.mannschaft, satz.erz_name, satz.erz_email, satz.ort, ELTERNKODEX_VERSION,
          satz.unterschrift, satz.abgleich_schluessel, ip, agent, jetzt).run();
 
-  await protokolliere(env, null, "elternkodex-eingegangen", "elternkodex_bestaetigung",
-                      id, { nachname: satz.kind_nachname });
+  // Eigene Aktion fuer den Ersetzungsfall. "Eingegangen" und "hat eine
+  // vorhandene Erklaerung ueberschrieben" sind zwei verschiedene
+  // Vorgaenge, und nur der zweite ist einer, den man sich ansehen will.
+  await protokolliere(env, null,
+                      alt ? "elternkodex-ersetzt" : "elternkodex-eingegangen",
+                      "elternkodex_bestaetigung", id,
+                      alt ? { nachname: satz.kind_nachname, ersetzt_am: jetzt,
+                              vorher_eingang_am: alt.eingang_am }
+                          : { nachname: satz.kind_nachname });
 
   return json({ ok: true, eingang_am: jetzt, kodex_version: ELTERNKODEX_VERSION },
               200, corsHeaders);
@@ -5632,6 +5777,17 @@ async function handleKodexListe(body, env, me, corsHeaders) {
   ).all();
   const bestaetigungen = bestR.results || [];
 
+  // ⚠️ Wie oft eine Erklaerung schon ersetzt wurde. Ohne diese Angabe
+  // waere das Ersetzen zwar gesichert, aber unsichtbar -- und genau die
+  // Unsichtbarkeit war der Fund vom 18.08.2026. Eine Familie korrigiert
+  // sich selbst und schickt ein zweites Mal: normal. Eine Erklaerung, die
+  // fuenfmal ersetzt wurde, will jemand ansehen.
+  const ersetztR = await env.VV_DB.prepare(
+    "SELECT bestaetigung_id, COUNT(*) AS n FROM elternkodex_verlauf GROUP BY bestaetigung_id"
+  ).all();
+  const ersetztZahl = new Map(
+    (ersetztR.results || []).map((r) => [r.bestaetigung_id, Number(r.n)]));
+
   // Zwei Zuordnungswege, und die Handzuordnung gewinnt. Sie ist die
   // Korrektur eines Falls, in dem der Schluessel nicht getroffen hat --
   // wuerde der Schluessel sie ueberstimmen, waere die Korrektur wirkungslos.
@@ -5662,7 +5818,9 @@ async function handleKodexListe(body, env, me, corsHeaders) {
       mannschaft: treffer ? treffer.mannschaft : null,
       // Sagt der Geschaeftsstelle, ob sie diesen Treffer nachgesehen hat
       // oder ob der Namensabgleich ihn gefunden hat.
-      von_hand: treffer ? !!treffer.person_id : false
+      von_hand: treffer ? !!treffer.person_id : false,
+      // Wie oft diese Erklaerung schon ersetzt wurde (0 = nie).
+      ersetzt: treffer ? (ersetztZahl.get(treffer.id) || 0) : 0
     };
   });
 
@@ -5689,7 +5847,8 @@ async function handleKodexListe(body, env, me, corsHeaders) {
       // ⚠️ Der Grund macht den Unterschied zwischen "Tippfehler suchen"
       // und "nichts zu tun": das Kind IST Mitglied und minderjaehrig, nur
       // nicht im Fussball. Der Kodex gilt es nicht an.
-      andere_abteilung: !b.person_id && fremdeSchluessel.has(b.abgleich_schluessel)
+      andere_abteilung: !b.person_id && fremdeSchluessel.has(b.abgleich_schluessel),
+      ersetzt: ersetztZahl.get(b.id) || 0
     }));
 
   return json({
@@ -5720,8 +5879,34 @@ async function handleKodexDetail(body, env, me, corsHeaders) {
   ).bind(id).first();
   if (!z) return json({ error: "Die Erklaerung wurde nicht gefunden" }, 404, corsHeaders);
 
+  // ⚠️ Die ersetzten Fassungen gehoeren zum Beleg, samt ihrer
+  // Unterschrift: nur hier laesst sich sehen, ob die Familie sich selbst
+  // korrigiert hat oder ob jemand Fremdes die Erklaerung ueberschrieben
+  // hat. Die IP steht bewusst dabei -- sie ist die einzige Angabe, die
+  // beide Faelle unterscheidet. Im Detail-Dialog vertretbar, in der
+  // Liste nicht: dort waere es eine Sammlung von Anschluessen.
+  const vR = await env.VV_DB.prepare(
+    "SELECT ersetzt_am, ersetzt_von_ip, eingang_am, erz_name, erz_email, ort, mannschaft, " +
+    "kodex_version, unterschrift_datei, signatur_ip FROM elternkodex_verlauf " +
+    "WHERE bestaetigung_id = ? ORDER BY ersetzt_am DESC"
+  ).bind(id).all();
+  const verlauf = (vR.results || []).map((v) => ({
+    ersetzt_am: v.ersetzt_am,
+    eingang_am: v.eingang_am,
+    erz_name: v.erz_name,
+    erz_email: v.erz_email,
+    ort: v.ort,
+    mannschaft: v.mannschaft,
+    kodex_version: v.kodex_version,
+    unterschrift: v.unterschrift_datei,
+    // Kam die Ersetzung vom selben Anschluss wie die ersetzte Erklaerung?
+    // Dann hat sich sehr wahrscheinlich dieselbe Familie korrigiert.
+    gleicher_anschluss: !!v.signatur_ip && v.signatur_ip === v.ersetzt_von_ip
+  }));
+
   return json({
     id: z.id,
+    verlauf,
     eingang_am: z.eingang_am,
     kind_vorname: z.kind_vorname,
     kind_nachname: z.kind_nachname,
