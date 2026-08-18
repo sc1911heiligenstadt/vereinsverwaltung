@@ -692,6 +692,44 @@ pruefe("F18 Das Loeschen ist protokolliert",
 const lo3 = await W.handleKodexLoeschen({ id: lucasId }, env, me, cors);
 pruefe("F19 Zweites Loeschen antwortet 404", lo3.status === 404, "status " + lo3.status);
 
+// ⚠️ Loeschen heisst GANZ loeschen -- auch die ersetzten Fassungen im
+// Verlauf. Bis zum 18.08.2026 blieben die dort stehen, samt Namen,
+// Geburtsdatum, E-Mail, IP und Unterschrift, und ohne Zeile, zu der sie
+// gehoerten. Eine zurueckgezogene Erklaerung war damit nur halb weg.
+const KIND_WEG = {
+  kind_vorname: "Nina", kind_nachname: "Beispiel", kind_geburtsdatum: "2014-02-02",
+  erz_name: "Petra Beispiel", erz_email: "petra@example.org", einwilligung_kodex: true
+};
+await W.handleKodexSenden(Object.assign({}, KIND_WEG, { unterschrift: SIG }),
+                          env, anfrage("9.9.9.1"), cors);
+await W.handleKodexSenden(Object.assign({}, KIND_WEG, { unterschrift: SIG + "zwei" }),
+                          env, anfrage("9.9.9.2"), cors);
+const wegId = db.prepare(
+  "SELECT id FROM elternkodex_bestaetigung WHERE kind_nachname = 'Beispiel'").get().id;
+pruefe("F21 Die Ersetzung hat eine Verlaufszeile angelegt",
+       db.prepare("SELECT COUNT(*) AS n FROM elternkodex_verlauf WHERE bestaetigung_id = ?")
+         .get(wegId).n === 1);
+
+// Eine Zeile, die schon vor dem Fix verwaist ist -- die alte Fassung hat
+// solche liegen gelassen, und sie muessen ebenfalls verschwinden.
+db.exec("INSERT INTO elternkodex_verlauf (id, bestaetigung_id, abgleich_schluessel, " +
+        "ersetzt_am, eingang_am, kind_nachname, unterschrift_datei) VALUES " +
+        "('altwaise', 'zeile-gibt-es-nicht-mehr', 'x|2010-01-01', " +
+        "'2026-08-17T10:00:00.000Z', '2026-08-16T10:00:00.000Z', 'Altfall', 'sig')");
+
+const lo4 = await W.handleKodexLoeschen({ id: wegId }, env, me, cors);
+pruefe("F22 Loeschen mit Verlauf antwortet 200", lo4.status === 200, "status " + lo4.status);
+pruefe("F23 Der Verlauf der geloeschten Erklaerung ist mit weg",
+       db.prepare("SELECT COUNT(*) AS n FROM elternkodex_verlauf WHERE bestaetigung_id = ?")
+         .get(wegId).n === 0);
+pruefe("F24 Und die vor dem Fix verwaiste Zeile ebenfalls",
+       db.prepare("SELECT COUNT(*) AS n FROM elternkodex_verlauf WHERE id = 'altwaise'")
+         .get().n === 0);
+pruefe("F25 Verlaufszeilen anderer Erklaerungen bleiben stehen",
+       db.prepare("SELECT COUNT(*) AS n FROM elternkodex_verlauf v JOIN " +
+                  "elternkodex_bestaetigung b ON b.id = v.bestaetigung_id").get().n ===
+       db.prepare("SELECT COUNT(*) AS n FROM elternkodex_verlauf").get().n);
+
 // Nach dem Loeschen steht das Kind wieder offen.
 const l9 = await W.handleKodexListe({ stichtag: HEUTE }, env, me, cors);
 const L9 = await l9.json();
@@ -800,6 +838,29 @@ pruefe("H13 Ein 401 wird nicht als 'Nicht angemeldet' gezeigt",
 pruefe("H14 Der Status wird dafuer durchgereicht", /fehler\.status = res\.status/.test(dbAntrag));
 pruefe("H15 Die Ersatzmeldung nennt die Geschaeftsstelle",
        /noch nicht freigeschaltet[\s\S]{0,220}612206/.test(kodexJs));
+
+// ⚠️ Art. 13 DSGVO. Die Seite war am 18.08.2026 bereits offen, ohne dass
+// hier etwas stand -- gefunden beim Datenschutz-Durchgang desselben Tages.
+// Wer hier unterschreibt, hat kein Vereinskonto: diese Seite ist der
+// einzige Ort, an dem er nachlesen kann, was mit den Angaben geschieht.
+const nachwuchsHtml = readFileSync(REPO + "/nachwuchs.html", "utf8");
+pruefe("H16a Die Seite traegt den Art.-13-Block",
+       /Information nach Art\. 13 DSGVO/.test(kodexHtml));
+pruefe("H16b Er steht VOR dem Absenden-Knopf, nicht irgendwo",
+       kodexHtml.indexOf("Information nach Art. 13 DSGVO") > -1 &&
+       kodexHtml.indexOf("Information nach Art. 13 DSGVO") <
+       kodexHtml.indexOf('id="btn-kodex-senden"'));
+pruefe("H16c Er nennt den Verantwortlichen", /<strong>Verantwortlich<\/strong>/.test(kodexHtml));
+pruefe("H16d Er nennt eine Speicherdauer",
+       /Wie lange wir speichern[\s\S]{0,200}Mitglied/.test(kodexHtml));
+pruefe("H16e Er nennt die Betroffenenrechte und die Aufsichtsbehoerde",
+       /Ihre Rechte[\s\S]{0,900}Landesbeauftragten/.test(kodexHtml));
+pruefe("H16f Er sagt, dass IP und Geraetekennung gespeichert werden",
+       /Internetadresse und Gerätekennung/.test(kodexHtml));
+pruefe("H16g Er sagt, dass ersetzte Fassungen aufbewahrt werden",
+       /vorherige Fassung[\s\S]{0,80}Nachweis/.test(kodexHtml));
+pruefe("H16h Der Anmeldeweg nennt den Elternkodex im Art.-13-Block",
+       /<li>Die Kenntnisnahme des Elternkodex/.test(nachwuchsHtml));
 
 pruefe("H16 Eigener Changelog-Block fuer diese Seite", /const KODEX_CHANGELOG/.test(dbAntrag));
 pruefe("H17 Eigene Aktion zum Absenden", /vv-kodex-senden/.test(dbAntrag));

@@ -5993,6 +5993,18 @@ async function handleKodexZuordnen(body, env, me, corsHeaders) {
 // Fuer Testeinträge und zurueckgezogene Erklaerungen. Das Loeschen nimmt
 // die Unterschrift mit -- sie steht in derselben Zeile, es gibt keine
 // Datei daneben.
+//
+// ⚠️ UND den Verlauf. Bis zum 18.08.2026 loeschte diese Aktion allein
+// elternkodex_bestaetigung: die ersetzten Fassungen blieben in
+// elternkodex_verlauf stehen -- mit Namen, Geburtsdatum, E-Mail, IP und
+// Unterschrift, und ohne Zeile, zu der sie gehoerten. Zieht eine Familie
+// ihre Erklaerung zurueck, ist das eine Loeschung nach Art. 17 DSGVO und
+// keine halbe: was hier verschwindet, muss ganz verschwinden.
+//
+// Die dritte Anweisung raeumt auf, was die alte Fassung liegen gelassen
+// hat. Sie kostet nichts (der Verlauf ist klein) und der Fund war genau,
+// dass niemand von diesen Zeilen weiss -- also darf ihre Beseitigung
+// auch nicht an einem gesonderten Aufruf haengen.
 async function handleKodexLoeschen(body, env, me, corsHeaders) {
   const rolle = await ladeRolle(env, me);
   if (!rolle.darfSchreiben) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
@@ -6005,7 +6017,15 @@ async function handleKodexLoeschen(body, env, me, corsHeaders) {
   ).bind(id).first();
   if (!z) return json({ error: "Die Erklaerung wurde nicht gefunden" }, 404, corsHeaders);
 
-  await env.VV_DB.prepare("DELETE FROM elternkodex_bestaetigung WHERE id = ?").bind(id).run();
+  // Ein batch, kein Nacheinander: bricht etwas in der Mitte ab, bliebe
+  // sonst genau der verwaiste Beleg zurueck, um den es hier geht.
+  await env.VV_DB.batch([
+    env.VV_DB.prepare("DELETE FROM elternkodex_verlauf WHERE bestaetigung_id = ?").bind(id),
+    env.VV_DB.prepare("DELETE FROM elternkodex_bestaetigung WHERE id = ?").bind(id),
+    env.VV_DB.prepare(
+      "DELETE FROM elternkodex_verlauf WHERE NOT EXISTS (" +
+      "SELECT 1 FROM elternkodex_bestaetigung b WHERE b.id = elternkodex_verlauf.bestaetigung_id)")
+  ]);
   await protokolliere(env, me.username, "elternkodex-geloescht",
                       "elternkodex_bestaetigung", id, { nachname: z.kind_nachname });
 
