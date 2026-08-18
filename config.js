@@ -39,6 +39,26 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Datenschutz auf der Eltern-Seite, Löschen räumt vollständig",
+    datum: "2026-08-18",
+    punkte: [
+      "Die Seite, auf der Eltern den Elternkodex bestätigen, sagt jetzt über dem Absenden-Knopf, was mit den Angaben geschieht: wer verantwortlich ist, wozu und auf welcher Grundlage verarbeitet wird, wie lange gespeichert bleibt und welche Rechte bestehen. Sie steht offen im Netz, und wer dort unterschreibt, hat kein Vereinskonto und keinen anderen Ort zum Nachlesen. Aufklappbar, zugeklappt als Vorgabe — wie im Aufnahmeantrag und in der Nachwuchs-Anmeldung.",
+      "Gespeichert wird, solange das Kind Mitglied des Vereins ist. Der Text sagt auch, dass eine ersetzte Fassung als Nachweis daneben aufbewahrt wird.",
+      "Wird eine Erklärung gelöscht, verschwinden jetzt auch die ersetzten Fassungen dazu. Vorher blieben sie stehen — mit Namen, Geburtsdatum, E-Mail, Anschrift-Kennung und Unterschrift, aber ohne die Zeile, zu der sie gehörten. Zieht eine Familie ihre Erklärung zurück, ist das eine ganze Löschung und keine halbe.",
+      "Der entsprechende Hinweis in der Nachwuchs-Anmeldung kannte den Elternkodex noch nicht — er stand schon da, als die Kodex-Karte dazukam. Der fehlende Punkt ist ergänzt."
+    ]
+  },
+  {
+    version: "Die Kinderliste lässt sich sortieren",
+    datum: "2026-08-18",
+    punkte: [
+      "Im Reiter „Elternkodex“ lässt sich die Kinderliste jetzt nach jeder Spalte sortieren: ein Klick auf die Überschrift sortiert, ein zweiter dreht die Richtung um. Ein Pfeil zeigt, wonach gerade sortiert ist. Mit der Tastatur geht es ebenso.",
+      "Wann unterschrieben wurde, steht dafür in einer eigenen Spalte „Unterschrieben am“. Vorher stand das Datum im farbigen Feld der Spalte „Kenntnisnahme“ und ließ sich damit nicht sortieren; dieses Feld sagt jetzt nur noch, ob die Erklärung vorliegt.",
+      "Kinder ohne Unterschrift stehen beim Sortieren nach dem Zeitpunkt immer am Ende — auch andersherum. Sonst sucht man die neuesten Erklärungen und sieht zuerst eine Seite voll offener Zeilen.",
+      "Geburtstag und Mitgliedsnummer sortieren nach ihrem Wert, nicht nach ihrer Schreibweise: der 31.03. steht vor dem 17.11. desselben Jahres, und die 594 vor der 1816."
+    ]
+  },
+  {
     version: "Ersetzte Erklärungen bleiben nachweisbar",
     datum: "2026-08-18",
     punkte: [
@@ -59,7 +79,6 @@ const CHANGELOG = [
       "Erklärungen, die zu keinem Kind im Bestand passen — meist eine abweichende Schreibweise oder ein Rufname —, stehen in einer eigenen Liste „Nicht zuzuordnen“ und lassen sich von Hand zuordnen. Sie verschwinden nicht stillschweigend: die Familie hält ihre Erklärung für erledigt.",
       "Abweichende Schreibweisen findet der Abgleich selbst: Umlaute, Groß- und Kleinschreibung, Bindestriche und vertauschte Vor- und Nachnamen führen auf dasselbe Kind, solange das Geburtsdatum stimmt.",
       "Findet sich die Abteilung Fußball nicht (umbenannt oder stillgelegt), sagt der Reiter das — statt eine Liste aller minderjährigen Mitglieder zu zeigen, die wie ein Ergebnis aussieht.",
-      "Die Liste lässt sich nach jeder Spalte sortieren — ein Klick auf die Überschrift, ein zweiter dreht die Richtung um. Der Zeitpunkt der Unterschrift steht dafür in einer eigenen Spalte „Unterschrieben am“; Kinder ohne Unterschrift stehen dabei immer am Ende, in beide Richtungen.",
       "Jede Erklärung lässt sich einzeln ansehen — mit Unterschrift, Zeitpunkt und der Fassung des Kodex, die gelesen wurde. Testeinträge und zurückgezogene Erklärungen lassen sich löschen.",
       "Ein zweites Absenden derselben Familie für dasselbe Kind ersetzt die vorige Erklärung statt eine zweite anzulegen."
     ]
