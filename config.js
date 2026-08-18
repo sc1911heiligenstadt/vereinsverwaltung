@@ -48,6 +48,7 @@ const CHANGELOG = [
       "Erklärungen, die zu keinem Kind im Bestand passen — meist eine abweichende Schreibweise oder ein Rufname —, stehen in einer eigenen Liste „Nicht zuzuordnen“ und lassen sich von Hand zuordnen. Sie verschwinden nicht stillschweigend: die Familie hält ihre Erklärung für erledigt.",
       "Abweichende Schreibweisen findet der Abgleich selbst: Umlaute, Groß- und Kleinschreibung, Bindestriche und vertauschte Vor- und Nachnamen führen auf dasselbe Kind, solange das Geburtsdatum stimmt.",
       "Findet sich die Abteilung Fußball nicht (umbenannt oder stillgelegt), sagt der Reiter das — statt eine Liste aller minderjährigen Mitglieder zu zeigen, die wie ein Ergebnis aussieht.",
+      "Die Liste lässt sich nach jeder Spalte sortieren — ein Klick auf die Überschrift, ein zweiter dreht die Richtung um. Der Zeitpunkt der Unterschrift steht dafür in einer eigenen Spalte „Unterschrieben am“; Kinder ohne Unterschrift stehen dabei immer am Ende, in beide Richtungen.",
       "Jede Erklärung lässt sich einzeln ansehen — mit Unterschrift, Zeitpunkt und der Fassung des Kodex, die gelesen wurde. Testeinträge und zurückgezogene Erklärungen lassen sich löschen.",
       "Ein zweites Absenden derselben Familie für dasselbe Kind ersetzt die vorige Erklärung statt eine zweite anzulegen."
     ]

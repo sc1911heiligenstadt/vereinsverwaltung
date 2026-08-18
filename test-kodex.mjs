@@ -16,6 +16,7 @@
 //   F  Zuordnen, Aufheben, Loeschen
 //   G  Das Fenster zwischen Deploy und erster Migration
 //   H  Zusagen der Browser-Seiten
+//   I  Spalten und Sortierung der Kinderliste
 
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
@@ -847,6 +848,92 @@ pruefe("H36 Der Zugriff schickt keine Abteilung mit",
 // Der Server ist die Wahrheit, nicht der Browser.
 pruefe("H37 Die Abteilung ist im Server festgelegt",
        W.KODEX_SPARTE_NAMEN instanceof Set && W.KODEX_SPARTE_NAMEN.has("fussball"));
+
+// ======================================================================
+console.log("I  Spalten und Sortierung der Kinderliste");
+// ======================================================================
+
+// ⚠️ Die ECHTEN Sortierschluessel aus der Datei gezogen, nicht nachgebaut.
+// Die Datei enthaelt nur Deklarationen -- kein Aufruf beim Laden, deshalb
+// laesst sie sich hier ohne DOM auswerten.
+const V = new Function(
+  readFileSync(REPO + "/kodex-verwaltung.js", "utf8") +
+  ";\nreturn { KO_SPALTEN, koSortiert };")();
+
+const spalte = (k) => V.KO_SPALTEN.find((sp) => sp.schluessel === k);
+
+pruefe("I1 Es gibt eine eigene Spalte fuer den Zeitpunkt", !!spalte("wann"));
+pruefe("I2 Sie heisst 'Unterschrieben am'", spalte("wann").text === "Unterschrieben am",
+       spalte("wann").text);
+pruefe("I3 Der Stand steht in einer eigenen Spalte daneben", !!spalte("stand"));
+pruefe("I4 Alle sechs Spalten sind sortierbar", V.KO_SPALTEN.length === 6,
+       "" + V.KO_SPALTEN.length);
+pruefe("I5 Jede hat einen Sortierschluessel",
+       V.KO_SPALTEN.every((sp) => typeof sp.wert === "function"));
+
+// ⚠️ Sortiert wird das ISO-Datum, nicht die deutsche Anzeige. Als Text
+// stuende "17.11.2015" vor "31.03.2015" -- genau der Fall aus Michels
+// Liste vom 18.08.2026.
+const kindA = { vorname: "Damian", nachname: "Aghajauyan", geburtsdatum: "2015-03-31",
+                mitgliedsnummer: "658", bestaetigung_id: null, bestaetigt_am: null,
+                erz_name: null };
+const kindB = { vorname: "Carlos", nachname: "Alex", geburtsdatum: "2015-11-17",
+                mitgliedsnummer: "594", bestaetigung_id: "b2",
+                bestaetigt_am: "2026-08-17T10:00:00Z", erz_name: "Maria Alex" };
+pruefe("I6 Das Geburtsdatum sortiert nach ISO, nicht nach Anzeige",
+       spalte("geboren").wert(kindA) < spalte("geboren").wert(kindB),
+       spalte("geboren").wert(kindA) + " vs " + spalte("geboren").wert(kindB));
+
+// ⚠️ Die Mitgliedsnummer numerisch. Als Text stuende "1816" vor "594".
+const kindC = { ...kindA, mitgliedsnummer: "1816" };
+pruefe("I7 Die Nummer sortiert numerisch",
+       spalte("nummer").wert(kindB) < spalte("nummer").wert(kindC),
+       spalte("nummer").wert(kindB) + " vs " + spalte("nummer").wert(kindC));
+// Testnummern (GLOB-Filter in naechsteMitgliedsnummer laesst sie zu)
+// fallen hinter die Zahlen statt die Reihenfolge zu zerreissen.
+const kindT = { ...kindA, mitgliedsnummer: "T417293841" };
+pruefe("I8 Eine nicht numerische Nummer sortiert hinten",
+       spalte("nummer").wert(kindT) > spalte("nummer").wert(kindC));
+pruefe("I9 Eine fehlende Nummer ebenso",
+       spalte("nummer").wert({ mitgliedsnummer: null }) === Number.MAX_SAFE_INTEGER);
+
+pruefe("I10 Offen sortiert vor bestaetigt",
+       spalte("stand").wert(kindA) < spalte("stand").wert(kindB));
+pruefe("I11 Der Name sortiert ohne Ruecksicht auf Gross und klein",
+       spalte("name").wert({ vorname: "A", nachname: "MUELLER" }) ===
+       spalte("name").wert({ vorname: "a", nachname: "mueller" }));
+pruefe("I12 Ein fehlender Unterschreiber gibt einen leeren Schluessel",
+       spalte("vonwem").wert(kindA) === "");
+pruefe("I13 Ein fehlender Zeitpunkt gibt einen leeren Schluessel",
+       spalte("wann").wert(kindA) === "");
+
+// Die Verdrahtung: Kopf klickbar UND per Tastatur bedienbar.
+pruefe("I14 Die Koepfe tragen die Flottenklasse",
+       /class="sortierbar/.test(kodexVerw));
+pruefe("I15 Der Pfeil zeigt die aktive Spalte",
+       /koSortAb \? "▼" : "▲"/.test(kodexVerw));
+pruefe("I16 Klick sortiert", /addEventListener\("click", sortiere\)/.test(kodexVerw));
+pruefe("I17 Enter und Leertaste ebenfalls",
+       /"Enter" \|\| e\.key === " "/.test(kodexVerw));
+pruefe("I18 Ein zweiter Klick dreht um",
+       /if \(koSort === schluessel\) koSortAb = !koSortAb;/.test(kodexVerw));
+pruefe("I19 Eine neue Spalte beginnt aufsteigend",
+       /koSort = schluessel; koSortAb = false;/.test(kodexVerw));
+
+// ⚠️ Leere Werte gehoeren in BEIDEN Richtungen nach hinten. Sonst sucht
+// man die neuesten Unterschriften und sieht zuerst offene Zeilen.
+pruefe("I20 Leere Werte werden ausdruecklich nach hinten gestellt",
+       /leerA !== leerB\) return leerA \? 1 : -1/.test(kodexVerw));
+pruefe("I21 Sortiert wird auf einer KOPIE der Antwort",
+       /zeilen\.slice\(\)\.sort/.test(kodexVerw));
+pruefe("I22 Gleichstand faellt auf den Namen zurueck",
+       /Gleichstand: nach Namen/.test(kodexVerw));
+
+// Und der Zeitpunkt steht auch in der Zeile, nicht nur im Kopf.
+pruefe("I23 Die Zeile gibt den Zeitpunkt aus",
+       /k\.bestaetigt_am \? datumDe\(k\.bestaetigt_am\)/.test(kodexVerw));
+pruefe("I24 Der Chip nennt nur noch den Stand",
+       /chip aktiv">liegt vor</.test(kodexVerw));
 
 // Der Anmeldeweg und dieser Weg muessen dieselbe Fassung unterschreiben.
 const nachwuchsJs = readFileSync(REPO + "/nachwuchs.js", "utf8");

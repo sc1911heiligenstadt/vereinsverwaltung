@@ -30,6 +30,17 @@ const KO_SICHT = {
 let koSicht = "offen";
 let koDaten = null;      // die letzte Antwort von vv-kodex-liste
 let koSuche = "";
+
+// Sortierung. Gleiches Muster wie die Mitgliederliste in app.js: immer
+// genau EINE Spalte, erster Klick aufsteigend, zweiter dreht um.
+//
+// ⚠️ Hier wird im BROWSER sortiert, nicht im Server. Die Liste kommt
+// vollstaendig in einer Antwort (kein Blaettern) -- ein Aufruf je
+// Kopfklick waere Verschwendung, und die Suche filtert ohnehin schon
+// clientseitig. Die Vorgabe entspricht dem, was der Server liefert
+// (nachname, vorname), damit der Pfeil zur ersten Anzeige passt.
+let koSort = "name";
+let koSortAb = false;
 // Bei der Handzuordnung: die Erklaerung, fuer die gerade ein Kind gesucht
 // wird. Ohne den Merker wuesste der Klick auf ein Kind nicht, wohin.
 let koZuordnenId = null;
@@ -179,6 +190,70 @@ function zeichneKodexReiter() {
 // Die Kinderliste
 // ---------------------------------------------------------------------
 
+// Die Spalten der Kinderliste. `wert` liefert den Sortierschluessel --
+// bewusst getrennt von der Anzeige: „31.03.2015" sortiert als Text falsch,
+// sortiert werden muss das ISO-Datum darunter.
+const KO_SPALTEN = [
+  { schluessel: "name",     text: "Name",
+    wert: (k) => (k.nachname + " " + k.vorname).toLowerCase() },
+  { schluessel: "geboren",  text: "Geboren",
+    wert: (k) => k.geburtsdatum || "" },
+  { schluessel: "nummer",   text: "Nr.",
+    // ⚠️ Numerisch, nicht als Text: sonst stuende „1000" vor „658".
+    // Nicht rein numerische Nummern (Testdaten wie „T417293841") fallen
+    // auf den Text zurueck und sortieren hinter die Zahlen.
+    wert: (k) => {
+      const n = Number(k.mitgliedsnummer);
+      return Number.isFinite(n) && /^[0-9]+$/.test(String(k.mitgliedsnummer || ""))
+        ? n : Number.MAX_SAFE_INTEGER;
+    },
+    zweit: (k) => String(k.mitgliedsnummer || "") },
+  { schluessel: "stand",    text: "Kenntnisnahme",
+    // Offen zuerst -- wer noch fehlt, ist die Arbeit.
+    wert: (k) => (k.bestaetigung_id ? 1 : 0) },
+  { schluessel: "wann",     text: "Unterschrieben am",
+    wert: (k) => k.bestaetigt_am || "" },
+  { schluessel: "vonwem",   text: "Unterschrieben von",
+    wert: (k) => (k.erz_name || "").toLowerCase() }
+];
+
+// Erster Klick auf eine neue Spalte sortiert aufsteigend, ein zweiter
+// dreht um -- wie in der Mitgliederliste.
+function waehleKodexSortierung(schluessel) {
+  if (koSort === schluessel) koSortAb = !koSortAb;
+  else { koSort = schluessel; koSortAb = false; }
+  zeichneKodexListe();
+}
+
+function koSortiert(zeilen) {
+  const spalte = KO_SPALTEN.find((s) => s.schluessel === koSort) || KO_SPALTEN[0];
+  const name = KO_SPALTEN[0];
+  // Kopie sortieren, nicht koDaten.kinder -- die Antwort bleibt, wie der
+  // Server sie geschickt hat.
+  return zeilen.slice().sort((a, b) => {
+    const va = spalte.wert(a), vb = spalte.wert(b);
+    let d = 0;
+    if (va < vb) d = -1;
+    else if (va > vb) d = 1;
+    // ⚠️ LEERE WERTE immer nach hinten, in BEIDEN Richtungen. Ein Kind
+    // ohne Datum hat keins -- es gehoert nicht an die Spitze, nur weil man
+    // absteigend sortiert. Sonst sucht man die neuesten Unterschriften und
+    // sieht zuerst eine Seite voll offener Zeilen.
+    const leerA = va === "" || va === null || va === undefined;
+    const leerB = vb === "" || vb === null || vb === undefined;
+    if (leerA !== leerB) return leerA ? 1 : -1;
+    if (d === 0 && spalte.zweit) {
+      const za = spalte.zweit(a), zb = spalte.zweit(b);
+      d = za < zb ? -1 : za > zb ? 1 : 0;
+    }
+    if (d !== 0) return koSortAb ? -d : d;
+    // Gleichstand: nach Namen, damit die Reihenfolge zwischen zwei
+    // Zeichnungen stabil bleibt.
+    const na = name.wert(a), nb = name.wert(b);
+    return na < nb ? -1 : na > nb ? 1 : 0;
+  });
+}
+
 function koPasst(k) {
   if (koSicht === "offen" && k.bestaetigung_id) return false;
   if (koSicht === "bestaetigt" && !k.bestaetigung_id) return false;
@@ -204,6 +279,15 @@ function zeichneKodexListe() {
   // Liste stehen, sonst klickt jemand und wundert sich.
   const zuordnen = !!koZuordnenId;
 
+  const kopf = KO_SPALTEN.map((sp) => {
+    const aktiv = koSort === sp.schluessel;
+    return '<th class="sortierbar' + (aktiv ? " aktiv" : "") + '"' +
+      ' data-kosort="' + sp.schluessel + '" tabindex="0" role="button"' +
+      ' title="Nach ' + esc(sp.text) + ' sortieren">' +
+      esc(sp.text) + '<span class="pfeil">' +
+      (aktiv ? (koSortAb ? "▼" : "▲") : "") + "</span></th>";
+  }).join("");
+
   ziel.innerHTML =
     (zuordnen
       ? '<div class="hinweis warn">Bitte das Kind anklicken, zu dem die vorgemerkte ' +
@@ -211,18 +295,22 @@ function zeichneKodexListe() {
         '<button class="btn grau klein" id="btn-ko-zuordnen-ab">Abbrechen</button></div>'
       : "") +
     '<div class="tabelle-scroll"><table><thead><tr>' +
-    "<th>Name</th><th>Geboren</th><th>Nr.</th><th>Kenntnisnahme</th>" +
-    "<th>Unterschrieben von</th><th></th>" +
+    kopf + "<th></th>" +
     "</tr></thead><tbody>" +
-    zeilen.map((k) =>
+    koSortiert(zeilen).map((k) =>
       '<tr class="ko-kind" data-person="' + esc(k.person_id) + '">' +
         '<td class="name">' + esc(k.vorname + " " + k.nachname) + "</td>" +
         "<td>" + esc(datumDe(k.geburtsdatum)) + "</td>" +
         "<td>" + esc(k.mitgliedsnummer || "") + "</td>" +
+        // Der Chip sagt nur noch den STAND. Das Datum steht in seiner
+        // eigenen Spalte -- sonst liesse es sich nicht danach sortieren,
+        // und „Kenntnisnahme: 18.08.2026" beantwortet die Frage „liegt sie
+        // vor?" nur auf Umwegen.
         "<td>" + (k.bestaetigung_id
-          ? '<span class="chip aktiv">' + esc(datumDe(k.bestaetigt_am)) + "</span>" +
+          ? '<span class="chip aktiv">liegt vor</span>' +
             (k.von_hand ? ' <span class="chip ruhend">von Hand</span>' : "")
           : '<span class="chip gekuendigt">offen</span>') + "</td>" +
+        "<td>" + esc(k.bestaetigt_am ? datumDe(k.bestaetigt_am) : "") + "</td>" +
         "<td>" + esc(k.erz_name || "") + "</td>" +
         "<td>" + (k.bestaetigung_id && !zuordnen
           ? '<button class="btn grau klein" data-ko-detail="' + esc(k.bestaetigung_id) +
@@ -230,6 +318,16 @@ function zeichneKodexListe() {
           : "") + "</td>" +
       "</tr>").join("") +
     "</tbody></table></div>";
+
+  // Sortieren per Klick und per Tastatur -- ein Kopf, der nur mit der Maus
+  // geht, ist für Tastaturnutzer keiner.
+  ziel.querySelectorAll("th.sortierbar").forEach((th) => {
+    const sortiere = () => waehleKodexSortierung(th.dataset.kosort);
+    th.addEventListener("click", sortiere);
+    th.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); sortiere(); }
+    });
+  });
 
   ziel.querySelectorAll("[data-ko-detail]").forEach((b) => {
     b.addEventListener("click", (e) => {
