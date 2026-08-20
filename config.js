@@ -42,7 +42,7 @@ const CHANGELOG = [
     version: "Die Reiterleiste bricht am Handy um",
     datum: "2026-08-20",
     punkte: [
-      "Die rechte Reiter-Gruppe rutscht am Handy jetzt in eine zweite Zeile, statt seitlich aus dem Bild zu laufen. Sichtbar wird das nur, wenn genug Reiter nebeneinanderstehen — bis dahin sieht alles aus wie bisher. Ohne den Umbruch wäre der letzte Reiter am Bildschirmrand irgendwann nicht mehr antippbar gewesen."
+      "Bisher brach die Reiterleiste selbst um, die rechte Reiter-Gruppe darin aber nicht: Sie rutschte als ein Stück in die zweite Zeile und lief dort weiter über den rechten Rand hinaus. Jetzt bricht auch sie um, sobald sie zu breit wird. Zu sehen ist das nur, wenn genug Reiter nebeneinanderstehen — bis dahin sieht alles aus wie bisher."
     ]
   },
   {
