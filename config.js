@@ -39,6 +39,13 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Die Reiterleiste bricht am Handy um",
+    datum: "2026-08-20",
+    punkte: [
+      "Die rechte Reiter-Gruppe rutscht am Handy jetzt in eine zweite Zeile, statt seitlich aus dem Bild zu laufen. Sichtbar wird das nur, wenn genug Reiter nebeneinanderstehen — bis dahin sieht alles aus wie bisher. Ohne den Umbruch wäre der letzte Reiter am Bildschirmrand irgendwann nicht mehr antippbar gewesen."
+    ]
+  },
+  {
     version: "Datenschutz auf der Eltern-Seite, Löschen räumt vollständig",
     datum: "2026-08-18",
     punkte: [

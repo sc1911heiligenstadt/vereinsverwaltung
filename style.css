@@ -168,6 +168,11 @@ nav button.aktiv {
 nav .nav-right {
   margin-left: auto;
   display: flex;
+  /* Der Wrapper bricht als Ganzes um -- aber nur, wenn er selbst schmal genug
+     ist. Bei 375px bleiben neben dem linken Reiter nur ~319px; sind genug
+     Reiter sichtbar, braucht die Gruppe mehr und lief bisher als ein Stueck
+     ueber den rechten Rand hinaus. flex-wrap laesst sie dann intern umbrechen. */
+  flex-wrap: wrap;
   gap: inherit;
 }
 
