@@ -187,9 +187,17 @@ async function start() {
   // p.geburtsort, und die Spalte entsteht erst hier. Nicht kritisch, wenn
   // es fehlschlaegt -- dann ist sie schon da oder die Rolle darf ohnehin
   // keine Person sehen.
+  //
+  // ⚠️ Die Spartenliste laeuft seit 2026-08-28 in derselben Welle mit, statt
+  // hinter der Migration herzulaufen: sie liest eine eigene Tabelle und haengt
+  // nicht an der Spalte, die hier entsteht. Nur ladeUndZeige() muss warten --
+  // das ist die Abfrage der Personendaten, um die es der Migration geht.
+  // Vorher waren das drei serielle Roundtrips a ~180 ms, jetzt zwei.
+  const spartenP = ladeSparten();
+  spartenP.catch(() => {}); // Platzhalter; ladeSpartenAuswahl faengt selbst ab
   try { await vvRequest("vv-migration", {}); } catch { /* nicht kritisch */ }
 
-  await ladeSpartenAuswahl();
+  await ladeSpartenAuswahl(spartenP);
   await ladeUndZeige();
   if (meineRechte.isAdmin) { ladeRollen(); ladeSicherung(); }
   if (meineRechte.darfSchreiben || meineRechte.darfBuchen) ladeBeitraege();
@@ -221,9 +229,10 @@ async function start() {
   }
 }
 
-async function ladeSpartenAuswahl() {
+// vorabP: ein bereits gestarteter vv-sparten-Aufruf (siehe start).
+async function ladeSpartenAuswahl(vorabP) {
   try {
-    const antwort = await ladeSparten();
+    const antwort = await (vorabP || ladeSparten());
     spartenListe = antwort.sparten || [];
   } catch {
     spartenListe = [];

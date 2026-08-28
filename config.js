@@ -39,6 +39,13 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Die Mitgliederliste ist beim Öffnen schneller da",
+    datum: "2026-08-28",
+    punkte: [
+      "Beim Start liefen drei Abfragen streng nacheinander: die Einrichtungsprüfung der Datenbank, die Spartenliste und dann erst der Mitgliederbestand. Die Spartenliste wartet auf die Einrichtungsprüfung nicht — sie liest eine eigene Tabelle. Jetzt laufen die beiden gemeinsam los, der Bestand danach wie bisher."
+    ]
+  },
+  {
     version: "Die Reiterleiste bricht am Handy um",
     datum: "2026-08-20",
     punkte: [
