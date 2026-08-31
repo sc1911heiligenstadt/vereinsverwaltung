@@ -8,17 +8,20 @@ Mitglieder, Beiträge und Vereinsfinanzen an einer Stelle — mit Sparten, Haush
 
 | Seite | Wofür |
 |---|---|
-| [Vereinsverwaltung](https://sc1911heiligenstadt.github.io/vereinsverwaltung/) | Mitglieder, Beiträge und Vereinsfinanzen an einer Stelle — mit Sparten, Haushalten und Beitragsklassen. Löst den GLS … |
-| [Mitgliedsantrag](https://sc1911heiligenstadt.github.io/vereinsverwaltung/antrag.html) | Aufnahmeantrag zum Ausfüllen und Unterschreiben am Handy — ohne Anmeldung, ohne Ausdruck. Der Antrag geht an die Geschäftsstelle … |
+| [Vereinsverwaltung](https://sc1911heiligenstadt.github.io/vereinsverwaltung/) | Mitglieder, Beiträge und Vereinsfinanzen an einer Stelle — mit Sparten, Haushalten und Beitragsklassen. |
+| [Mitgliedsantrag](https://sc1911heiligenstadt.github.io/vereinsverwaltung/antrag.html) | Aufnahmeantrag zum Ausfüllen und Unterschreiben am Handy — ohne Anmeldung, ohne Ausdruck. |
 | [Buchhaltung](https://sc1911heiligenstadt.github.io/vereinsverwaltung/buchhaltung.html) | Buchungen und Konten der Vereinsfinanzen |
-| [Anmeldung Nachwuchs](https://sc1911heiligenstadt.github.io/vereinsverwaltung/nachwuchs.html) | Neue Jugendspieler in einem Durchgang anmelden: Aufnahmeantrag nach § 4 und Antrag auf Spielerlaubnis beim Thüringer … |
+| [Anmeldung Nachwuchs](https://sc1911heiligenstadt.github.io/vereinsverwaltung/nachwuchs.html) | Neue Jugendspieler in einem Durchgang anmelden: Aufnahmeantrag nach § 4 und Antrag auf Spielerlaubnis beim Thüringer Fußball-Verband, unterschrieben am Handy. |
+| [Elternkodex](https://sc1911heiligenstadt.github.io/vereinsverwaltung/kodex.html) | Eltern bestätigen den Elternkodex Fußball online — über einen Link, ohne Anmeldung. |
 | [Auswertungen](https://sc1911heiligenstadt.github.io/vereinsverwaltung/vorstand.html) | Zahlen und Auswertungen für den Vorstand |
 
 ## Zugang
 
 Die Anmeldung läuft über die [Tools-Übersicht](https://sc1911heiligenstadt.github.io/ToolsUebersicht/) — dort einmal anmelden, danach ist dieses Werkzeug offen.
 
-Die Rechte gelten in drei Stufen: **Sehen** (nur ansehen), **Bearbeiten** (Einträge pflegen) und **Administrieren** (Einstellungen und Verwaltung). Wer welche Stufe hat, legt die Tools-Übersicht fest.
+Die Rechte gelten in drei Stufen: **Sehen** (Mitglieder und Beiträge der eigenen Sparte ansehen, ohne Bankdaten), **Bearbeiten** (Mitglieder und Zahlungen pflegen, Anträge bearbeiten) und **Administrieren** (Reiter *Einstellungen*: Sparten, Haushalte, Beitragsklassen und der Beitragslauf). Wer welche Stufe hat, legt die Tools-Übersicht fest.
+
+Abteilungsleitungen sehen ausschließlich ihre eigene Sparte — und dort keine Bankverbindungen.
 
 ## Lokal starten
 
