@@ -5354,6 +5354,16 @@ const KODEX_JE_IP_TAG = 40;
 // ohne Akzente, ohne Satzzeichen.
 function kodexNamensteil(roh) {
   return String(roh || "")
+    // ⚠️ NFC ZUERST, vor der Umlaut-Ersetzung. Ein "ü" kann zerlegt ankommen
+    // (u + Trema -- so liefert es macOS/iOS beim Kopieren und mancher
+    // CSV-Export). Dann greift .replace(/ü/) nicht, und der NFD-Strip
+    // weiter unten macht aus dem Rest ein nacktes "u": "mueller" und
+    // "muller" waeren zwei Schluessel fuer EIN Kind. Die Erklaerung laege
+    // in "Nicht zuzuordnen", das Kind stuende weiter auf "hat noch nicht",
+    // und wegen UNIQUE(abgleich_schluessel) ersetzte ein zweites Absenden
+    // die erste Zeile nicht, sondern legte eine zweite an.
+    // Ein NFD-Strip NACH der Ersetzung ist kein Schutz.
+    .normalize("NFC")
     .toLowerCase()
     .replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue")
     .replace(/ß/g, "ss")

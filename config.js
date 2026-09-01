@@ -39,6 +39,15 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "Elternkodex: eingefügte Namen finden ihr Kind wieder",
+    datum: "2026-09-01",
+    punkte: [
+      "Beim Abgleich einer Elternkodex-Erklärung mit der Kinderliste wird der Name auf eine Vergleichsform gebracht — aus „Müller“ wird „mueller“. Umlaute können aber in zwei Schreibweisen ankommen, die auf dem Bildschirm gleich aussehen: getippt oder eingefügt (etwa aus einer Mac-Adressliste). Bei der eingefügten Form wurde aus „Müller“ bisher „muller“ statt „mueller“ — also ein anderer Schlüssel für dasselbe Kind.",
+      "Die Folge war Handarbeit: Das Kind stand weiter auf „hat noch nicht“, während die Erklärung in „Nicht zuzuordnen“ lag. Und schickte dieselbe Familie ein zweites Mal — einmal getippt, einmal eingefügt —, ersetzte die neue Erklärung die alte nicht, sondern legte eine zweite Zeile an.",
+      "Jetzt werden beide Schreibweisen vorher vereinheitlicht. Bereits zugeordnete Erklärungen behalten ihren Schlüssel unverändert — nachgemessen, es verschiebt sich nichts. Von Hand gesetzte Zuordnungen gelten weiter vor dem Namensabgleich."
+    ]
+  },
+  {
     version: "Die Mitgliederliste ist beim Öffnen schneller da",
     datum: "2026-08-28",
     punkte: [
