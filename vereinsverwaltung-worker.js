@@ -2848,8 +2848,15 @@ const SEPA_UMLAUTE = {
   "&": "+", "–": "-", "—": "-", "…": "."
 };
 
+// WARNUNG: normalize("NFC") MUSS vor der Transliteration stehen. Ein "ue" kann
+// als ein Zeichen (U+00FC) oder als "u" + Trema (U+0308) ankommen; macOS und iOS
+// liefern beim Kopieren die zerlegte Form. SEPA_UMLAUTE trifft nur die erste.
+// Bei der zweiten bleibt das Trema stehen, faellt in die Zeichenvorrats-
+// Ersetzung darunter und wird zum LEERZEICHEN -- aus "Mueller" wurde "Mu ller"
+// im Namen des Kontoinhabers einer echten Lastschrift.
 function sepaText(roh, maxLaenge) {
   const s = String(roh === null || roh === undefined ? "" : roh)
+    .normalize("NFC")
     .split("")
     .map((z) => (Object.prototype.hasOwnProperty.call(SEPA_UMLAUTE, z) ? SEPA_UMLAUTE[z] : z))
     .join("")
