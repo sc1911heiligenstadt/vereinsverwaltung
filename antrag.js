@@ -142,12 +142,14 @@ async function pruefeAnmeldung() {
 // .changelog-datum. Nachgebaut sähe es hier anders aus als dort.
 function zeigeInfo() {
   $("info-version").textContent = ANTRAG_VERSION;
-  $("info-changelog").innerHTML = ANTRAG_CHANGELOG.map((b) =>
-    '<div class="changelog-block">' +
-      "<h3>" + esc(b.version) + "</h3>" +
-      '<div class="changelog-datum">' + esc(datumDe(b.datum)) + "</div>" +
-      "<ul>" + b.punkte.map((p) => "<li>" + esc(p) + "</li>").join("") + "</ul>" +
-    "</div>").join("");
+  $("info-changelog").innerHTML = ANTRAG_CHANGELOG.map((block) =>
+    block.groups.map((g) =>
+      '<div class="changelog-block">' +
+        "<h3>" + esc(g.title) + "</h3>" +
+        "<ul>" + g.items.map((p) => "<li>" + esc(p) + "</li>").join("") + "</ul>" +
+      "</div>"
+    ).join("")
+  ).join("");
 }
 
 // ---------------------------------------------------------------------

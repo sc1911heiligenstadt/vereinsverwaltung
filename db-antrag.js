@@ -28,47 +28,40 @@ const ANTRAG_VERSION = "1.0";
 
 const ANTRAG_CHANGELOG = [
   {
-    version: "Der Verein steht mit seinem richtigen Namen im Formular",
-    datum: "2026-08-16",
-    punkte: [
-      "Begrüßung und SEPA-Mandat nennen den Verein jetzt mit seinem vollen Namen. Er stand bisher in den Vereinsstammdaten und war dort mit einem Probewert überschrieben — im Mandatstext war dadurch nicht erkennbar, wem die Einzugsermächtigung erteilt wird.",
-      "Die Gläubiger-Identifikationsnummer erscheint nur noch, wenn sie gültig ist. Steht keine brauchbare Nummer bereit, bleibt die Zeile weg statt eine falsche zu nennen — das Formular kann trotzdem ausgefüllt und abgeschickt werden."
-    ]
-  },
-  {
-    version: "Anträge lassen sich hier löschen",
-    datum: "2026-08-14",
-    punkte: [
-      "Im Reiter „Eingegangene Anträge“ steht je Zeile ein Löschknopf. Er ist für zurückgezogene Anträge und für Testeinträge gedacht — bisher ging das nur in der Vereinsverwaltung.",
-      "Hochgeladene Nachweise und Unterschriften werden mitgelöscht. Die Rückfrage sagt vorher, was daran hängt.",
-      "Ein bereits angenommener Antrag bleibt stehen: an ihm hängen die Mitgliedschaft und das SEPA-Mandat. Die Mitgliedschaft endet über den Austritt, nicht über das Formular."
-    ]
-  },
-  {
-    version: "Beitrag nur noch per SEPA-Lastschrift",
-    datum: "2026-08-14",
-    punkte: [
-      "Die Auswahl zwischen Lastschrift und Überweisung ist entfallen. Der Beitrag wird ausschließlich per SEPA-Lastschrift eingezogen; das Mandat wird mit dem Antrag erteilt.",
-      "Wer bereits Mitglied ist und überweist, ist davon nicht betroffen — die Änderung gilt für neue Anträge."
-    ]
-  },
-  {
-    version: "Papier und Bildschirm gleichen sich",
-    datum: "2026-08-06",
-    punkte: [
-      "Das Formular fragt jetzt dasselbe ab wie der gedruckte Aufnahmeantrag: Geburtsort, Kreditinstitut, die Anschrift des Kontoinhabers, wenn sie abweicht, und den Ort der Unterschrift.",
-      "Bei Minderjährigen unterschreiben beide Erziehungsberechtigten. Wer allein sorgeberechtigt ist, kreuzt das an — dann genügt eine Unterschrift.",
-      "Die Geschäftsstelle kann den eingegangenen Antrag als vierseitigen Papierantrag mit allen Unterschriften ausdrucken."
-    ]
-  },
-  {
-    version: "Online-Aufnahmeantrag",
-    datum: "2026-07-30",
-    punkte: [
-      "Die Mitgliedschaft lässt sich am Handy beantragen und unterschreiben — ein Ausdruck ist nicht nötig.",
-      "Das SEPA-Lastschriftmandat wird im selben Zug erteilt.",
-      "Nach dem Absenden erscheint eine Bestätigungsseite mit allen Angaben und der Unterschrift. Sie ist die eigene Kopie der Erklärung und lässt sich drucken oder als PDF sichern.",
-      "Der Antrag ist noch keine Mitgliedschaft: über die Aufnahme entscheidet nach § 4 der Satzung der Gesamtvorstand."
+    version: "1.0",
+    groups: [
+      {
+        title: "Mitgliedschaft am Handy beantragen",
+        items: [
+          "Die Mitgliedschaft lässt sich am Handy beantragen und unterschreiben — ein Ausdruck ist nicht nötig.",
+          "Nach dem Absenden erscheint eine Bestätigungsseite mit allen Angaben und der Unterschrift. Sie ist die eigene Kopie der Erklärung und lässt sich drucken oder als PDF sichern.",
+          "Der Antrag ist noch keine Mitgliedschaft: über die Aufnahme entscheidet nach § 4 der Satzung der Gesamtvorstand."
+        ]
+      },
+      {
+        title: "Dieselben Angaben wie auf dem Papierantrag",
+        items: [
+          "Das Formular fragt dasselbe ab wie der gedruckte Aufnahmeantrag: Geburtsort, Kreditinstitut, die Anschrift des Kontoinhabers, wenn sie abweicht, und den Ort der Unterschrift.",
+          "Bei Minderjährigen unterschreiben beide Erziehungsberechtigten. Wer allein sorgeberechtigt ist, kreuzt das an — dann genügt eine Unterschrift.",
+          "Die Geschäftsstelle kann den eingegangenen Antrag als vierseitigen Papierantrag mit allen Unterschriften ausdrucken."
+        ]
+      },
+      {
+        title: "Beitrag per SEPA-Lastschrift",
+        items: [
+          "Der Beitrag wird ausschließlich per SEPA-Lastschrift eingezogen; das Mandat wird mit dem Antrag erteilt. Wer bereits Mitglied ist und überweist, ist davon nicht betroffen.",
+          "Begrüßung und SEPA-Mandat nennen den Verein mit seinem vollen Namen, damit erkennbar ist, wem die Einzugsermächtigung erteilt wird.",
+          "Die Gläubiger-Identifikationsnummer erscheint nur, wenn sie gültig ist. Steht keine brauchbare Nummer bereit, bleibt die Zeile weg statt eine falsche zu nennen — das Formular lässt sich trotzdem abschicken."
+        ]
+      },
+      {
+        title: "Eingegangene Anträge sichten und löschen",
+        items: [
+          "Im Reiter „Eingegangene Anträge“ steht je Zeile ein Löschknopf, gedacht für zurückgezogene Anträge und für Testeinträge.",
+          "Hochgeladene Nachweise und Unterschriften werden mitgelöscht. Die Rückfrage sagt vorher, was daran hängt.",
+          "Ein bereits angenommener Antrag bleibt stehen: an ihm hängen die Mitgliedschaft und das SEPA-Mandat. Die Mitgliedschaft endet über den Austritt, nicht über das Formular."
+        ]
+      }
     ]
   }
 ];
@@ -78,30 +71,38 @@ const ANTRAG_CHANGELOG = [
 // betrifft, geht dort zwischen Beitragsart und Familienverbund unter.
 const NACHWUCHS_CHANGELOG = [
   {
-    version: "Elternkodex wird mit angemeldet",
-    datum: "2026-08-18",
-    punkte: [
-      "Der Elternkodex des Vereins lässt sich im Formular herunterladen. Er regelt, wie sich Eltern, Angehörige und Fans bei Training, Spielen, Turnieren und Vereinsfahrten verhalten.",
-      "Die Kenntnisnahme wird angekreuzt und gesondert unterschrieben — die Unterschrift steht anschließend mit auf dem Antrag, den die Geschäftsstelle ausdruckt.",
-      "Gefragt wird nur dort, wo es Erziehungsberechtigte gibt: wer volljährig ist und sich selbst anmeldet, sieht den Abschnitt nicht."
-    ]
-  },
-  {
-    version: "Beitrag nur noch per SEPA-Lastschrift",
-    datum: "2026-08-14",
-    punkte: [
-      "Die Auswahl zwischen Lastschrift und Überweisung ist entfallen. Der Beitrag wird ausschließlich per SEPA-Lastschrift eingezogen; das Mandat wird mit der Anmeldung erteilt.",
-      "Wer bereits Mitglied ist und überweist, ist davon nicht betroffen — die Änderung gilt für neue Anmeldungen."
-    ]
-  },
-  {
-    version: "Anmeldung und Spielerlaubnis in einem Durchgang",
-    datum: "2026-08-06",
-    punkte: [
-      "Neue Jugendspieler werden über einen Link angemeldet — Aufnahmeantrag und Antrag auf Spielerlaubnis entstehen daraus zusammen. Zweimal dieselben Angaben einzutragen entfällt.",
-      "Erstausstellung, Vereinswechsel, Rückkehrer und Namensänderung stehen zur Wahl. Beim Wechsel fragt das Formular nach dem bisherigen Verein und danach, ob die Abmeldung schon erfolgt ist oder der Verein sie übernehmen soll.",
-      "Die Nachweise, die der Verband als Anlage verlangt — Geburtsurkunde, Ausweis, Spielerpass, Abmeldung — lassen sich als Foto mit dem Handy hochladen. Sie liegen getrennt von den übrigen Daten und sind nur für die Geschäftsstelle einsehbar.",
-      "Unterschrieben wird am Bildschirm. Die Unterschriften stehen anschließend auf dem Verbandsformular, das die Geschäftsstelle ausdruckt, stempelt und einreicht."
+    version: "1.0",
+    groups: [
+      {
+        title: "Anmeldung und Spielerlaubnis in einem Durchgang",
+        items: [
+          "Neue Jugendspieler werden über einen Link angemeldet — Aufnahmeantrag und Antrag auf Spielerlaubnis entstehen daraus zusammen. Zweimal dieselben Angaben einzutragen entfällt.",
+          "Erstausstellung, Vereinswechsel, Rückkehrer und Namensänderung stehen zur Wahl. Beim Wechsel fragt das Formular nach dem bisherigen Verein und danach, ob die Abmeldung schon erfolgt ist oder der Verein sie übernehmen soll.",
+          "Unterschrieben wird am Bildschirm. Die Unterschriften stehen anschließend auf dem Verbandsformular, das die Geschäftsstelle ausdruckt, stempelt und einreicht."
+        ]
+      },
+      {
+        title: "Nachweise als Foto vom Handy",
+        items: [
+          "Die Anlagen, die der Verband verlangt — Geburtsurkunde, Ausweis, Spielerpass, Abmeldung — lassen sich als Foto hochladen.",
+          "Sie liegen getrennt von den übrigen Daten und sind nur für die Geschäftsstelle einsehbar."
+        ]
+      },
+      {
+        title: "Beitrag per SEPA-Lastschrift",
+        items: [
+          "Der Beitrag wird ausschließlich per SEPA-Lastschrift eingezogen; das Mandat wird mit der Anmeldung erteilt.",
+          "Wer bereits Mitglied ist und überweist, ist davon nicht betroffen."
+        ]
+      },
+      {
+        title: "Elternkodex wird mit angemeldet",
+        items: [
+          "Der Elternkodex des Vereins lässt sich im Formular herunterladen. Er regelt, wie sich Eltern, Angehörige und Fans bei Training, Spielen, Turnieren und Vereinsfahrten verhalten.",
+          "Die Kenntnisnahme wird angekreuzt und gesondert unterschrieben — die Unterschrift steht anschließend mit auf dem Antrag, den die Geschäftsstelle ausdruckt.",
+          "Gefragt wird nur dort, wo es Erziehungsberechtigte gibt: wer volljährig ist und sich selbst anmeldet, sieht den Abschnitt nicht."
+        ]
+      }
     ]
   }
 ];
@@ -112,13 +113,17 @@ const NACHWUCHS_CHANGELOG = [
 // zwischen Spielerlaubnis und Passbild unter.
 const KODEX_CHANGELOG = [
   {
-    version: "Elternkodex lässt sich nachreichen",
-    datum: "2026-08-18",
-    punkte: [
-      "Eltern, deren Kind schon in der Abteilung Fußball spielt, können die Kenntnisnahme des Elternkodex über einen Link nachreichen — ohne Vereinskonto und ohne die Anmeldung zu wiederholen.",
-      "Der Kodex wird auf der Seite heruntergeladen, angekreuzt und am Bildschirm unterschrieben. Die Fassung des Textes wird mitgespeichert.",
-      "Nach dem Absenden erscheint eine Bestätigungsseite mit allen Angaben und der Unterschrift. Sie ist die eigene Kopie der Erklärung und lässt sich drucken oder als PDF sichern.",
-      "Bei mehreren Kindern führt ein Knopf direkt zur nächsten Erklärung — Name und Ort bleiben stehen, unterschrieben wird erneut."
+    version: "1.0",
+    groups: [
+      {
+        title: "Elternkodex nachreichen",
+        items: [
+          "Eltern, deren Kind schon in der Abteilung Fußball spielt, können die Kenntnisnahme des Elternkodex über einen Link nachreichen — ohne Vereinskonto und ohne die Anmeldung zu wiederholen.",
+          "Der Kodex wird auf der Seite heruntergeladen, angekreuzt und am Bildschirm unterschrieben. Die Fassung des Textes wird mitgespeichert.",
+          "Nach dem Absenden erscheint eine Bestätigungsseite mit allen Angaben und der Unterschrift. Sie ist die eigene Kopie der Erklärung und lässt sich drucken oder als PDF sichern.",
+          "Bei mehreren Kindern führt ein Knopf direkt zur nächsten Erklärung — Name und Ort bleiben stehen, unterschrieben wird erneut."
+        ]
+      }
     ]
   }
 ];
