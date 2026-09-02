@@ -805,14 +805,19 @@ async function eintragenAustritt() {
 // Info
 // ---------------------------------------------------------------------
 
+// Ein Block je Version, darin thematische Gruppen. Wer das Format hier
+// aendert, aendert es in buchhaltung.js mit -- die Seite zeigt denselben
+// Changelog aus config.js.
 function zeichneChangelog() {
   const ziel = $("changelog-liste");
   ziel.innerHTML = CHANGELOG.map((block) =>
-    '<div class="changelog-block">' +
-      "<h3>" + esc(block.version) + "</h3>" +
-      '<div class="changelog-datum">' + datumDe(block.datum) + "</div>" +
-      "<ul>" + block.punkte.map((p) => "<li>" + esc(p) + "</li>").join("") + "</ul>" +
-    "</div>"
+    '<div class="changelog-datum">Version ' + esc(block.version) + "</div>" +
+    block.groups.map((g) =>
+      '<div class="changelog-block">' +
+        "<h3>" + esc(g.title) + "</h3>" +
+        "<ul>" + g.items.map((p) => "<li>" + esc(p) + "</li>").join("") + "</ul>" +
+      "</div>"
+    ).join("")
   ).join("");
 }
 
