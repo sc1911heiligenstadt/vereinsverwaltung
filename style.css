@@ -1,0 +1,1325 @@
+:root {
+  /* Flottenblau. Diese App lief bis 2026-08-05 auf einem eigenen Ton (#1f4e9c)
+     und fiel dadurch in der Kopfzeile neben jeder anderen App auf. --blue-dark
+     ist die proportional nachgezogene Hover-Variante, --blue-light das Pendant
+     der Flotte fuer Badges auf heller Karte. Nicht wieder auseinanderziehen. */
+  --blue: #1a56a0;
+  --blue-dark: #123d72;
+  --blue-light: #e8f0fb;
+  --bg: #f4f6f9;
+  --card: #ffffff;
+  --text: #1c2330;
+  --muted: #667085;
+  --line: #dfe3e8;
+  --green: #1a7f4b;
+  --red: #b42318;
+  --amber: #b54708;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* ---------- Kopfzeile ---------- */
+
+/* Kopfzeile byte-gleich zur uebrigen Flotte (ausbildungsplan, Vereinsaufgaben
+   und 26 weitere). Diese App war bis 2026-08-05 die EINZIGE mit eigener Optik:
+   kleinerer Knopf ohne Rahmen, Knopf vor statt hinter dem Titel und ohne
+   Vereinswappen -- Michel ist es im Vergleich sofort aufgefallen. */
+header {
+  background: var(--blue);
+  color: #fff;
+  padding: 16px 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  /* Ohne wrap laeuft die Kopfzeile am Handy seitlich ueber und reisst
+     die ganze Seite mit. Flottenregel seit 2026-07-28. */
+  flex-wrap: wrap;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 200px;
+}
+
+/* Heisst aus Historie weiter .dashboard-pille (drei Seiten dieser App nutzen
+   sie, zwei davon fuer den Rueckweg IN die App). Die Werte sind die der
+   Flotten-Klasse .back-to-dashboard. */
+.dashboard-pille {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  text-decoration: none;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  padding: 8px 16px;
+  border-radius: 999px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  transition: background 0.15s ease;
+}
+.dashboard-pille:hover { background: rgba(255, 255, 255, 0.28); text-decoration: none; }
+
+.kopf-rechts {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  flex: 1 1 200px;
+  justify-content: flex-end;
+  font-size: 13px;
+}
+
+.kopf-logo { height: 44px; width: auto; display: block; }
+
+.rollen-pille {
+  background: rgba(255, 255, 255, 0.15);
+  padding: 4px 12px;
+  border-radius: 999px;
+}
+
+/* ---------- Navigation ---------- */
+
+/* Reiterleiste byte-gleich zur uebrigen Flotte (testspielplaner,
+   ausbildungsplan und 28 weitere) -- am 2026-08-11 angeglichen, nachdem der
+   Flotten-Check sie als letzte Abweichung dieser App gemeldet hatte: Polsterung
+   0/16 statt 8/28/0, Reiter 15px/13px statt 14px/10px, ohne Fettung und ohne
+   abgerundete Oberkante. Die Leiste sass dadurch sichtbar weiter links als die
+   Kopfzeile darueber. Wer hier etwas aendert, misst gegen E:\testspielplaner.
+
+   `position: sticky` bleibt -- eigene Funktion dieser App (lange
+   Mitgliederlisten), am Ruhebild aendert es nichts. */
+nav {
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 4px;
+  padding: 8px 28px 0;
+  flex-wrap: wrap;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+/* ⚠️ HIER BEWUSST KEIN `font-family`. Nicht „vergessen“ und nicht ergänzen.
+
+   Ein <button> erbt die Schrift der Seite nicht von selbst, er bekommt vom
+   Browser Arial. Die übrigen 28 Apps der Flotte setzen deshalb nichts, und ihre
+   Reiter stehen in Arial. Diese App hatte `font-family: inherit` und damit als
+   einzige die Seitenschrift in der Leiste. Michel-Entscheidung vom 2026-08-11:
+   die eine App wird angeglichen, nicht die 28 anderen. Wer hier `inherit`
+   wieder einträgt, bricht die Angleichung.
+
+   ⚠️ Die Schriftfamilie war NICHT die Ursache der abweichenden Leistenhöhe --
+   das war eine falsche Fährte. Nach dem Entfernen von `inherit` stand die
+   Leiste unverändert auf 53 px. Der Grund lag beim `<a>` darunter (Zeilenhöhe,
+   siehe dortiger Kommentar). Beides ist behoben, aber wer die Höhe erneut
+   untersucht, fängt bei der Zeilenhöhe an, nicht bei der Familie. */
+nav button {
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  border-radius: 8px 8px 0 0;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+}
+nav button:hover { color: var(--text); }
+nav button.aktiv {
+  color: var(--blue);
+  border-bottom-color: var(--blue);
+}
+
+/* Die rechte Reitergruppe steht in <div class="nav-right">, und der Schub
+   haengt am WRAPPER -- nie am ersten Knopf. Flottenregel (E:\CLAUDE.md,
+   Abschnitt UI-Konventionen), hier am 2026-08-11 nachgezogen.
+
+   ⚠️ Das ersetzt drei Media-Queries (460px auf der Antragsseite, 880px in
+   der Verwaltung, 300px im Nachwuchs) samt der Kruecke
+   `#nav-einstellungen[hidden] + button`. Die Grenzen gab es, weil ein
+   margin-left:auto am einzelnen Knopf in einer UMGEBROCHENEN Zeile den
+   einzelnen Reiter jener Zeile an den rechten Rand schob -- die Eintraege
+   standen dann treppenfoermig untereinander. Ein Wrapper hat das Problem
+   nicht: er bricht als Ganzes um und bleibt dabei zusammen. Deshalb
+   braucht diese Loesung keine gemessene Grenze und muss beim Ergaenzen
+   oder Umbenennen eines Reiters auch nicht neu vermessen werden.
+
+   Der Geschwister-Fall faellt ebenfalls weg: ist „Einstellungen“ fuer eine
+   Rolle versteckt, bleibt „Info“ im Wrapper und damit rechts. */
+nav .nav-right {
+  margin-left: auto;
+  display: flex;
+  /* Der Wrapper bricht als Ganzes um -- aber nur, wenn er selbst schmal genug
+     ist. Bei 375px bleiben neben dem linken Reiter nur ~319px; sind genug
+     Reiter sichtbar, braucht die Gruppe mehr und lief bisher als ein Stueck
+     ueber den rechten Rand hinaus. flex-wrap laesst sie dann intern umbrechen. */
+  flex-wrap: wrap;
+  gap: inherit;
+}
+
+/* ---------- Inhalt ---------- */
+
+main { padding: 20px; max-width: 1400px; margin: 0 auto; }
+.tab { display: none; }
+.tab.aktiv { display: block; }
+
+.karte {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 18px;
+  margin-bottom: 18px;
+  max-width: 100%;
+}
+.karte h2 { margin: 0 0 12px; font-size: 17px; }
+.karte h3 { margin: 18px 0 8px; font-size: 15px; }
+
+/* ---------- Filterleiste ---------- */
+
+.filterleiste {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.feld { display: flex; flex-direction: column; gap: 4px; }
+.feld label { font-size: 12px; color: var(--muted); }
+
+input, select, textarea {
+  /* Nie unter 16px: kleinere Schrift laesst iOS beim Antippen
+     hineinzoomen. Flottenregel. */
+  font-size: 16px;
+  font-family: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--text);
+  max-width: 100%;
+}
+input:focus, select:focus { outline: 2px solid var(--blue); outline-offset: -1px; }
+
+.suchfeld { min-width: 240px; flex: 1 1 240px; }
+
+/* ⚠️ Die Fettung 600 ist der Flottenwert und stand hier bis 2026-08-11
+   nicht drin -- die Knoepfe dieser App waren dadurch als einzige der Flotte
+   duenn gesetzt (400). Sie steht in VIER Regeln, die dasselbe Aussehen
+   nachbauen: `button.btn` hier, `a.btn`, `a.btn-link` und `label.btn`. Die
+   Klasse ist elementgebunden, ein <label class="btn"> erbt von `button.btn`
+   nichts -- wer eine aendert, aendert alle vier. */
+button.btn {
+  background: var(--blue);
+  color: #fff;
+  border: none;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+button.btn:hover { background: var(--blue-dark); }
+button.btn.grau { background: #6b7280; }
+button.btn.grau:hover { background: #4b5563; }
+
+/* ---------- Tabelle ---------- */
+
+/* Die Tabelle scrollt in sich, statt die Seite seitlich zu sprengen. */
+.tabelle-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td {
+  text-align: left;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+th {
+  background: #eef1f5;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--muted);
+  position: sticky;
+  top: 0;
+}
+
+/* ⚠️ Das nowrap oben ist richtig fuer Zahlen, Daten und Kategorien --
+   eine umbrochene Betragsspalte liest sich nicht mehr. Es macht eine
+   Tabelle mit FREITEXT-Spalten aber unschrumpfbar: ihre min-content-
+   Breite ist die Summe aller ungebrochenen Zellen, und dagegen hilft
+   weder width:auto noch max-width:100%. Die Tabelle sprengt dann ihre
+   Huelle und bekommt eine Laufleiste, obwohl rechts daneben Platz frei
+   ist -- am 14.08.2026 von Michel an der Antragsliste gemeldet, wo der
+   Loeschknopf dadurch hinter der Kante verschwand.
+
+   .umbruch nimmt genau den Spalten die Sperre, die Namen oder
+   Ortsangaben tragen. Die min-width haelt sie davon ab, dabei auf
+   einzelne Buchstaben zusammenzufallen. */
+td.umbruch { white-space: normal; min-width: 96px; }
+
+/* Zwei Knoepfe in EINER Zelle, statt je einer eigenen Spalte: das spart
+   die Zellpolsterung des zweiten Feldes und haelt die Tabelle schmal.
+   flex-Ausrichtung, damit sie auch dann auf einer Linie stehen, wenn die
+   Nachbarzelle wegen .umbruch zweizeilig wird. */
+td.zeilen-knoepfe {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+/* Das Kreuz traegt keinen Text, der es breit machen wuerde -- deshalb
+   quadratisch und mittig gesetzt, sonst steht es als schmaler Strich
+   neben dem breiten Nachbarn. Die 28 px sind der Wert, bei dem es genau
+   so hoch ist wie ein .btn.klein daneben. */
+button.btn.kreuz {
+  padding: 0;
+  width: 28px;
+  min-width: 28px;
+  height: 27px;
+  font-size: 17px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+th.sortierbar {
+  cursor: pointer;
+  user-select: none;
+  /* Platz für den Pfeil dauerhaft freihalten, sonst springt die
+     Spaltenbreite beim Umsortieren. */
+  padding-right: 26px;
+  position: sticky;
+}
+th.sortierbar:hover { background: #e3e8ef; color: var(--text); }
+th.sortierbar:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+th.sortierbar.aktiv { color: var(--blue); }
+
+th .pfeil {
+  position: absolute;
+  right: 8px;
+  font-size: 10px;
+  line-height: inherit;
+}
+tbody tr:hover { background: #f7f9fc; }
+tbody tr:last-child td { border-bottom: none; }
+
+td.name { font-weight: 600; white-space: normal; min-width: 160px; }
+td.sparten { white-space: normal; min-width: 150px; color: var(--muted); }
+
+.chip {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.chip.aktiv { background: #e7f5ed; color: var(--green); }
+.chip.ruhend { background: #fdf2e3; color: var(--amber); }
+.chip.beendet, .chip.gekuendigt { background: #fdecea; color: var(--red); }
+.chip.antrag { background: #eaf0fb; color: var(--blue); }
+
+/* ---------- Hinweise ---------- */
+
+.hinweis {
+  padding: 11px 14px;
+  border-radius: 8px;
+  margin-bottom: 14px;
+  font-size: 14px;
+}
+.hinweis.info { background: #eaf0fb; color: var(--blue-dark); }
+.hinweis.warn { background: #fdf2e3; color: var(--amber); }
+.hinweis.fehler { background: #fdecea; color: var(--red); }
+
+.leer { padding: 32px; text-align: center; color: var(--muted); }
+
+.zaehler {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 10px 2px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.blaetterleiste {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+/* ---------- Dialog ---------- */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 22, 36, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 1000;
+}
+.overlay[hidden] { display: none; }
+
+.dialog {
+  background: var(--card);
+  border-radius: 12px;
+  width: 100%;
+  max-width: 780px;
+  display: flex;
+  flex-direction: column;
+  /* Der Dialog scrollt in sich selbst. Ohne das wachsen lange Formulare
+     ueber den Bildschirmrand hinaus und die Knoepfe im Fuss sind nur noch
+     per Browser-Zoom erreichbar. Die 40px sind das padding des Overlays. */
+  max-height: calc(100vh - 40px);
+}
+
+.dialog-kopf {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.dialog-kopf h2 { margin: 0; font-size: 18px; flex: 1 1 auto; }
+
+.dialog-zu {
+  background: none;
+  border: none;
+  font-size: 26px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 6px;
+}
+.dialog-zu:hover { color: var(--text); }
+
+.dialog-inhalt {
+  padding: 18px 20px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.dialog-inhalt h3 {
+  margin: 20px 0 10px;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.dialog-inhalt h3:first-child { margin-top: 0; }
+
+.dialog-fuss {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 14px 20px calc(14px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+#detail-status { flex: 1 1 auto; font-size: 13px; color: var(--muted); }
+
+.formraster {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+}
+.formraster .feld.breit { grid-column: 1 / -1; }
+
+.fussnote { font-size: 12.5px; color: var(--muted); margin: 6px 0 0; }
+
+/* Nur-Seher bekommen gesperrte, sichtbar ausgegraute Felder -- nicht
+   bloss einen wirkungslosen Speichern-Knopf. */
+input:disabled, select:disabled {
+  background: #f1f3f6;
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.austritt-kasten {
+  margin-top: 22px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fbfcfd;
+}
+.austritt-kasten h3 { margin-top: 0; }
+
+.sparten-zeile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.sparten-zeile:last-child { border-bottom: none; }
+.sparten-zeile .sp-name { font-weight: 600; flex: 1 1 auto; }
+.sparten-zeile .sp-info { font-size: 13px; color: var(--muted); }
+
+tbody tr { cursor: pointer; }
+
+/* Zeilen im Import-Bericht sind nicht anklickbar. */
+#imp-zuordnung tbody tr, #imp-bericht tbody tr { cursor: default; }
+
+button.btn.klein { padding: 5px 12px; font-size: 13px; }
+
+/* align-items an der Unterkante: sobald ein Eingabefeld mit Beschriftung
+   in einer Knopfreihe steht (Einzugsdatum im Beitragslauf), würde die
+   Vorgabe "stretch" alle Knöpfe daneben auf dessen Höhe aufblasen. */
+.knopfreihe {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.leer-aktionen {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+  padding: 0 20px 28px;
+}
+
+.sparte-hinzu {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.sparte-hinzu select { flex: 1 1 180px; }
+
+/* ---------- Import ---------- */
+
+.schritt-nummer {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+input[type="file"] {
+  font-size: 15px;
+  padding: 10px;
+  width: 100%;
+  background: #fbfcfd;
+}
+
+/* Ankreuzfelder duerfen NICHT von der 100-%-Regel fuer Formularfelder
+   erfasst werden -- sonst wird aus dem Kaestchen ein Balken ueber die
+   ganze Zeile. Flottenfalle. */
+.ankreuz {
+  display: block;
+  margin: 10px 0;
+  font-size: 14px;
+  cursor: pointer;
+}
+.ankreuz input[type="checkbox"] {
+  width: auto;
+  max-width: none;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.ankreuz .fussnote { display: block; margin-left: 26px; }
+
+.ankreuz-raster {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 2px 12px;
+}
+.ankreuz-raster .ankreuz { margin: 4px 0; }
+
+/* Loeschknopf neben dem Ankreuzfeld. Er steht bewusst AUSSERHALB des
+   <label> -- innerhalb wuerde jeder Klick darauf zugleich das Haekchen
+   umschalten, und man legte eine Abteilung still, waehrend man sie
+   loeschen wollte. min-width am Label, damit ein langer Abteilungsname
+   die Rasterzelle nicht sprengt. */
+.sparte-zeile {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+.sparte-zeile .ankreuz { flex: 1; min-width: 0; }
+.sparte-weg {
+  flex: none;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 17px;
+  line-height: 1;
+  padding: 4px 7px;
+  margin-top: 2px;
+  border-radius: 4px;
+}
+.sparte-weg:hover { background: #fdecea; color: var(--red); }
+
+/* Sportartennummer des LSB, direkt in der Abteilungszeile. Schmal
+   gehalten (vier Ziffern reichen) und mit fester Breite, damit die
+   Häkchen darüber und darunter in einer Flucht bleiben. */
+/* ⚠️ Die Schriftgröße bleibt bei den geerbten 16px — alles darunter lässt
+   iOS beim Antippen in die Seite hineinzoomen (Flottenregel). Die Breite
+   ist danach bemessen: vier Ziffern plus Polsterung. */
+.sparte-nr {
+  flex: none;
+  width: 84px;
+  padding: 5px 7px;
+  border-radius: 4px;
+  margin-top: 1px;
+}
+.sparte-nr.gespeichert { border-color: var(--green); background: #f1f8f2; }
+
+#imp-zuordnung select { width: 100%; min-width: 190px; font-size: 14px; }
+#imp-zuordnung td { vertical-align: middle; }
+
+.balken {
+  height: 10px;
+  background: var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 14px 0 6px;
+}
+.balken-fuellung {
+  height: 100%;
+  width: 0;
+  background: var(--blue);
+  transition: width 0.2s;
+}
+
+/* ---------- Beträge ---------- */
+
+/* Zahlen rechtsbündig und in gleicher Zeichenbreite -- sonst lassen sich
+   Spalten mit Beträgen nicht überfliegen. */
+td.betrag, .betrag-anzeige {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ⚠️ td.betrag allein reicht nicht. Die ÜBERSCHRIFT einer Zahlenspalte
+   muss mitziehen, sonst steht sie links und die Werte rechts — bei sechs
+   Spalten über die volle Breite sieht die Tabelle dann aus, als gehörten
+   Kopf und Zahlen nicht zusammen (von Michel gemeldet).
+   width: 1% schrumpft die Zahlenspalten auf ihren Inhalt (die Zellen
+   tragen ohnehin white-space: nowrap); den freien Rest bekommt die
+   Beschriftungsspalte. Bewusst nur an th.betrag: die älteren Tabellen
+   haben keine Zahlen-Überschrift und bleiben dadurch unverändert. */
+th.betrag {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  /* Ohne Mindestbreite ist jede Zahlenspalte so breit wie ihre
+     Überschrift — "divers" 59 px neben "ohne Angabe" 103 px liest sich
+     als schiefer Block. Mit gleicher Mindestbreite steht rechts ein
+     ruhiges Raster.
+     ⚠️ Hier stand kurz zusätzlich width: 1%, der übliche Kniff zum
+     Schrumpfen. Zusammen mit width:auto an der Tabelle ist das aber ein
+     Zirkelschluss — die Spalte soll 1 % einer Breite sein, die sich erst
+     aus den Spalten ergibt. Der Browser löste ihn auf, indem er die
+     Tabelle auf das Hundertfache aufblies (gemessen: 1186 px statt der
+     erwarteten ~600). Entweder Prozent ODER auto, nie beides. */
+  min-width: 92px;
+}
+.betrag-anzeige {
+  padding: 8px 10px;
+  font-weight: 600;
+  font-size: 16px;
+  text-align: left;
+}
+tr.summenzeile td {
+  font-weight: 700;
+  border-top: 2px solid var(--line);
+  background: #f7f9fc;
+}
+
+.bericht-zahlen {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+/* ---------- Beitragslauf ---------- */
+
+.hinweis.erfolg { background: #e7f5ed; color: var(--green); }
+
+button.btn.warn { background: var(--red); }
+button.btn.warn:hover { background: #a02218; }
+
+/* Der Download der SEPA-Datei ist ein Link, kein Knopf -- er soll aber
+   wie einer aussehen. */
+a.btn {
+  display: inline-block;
+  background: var(--blue);
+  color: #fff;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+a.btn:hover { background: var(--blue-dark); }
+
+/* Kennzahlen eines Laufs: nebeneinander, umbrechend, ohne Tabelle. */
+.kennzahlen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 4px;
+}
+.kennzahlen > div {
+  background: #f7f9fc;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 14px;
+  min-width: 110px;
+}
+.kennzahlen dt { font-size: 12px; color: var(--muted); }
+.kennzahlen dd {
+  margin: 2px 0 0;
+  font-weight: 600;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tabellen im Beitragslauf sind Berichte, keine Auswahllisten -- nur die
+   Liste der Läufe selbst ist anklickbar. */
+#l-detail tbody tr, #l-ergebnis tbody tr, #l-stammdaten tbody tr { cursor: default; }
+
+/* Das Einzugsdatum steht in der Knopfreihe, gehört aber zu den beiden
+   SEPA-Knöpfen daneben -- deshalb dort und nicht in einer eigenen Zeile. */
+.einzugsfeld {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-right: 4px;
+}
+.einzugsfeld label { font-size: 12px; color: var(--muted); }
+
+/* ---------- Zahlungen ---------- */
+
+.chip.offen { background: #fdf2e3; color: var(--amber); }
+.chip.teilbezahlt { background: #eaf0fb; color: var(--blue); }
+.chip.bezahlt { background: #e7f5ed; color: var(--green); }
+.chip.storniert { background: #eee; color: var(--muted); }
+
+td.ueberfaellig { color: var(--red); font-weight: 600; }
+
+/* Eine stornierte Zahlung bleibt lesbar, ist aber erkennbar nicht mehr
+   wirksam -- durchgestrichen waere bei einem Betrag zu leicht zu
+   uebersehen, deshalb zusaetzlich blass. */
+tr.storniert td { color: var(--muted); text-decoration: line-through; }
+tr.storniert td:last-child, tr.storniert .fussnote { text-decoration: none; }
+
+#z-konto tbody tr, #z-liste tbody tr[data-storno] { cursor: default; }
+#z-liste tbody tr.klickbar { cursor: pointer; }
+
+/* ---------- Hervorhebungen in Listen ---------- */
+
+/* Ein Zustand, der auffallen MUSS -- etwa ein abgeschlossenes
+   Geschaeftsjahr, in das niemand mehr bucht. */
+.warnfarbe { color: var(--red); font-weight: 600; }
+
+/* Eine Zeile, die erledigt ist, bleibt stehen und tritt zurueck. Nicht
+   durchgestrichen: sie ist nicht ungueltig, sondern abgeschlossen.
+   Genutzt von der Kontenliste der Buchhaltung. */
+tr.erledigt td { color: var(--muted); }
+
+@media (max-width: 720px) {
+  /* 27 px hoch trifft am Handy niemand zuverlaessig. Betrifft die Knoepfe
+     in den Tabellen (stornieren, Ruecklastschrift, buchen). */
+  button.btn.klein { padding: 9px 14px; }
+
+  /* ⚠️ Das Kreuz muss hier MIT wachsen. Seine Groesse steht fest (es hat
+     keinen Text, an dem die Polsterung ziehen koennte) -- ohne diese
+     Zeile bliebe es bei 27 px, waehrend der Knopf daneben auf 35 geht:
+     zwei Knoepfe auf verschiedenen Hoehen in einer Zeile, und der
+     kleinere ist ausgerechnet der zum Loeschen. */
+  button.btn.kreuz { width: 35px; min-width: 35px; height: 35px; }
+
+  .overlay { padding: 0; }
+  .dialog { max-height: 100vh; border-radius: 0; }
+  .formraster { grid-template-columns: 1fr; }
+}
+
+/* ---------- Anmelde-Schirm ---------- */
+
+#anmelde-schirm {
+  max-width: 460px;
+  margin: 60px auto;
+  text-align: center;
+}
+
+/* ---------- Info ---------- */
+
+.changelog-block { margin-bottom: 18px; }
+.changelog-block h3 { margin: 0 0 4px; font-size: 15px; }
+.changelog-datum { font-size: 12px; color: var(--muted); }
+.changelog-block ul { margin: 8px 0 0; padding-left: 20px; }
+.changelog-block li { margin-bottom: 5px; }
+
+footer {
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 24px 20px calc(24px + env(safe-area-inset-bottom));
+}
+
+/* ---------- Handy ---------- */
+
+@media (max-width: 720px) {
+  header { padding: 12px 14px; }
+  header h1 { font-size: 17px; flex: 1 1 100%; order: 2; }
+  main { padding: 14px; }
+  .karte { padding: 14px; }
+  .suchfeld { flex: 1 1 100%; }
+  .feld { flex: 1 1 100%; }
+  .feld select { width: 100%; }
+}
+
+/* ---------- Aufnahmeantrag (oeffentliche Seite antrag.html) ---------- */
+
+/* Ein Formular liest sich in einer schmalen Spalte besser als ueber die
+   volle Breite der Mitgliederliste. */
+.antragseite main { max-width: 780px; }
+
+/* Die Antragsprüfung stellt Angaben, Unterschriften und den Beschluss
+   nebeneinander -- in 780px wird das eine Schlucht. */
+.dialog.breit { max-width: 940px; }
+
+/* ---------- Angezeigte Datei (Nachweis, Verbandsformular) ---------- */
+
+/* ⚠️ Liegt ueber #antrag-overlay: beide Overlays stehen auf z-index 1000,
+   und dieses steht im Markup DAVOR -- ohne die 1010 verschwaende es
+   dahinter. */
+#datei-overlay { z-index: 1010; }
+
+.datei-buehne {
+  background: #0f1624;
+  border-radius: 10px;
+  padding: 10px;
+  text-align: center;
+  min-height: 120px;
+}
+.datei-buehne img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 0 auto;
+  border-radius: 6px;
+}
+/* Kein aspect-ratio und keine feste Hoehe in px: das PDF soll den
+   verfuegbaren Raum fuellen, und der Dialog scrollt ohnehin in sich. */
+.datei-buehne iframe {
+  width: 100%;
+  height: 70vh;
+  border: 0;
+  border-radius: 6px;
+  background: #fff;
+}
+.datei-buehne .datei-leer {
+  color: #cbd5e1;
+  font-size: 14px;
+  padding: 30px 10px;
+}
+#datei-hinweis { flex: 1 1 auto; font-size: 13px; color: var(--muted); }
+
+.beitragsliste { margin: 6px 0 0; padding-left: 20px; }
+.beitragsliste li { margin-bottom: 3px; }
+
+.mandatstext {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--blue);
+  border-radius: 8px;
+  font-size: 13.5px;
+}
+.mandatstext p { margin: 8px 0 0; }
+.mandatstext .fussnote { margin-top: 8px; }
+
+.unterschrift-block { margin-top: 14px; }
+.unterschrift-titel {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+/* touch-action: none ist Pflicht, nicht Kosmetik -- ohne das scrollt iOS
+   die Seite, waehrend jemand zu unterschreiben versucht. */
+.unterschrift-feld {
+  display: block;
+  width: 100%;
+  height: 170px;
+  border: 2px dashed var(--line);
+  border-radius: 10px;
+  background: #fff;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+button.btn.gross { padding: 14px 26px; font-size: 16px; }
+
+table.zusammenfassung th {
+  text-align: left;
+  white-space: nowrap;
+  width: 190px;
+  vertical-align: top;
+  color: var(--muted);
+  font-weight: 600;
+}
+table.zusammenfassung td { white-space: normal; }
+
+.unterschrift-beleg {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+.unterschrift-beleg img {
+  display: block;
+  max-width: 280px;
+  width: 100%;
+  border-bottom: 1px solid var(--text);
+}
+
+/* Die Bestaetigungsseite ist die Kopie des Antragstellers. Gedruckt
+   gehoeren Kopfzeile und Knoepfe nicht darauf. */
+@media print {
+  body { background: #fff; }
+  header, .nicht-drucken { display: none !important; }
+  .karte { border: none; box-shadow: none; padding: 0 0 12px; }
+  main { padding: 0; max-width: none; }
+}
+
+@media (max-width: 720px) {
+  .antragseite .formraster { grid-template-columns: 1fr; }
+  .unterschrift-feld { height: 150px; }
+  button.btn.gross { width: 100%; }
+  table.zusammenfassung th { width: 130px; white-space: normal; }
+}
+
+/* ---------- Buchhaltung und Auswertungen (Stufe 4 und 5) ---------- */
+
+/* Als Link gestalteter Knopf. a.btn gab es schon, aber die beiden neuen
+   Seiten brauchen ihn auch ohne die Beitragslauf-Umgebung. */
+a.btn-link {
+  display: inline-block;
+  background: var(--blue);
+  color: #fff;
+  text-decoration: none;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+a.btn-link:hover { background: var(--blue-dark); }
+
+/* Der Verweis „Auswertungen →“ sieht aus wie ein Reiter, führt aber auf eine
+   andere Seite. Der Pfeil im Text sagt das; die Optik folgt `nav button`,
+   damit die Zeile nicht auseinanderfällt — wer dort etwas ändert, ändert es
+   hier mit.
+
+   ⚠️ `font-family` und `line-height` stehen hier, weil ein <a> beides von der
+   Seite ERBT, ein <button> aber nicht (der bekommt vom Browser Arial und
+   `normal`). Ohne die zwei Zeilen war dieser eine Verweis 21 px hoher Inhalt
+   gegen 16 px bei den Reitern — und weil Flex-Kinder standardmäßig auf die
+   Zeilenhöhe gestreckt werden, zog er die GANZE Leiste auf 53 statt 48 px.
+   Am 2026-08-11 gemessen; die 5 px waren zuerst der Schriftfamilie
+   zugeschrieben worden, das war falsch. Es ist die Zeilenhöhe. */
+nav a {
+  border-bottom: 3px solid transparent;
+  border-radius: 8px 8px 0 0;
+  padding: 10px 16px;
+  font-family: Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: normal;
+  color: var(--muted);
+  text-decoration: none;
+  align-self: center;
+}
+nav a:hover { color: var(--blue); }
+nav a[hidden] { display: none; }
+
+/* Eine Buchungszeile: Konto, Soll, Haben, Wegwerfen. Am Handy bricht sie
+   um, statt die Seite seitlich zu sprengen. */
+/* ⚠️ minmax(0, 1fr), nicht 1fr. Ein blosses 1fr hat min-content als
+   Mindestbreite, und die Kontoauswahl traegt lange Beschriftungen
+   ("1200 Bank"). Die Spalte wuchs dadurch ueber die Karte hinaus --
+   gemessen: Zeile 318 px breit, Inhalt bis 490 px. min-width am Element
+   allein reicht nicht, weil die SPUR die Mindestbreite bestimmt. */
+.buchungszeile {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 130px 130px 40px;
+  gap: 8px;
+  margin-bottom: 8px;
+  align-items: center;
+}
+.buchungszeile input { text-align: right; font-variant-numeric: tabular-nums; }
+.buchungszeile select { min-width: 0; }
+.buchungszeile > * { min-width: 0; }
+
+/* Ein Beleg im Journal: Kopfzeile plus Zeilen, keine flache Tabelle --
+   Soll und Haben gehören sichtbar zusammen. */
+.beleg {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  background: #fff;
+}
+.beleg-kopf {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+.beleg-summe {
+  margin-left: auto;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.beleg-zeilen { font-size: 13.5px; }
+.beleg-zeilen td { padding: 4px 8px; }
+.beleg-zeilen td.betrag { width: 130px; }
+/* Storniert wird durchgestrichen, nicht ausgeblendet: die Buchung bleibt
+   Teil des Journals, sie ist nur unwirksam. */
+.beleg.storniert { background: #fbfbfc; }
+.beleg.storniert .beleg-kopf strong { text-decoration: line-through; }
+.beleg.storniert .beleg-zeilen { color: var(--muted); }
+
+/* Kennzahlen-Kacheln der Auswertungsseite. Die bestehende .kennzahlen
+   arbeitet mit dt/dd, hier stehen eigene Kinder drin. */
+.kennzahl { text-align: left; }
+.kennzahl-zahl {
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.kennzahl-text { font-size: 12.5px; color: var(--muted); }
+.kennzahl-hinweis { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+
+/* Kleine Berichtstabellen umarmen ihren Inhalt, statt sich über 1200 px
+   zu spannen: "Jahr" mit "2017" darin braucht keine 900 px, und die
+   Leerfläche dazwischen war der zweite Teil dessen, was an der
+   Formatierung nicht stimmte.
+   Regel für neue Tabellen: class="schmal" bekommt, wer in JEDER Spalte
+   kurze Werte trägt — Zahlen, Kategorien, Daten. Sobald eine Spalte
+   Freitext oder Namenslisten enthält (Journal, Saldenliste, offene
+   Posten, Mitgliederliste), bleibt sie voll breit; da hilft die Breite.
+   Vorher stand hier eine Liste von Element-Ids — die veraltet still,
+   sobald jemand eine Tabelle ergänzt. */
+table.schmal { width: auto; max-width: 100%; }
+
+.balkenliste { margin-top: 4px; }
+.balkenzeile {
+  display: grid;
+  grid-template-columns: 190px 1fr 60px;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 5px;
+  font-size: 14px;
+}
+.balken-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.balken-wert { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+
+@media (max-width: 720px) {
+  /* Vier Spalten passen bei 375px nicht. Konto über die volle Breite,
+     Soll und Haben nebeneinander darunter. */
+  .buchungszeile {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 40px;
+  }
+  .buchungszeile select { grid-column: 1 / -1; }
+  .balkenzeile { grid-template-columns: 110px minmax(0, 1fr) 46px; font-size: 13px; }
+  .beleg-summe { margin-left: 0; width: 100%; }
+}
+
+/* ---------------------------------------------------------------------
+   Datenschutzhinweis nach Art. 13 DSGVO
+   ---------------------------------------------------------------------
+   Bewusst aufklappbar: die Angaben muessen vollstaendig dastehen, duerfen
+   das Formular aber nicht zuschuetten. Zugeklappt ist der Standard --
+   Art. 13 verlangt, dass die Information verfuegbar ist, nicht dass sie
+   ungefragt zwei Bildschirme fuellt.
+
+   Die Farben tragen Rueckfallwerte, weil derselbe Block in mehreren Repos
+   der Flotte steht und die Variablennamen dort nicht ueberall gleich
+   heissen. Ohne den Fallback waere die Schrift in manchen Apps schwarz
+   auf weiss statt gedaempft. */
+.ds-block {
+  border: 1px solid var(--line, #dfe3e8);
+  border-radius: 8px;
+  background: #fbfcfd;
+  margin: 14px 0 0;
+}
+.ds-block > summary {
+  cursor: pointer;
+  padding: 10px 12px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--blue, #1a56a0);
+  list-style: none;
+}
+/* Das eigene Dreieck statt des nativen Markers: Safari auf aelteren
+   iOS-Geraeten rendert list-style an <summary> nicht zuverlaessig. */
+.ds-block > summary::-webkit-details-marker { display: none; }
+.ds-block > summary::before { content: "\25B8\00A0"; }
+.ds-block[open] > summary::before { content: "\25BE\00A0"; }
+.ds-inhalt {
+  padding: 0 12px 12px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--muted, #667085);
+}
+.ds-inhalt p { margin: 0 0 8px; }
+.ds-inhalt strong { color: var(--text, #1c2330); }
+.ds-inhalt ul { margin: 0 0 8px; padding-left: 18px; }
+.ds-inhalt li { margin: 2px 0; }
+.ds-inhalt a { color: var(--blue, #1a56a0); }
+
+/* Versionsplakette in der Info-Karte — Flottenmuster: die Angabe steht als
+   Badge in der Ueberschrift, nicht als Fliesstextzeile darunter. Diese App
+   nutzt .karte, wo die uebrige Flotte .card heisst. */
+.version-badge {
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 2px 9px;
+  vertical-align: middle;
+  margin-left: 4px;
+  background: var(--blue-light);
+  color: var(--blue);
+  border: 1px solid transparent;
+}
+
+/* iOS Safari zoomt beim Antippen eines Feldes unter 16px in die Seite hinein
+   und wieder heraus zoomt es nicht. Flottenweiter Block seit 2026-07-28,
+   hier bis 2026-08-05 vergessen — die Dateiauswahl im Import stand auf 15px.
+   !important, weil die Feldregeln ueber Klassen laufen. */
+@media (max-width: 820px) {
+  input, select, textarea { font-size: 16px !important; }
+}
+
+/* Nachweise der Nachwuchs-Anmeldung (nachwuchs.html).
+   Jede Anlage ist ein eigener Block mit Titel, Erklaerung, Dateiauswahl
+   und Zustand — eine Reihe nebeneinander waere am Handy unlesbar, und die
+   Erklaerung gehoert zwingend VOR die Auswahl: wer erst nach dem Antippen
+   erfaehrt, was gemeint war, hat schon das falsche Foto gewaehlt. */
+.nachweis-zeile {
+  border: 1px solid var(--line, #dfe3e8);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 0 0 12px;
+  background: #fbfcfd;
+}
+.nachweis-zeile h3 { margin: 0 0 4px; font-size: 14px; }
+.nachweis-zeile .fussnote { margin: 0 0 10px; }
+/* input[type=file] erbt sonst die 100%-Breite der Formularfelder und
+   sprengt am Handy den Block — dieselbe Falle wie bei den Kaestchen. */
+.nachweis-zeile input[type="file"] {
+  width: 100%;
+  max-width: 100%;
+  font-size: 14px;
+}
+.nachweis-stand { margin-top: 8px; }
+/* Der Zustand steht in einem .hinweis, der sonst 14px Aussenabstand
+   mitbringt und den Block auseinanderzieht. */
+.nachweis-stand .hinweis { margin: 0; padding: 6px 10px; font-size: 13px; }
+
+/* Passbild-Zuschnitt (nachwuchs.html).
+   Vorbild ist der Nutzerfoto-Dialog der ToolsUebersicht; die Lehren von
+   dort sind hier eingebaut: der Canvas-Puffer ist GENAU so gross wie das
+   Ergebnis (was man sieht, ist byte-genau was gespeichert wird), die
+   Anzeige darf kleiner sein, und es steht bewusst KEIN aspect-ratio im
+   CSS -- das kennen die aelteren iOS-Geraete der Flotte nicht. */
+.foto-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, .62);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 1000;
+}
+.foto-overlay[hidden] { display: none; }
+.foto-dialog {
+  background: #fff;
+  border-radius: 12px;
+  padding: 18px;
+  width: 420px;
+  max-width: 100%;
+  /* Der Dialog scrollt in SICH, nicht die Seite dahinter -- sonst ist der
+     Übernehmen-Knopf auf einem kurzen Bildschirm nur per Zoom erreichbar.
+     Die 40px sind das padding des Overlays. */
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+}
+.foto-dialog h2 { margin: 0 0 6px; font-size: 17px; }
+.foto-dialog canvas {
+  display: block;
+  margin: 12px auto;
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  background: #eef1f5;
+  touch-action: none;   /* sonst scrollt die Seite statt das Bild zu ziehen */
+  cursor: grab;
+}
+.foto-dialog input[type="range"] { width: 100%; }
+
+/* Vorschau der fertigen Aufnahme in der Karte. Im Seitenverhaeltnis des
+   Passbilds (35:45), damit sofort sichtbar ist, was der Verband bekommt. */
+.passbild-vorschau {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 12px;
+}
+.passbild-vorschau img {
+  width: 84px;
+  height: 108px;
+  /* ⚠️ flex: 0 0 auto ist Pflicht, nicht Kosmetik: als Flex-Kind schrumpft
+     das Bild sonst auf 72px, waehrend die Hoehe bei 108 bleibt — und
+     object-fit: cover schneidet dann seitlich ab. Der Nutzer saehe einen
+     ANDEREN Ausschnitt als den, den er eben gewaehlt hat. Bei 375px
+     nachgemessen. */
+  flex: 0 0 auto;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--line, #dfe3e8);
+}
+
+/* Eigene Kameravorschau mit Hilfslinie.
+   ⚠️ Fuer BEIDE Plattformen gebaut: iOS-Safari braucht playsinline am
+   <video> (sonst reisst es in den Vollbild-Player und die Hilfslinie ist
+   weg), Android-Chrome braucht nichts Besonderes -- aber beide brauchen
+   object-fit: cover, sonst zeigt die Buehne schwarze Balken, sobald das
+   Seitenverhaeltnis der Kamera nicht zum Rahmen passt. */
+.kamera-dialog { width: 460px; }
+.kamera-buehne {
+  position: relative;
+  width: 100%;
+  /* Kein aspect-ratio: das kennen die aelteren iOS-Geraete nicht. Das
+     Verhaeltnis 3:4 kommt ueber padding-top, der Klassiker. */
+  padding-top: 133.33%;
+  background: #10151d;
+  border-radius: 10px;
+  overflow: hidden;
+  margin: 12px 0;
+}
+.kamera-buehne video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+/* Das Oval liegt UEBER dem Video und wird nie mitfotografiert -- der
+   Schnappschuss entsteht aus dem Video-Element, nicht aus dieser Ebene. */
+.kamera-oval {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  width: 60%;
+  height: 68%;
+  transform: translate(-50%, -50%);
+  border: 3px dashed rgba(255, 255, 255, .92);
+  border-radius: 50%;
+  pointer-events: none;
+  /* Der Schatten nach aussen dunkelt alles ab, was NICHT im Oval liegt --
+     billiger als eine zweite Ebene mit Maske und auf jedem Geraet gleich. */
+  box-shadow: 0 0 0 2000px rgba(15, 23, 42, .45);
+}
+/* Die Frontkamera zeigt spiegelverkehrt, sonst greift man beim Ausrichten
+   in die falsche Richtung. Der Schnappschuss wird in nachwuchs.js
+   zurueckgespiegelt -- ein spiegelverkehrtes Passbild waere falsch. */
+.kamera-buehne.gespiegelt video { transform: scaleX(-1); }
+
+/* ---------- Rehasportdaten aus der Verbandserhebung ---------- */
+
+/* Der Kasten sitzt IN der Meldekarte und muss sich davon absetzen: was
+   hier eingelesen wird, stammt nicht aus der Vereinsverwaltung, und
+   genau das soll man sehen. */
+.reha-block {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  background: var(--bg);
+}
+.reha-block .knopfreihe { margin-bottom: 8px; }
+
+/* ⚠️ Das <label> tut den Dienst des Knopfes, weil sich ein
+   <input type="file"> nicht wie die uebrigen Knoepfe gestalten laesst.
+   Die Klasse .btn allein reicht dafuer NICHT: die Flottenregel heisst
+   `button.btn`, ist also an das Element gebunden. Im Browser gemessen
+   kam am Label an: Hintergrund transparent, Polsterung 0, Radius 0 --
+   der Knopf sah aus wie ein Stueck Fliesstext. Die Werte stehen deshalb
+   hier noch einmal, byte-genau wie bei button.btn.grau.
+   Wer button.btn aendert, aendert das hier mit. */
+label.btn {
+  display: inline-block;
+  background: #6b7280;
+  color: #fff;
+  border: none;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  line-height: normal;
+}
+label.btn:hover { background: #4b5563; }
+
+/* 16 px Schrift bleiben (iOS zoomt sonst beim Antippen hinein), schmal
+   wird das Feld ueber die Breite. Gleiche Loesung wie beim Nummernfeld
+   in der Abteilungszeile. */
+.reha-nummer { max-width: 220px; margin-top: 6px; }
+.reha-nummer input { max-width: 110px; }
+
+/* Die Rehazeilen stehen in derselben Tabelle wie der Vereinsbestand.
+   Ohne eigene Faerbung liest sich die Meldung so, als kaeme alles aus
+   der Datenbank -- die Zahlen sind aber aus einer fremden Datei. */
+tr.reha-zeile td { background: #f4f6fb; font-style: italic; }

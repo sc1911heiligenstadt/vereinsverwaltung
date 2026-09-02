@@ -1,0 +1,25 @@
+# CLAUDE.md wird flottenweit NIE committet -- die Repos sind oeffentlich,
+# die Datei enthaelt interne Ablaeufe, Pfade und Betriebswissen.
+CLAUDE.md
+
+# Niemals echte Vereins- oder Mitgliederdaten im Repo.
+*.csv
+*.xlsx
+export/
+daten/
+backup/
+Backup/
+
+# Nextcloud-/Datenbank-Auszuege
+*.db
+*.sqlite
+*.sqlite3
+d1-export*.sql
+
+# Betriebssystem
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Lokale Dev-Server-Konfiguration, kein Teil der App
+.claude/

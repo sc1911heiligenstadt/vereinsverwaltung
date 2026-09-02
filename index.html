@@ -1,0 +1,985 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#1a56a0">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=1.0">
+<link rel="icon" href="/favicon.png?v=1.0" type="image/png">
+<title>Vereinsverwaltung &mdash; 1. SC 1911 Heiligenstadt</title>
+<link rel="stylesheet" href="style.css?v=1.0">
+</head>
+<body>
+
+<header>
+  <h1>Vereinsverwaltung</h1>
+  <a class="dashboard-pille" href="https://sc1911heiligenstadt.github.io/ToolsUebersicht/">&larr; Zurück zum Dashboard</a>
+  <div class="kopf-rechts">
+    <span class="rollen-pille" id="rollen-pille" hidden></span>
+    <img class="kopf-logo" src="https://sc1911heiligenstadt.github.io/logo.svg" alt="1. SC 1911 Heiligenstadt e.V.">
+  </div>
+</header>
+
+<nav id="haupt-nav" hidden>
+  <button data-tab="tab-mitglieder" class="aktiv">Mitglieder</button>
+  <button data-tab="tab-beitraege" id="nav-beitraege" hidden>Beiträge</button>
+  <button data-tab="tab-lauf" id="nav-lauf" hidden>Beitragslauf</button>
+  <button data-tab="tab-zahlungen" id="nav-zahlungen" hidden>Zahlungen</button>
+  <button data-tab="tab-antraege" id="nav-antraege" hidden>Anträge</button>
+  <!-- Eigener Reiter und kein Block in „Anträge“: dort geht es um die
+       Aufnahme nach § 4, hier um eine Erklärung von Familien, deren Kind
+       längst Mitglied ist. Zwei verschiedene Vorgänge mit zwei
+       verschiedenen Eingangswegen. -->
+  <button data-tab="tab-kodex" id="nav-kodex" hidden>Elternkodex</button>
+  <!-- „Import“ und „Rollen“ hatten bis 2026-08-10 eigene Einträge und
+       liegen seitdem im Reiter „Einstellungen“ (Michel-Vorgabe) — beides
+       sind seltene Vorgänge, die den täglichen Ablauf nicht betreffen.
+       Die Inhalte sind unverändert, nur umgezogen; ihre Rechte hängen
+       jetzt an den Blöcken dort, nicht mehr an einem Leisten-Eintrag. -->
+  <!-- Eigene Seite, kein Reiter: die Auswertungen laden keinen Code, der
+       etwas ändern kann. Ein Seitenwechsel ist hier die Rechtegrenze.
+       Steht VOR „Info“, weil flottenweit gilt: Info ist der letzte
+       Eintrag der Leiste. Bis 2026-08-05 hing der Verweis dahinter.
+       Der Verweis auf die Buchhaltung stand bis 2026-08-08 daneben und
+       liegt jetzt im Reiter „Einstellungen“ (Michel-Vorgabe: sie wird auf
+       lange Sicht nicht gebraucht, soll aber nicht verworfen werden). -->
+  <a href="vorstand.html" id="nav-auswertung" hidden>Auswertungen &rarr;</a>
+  <!-- Rechte Gruppe im Wrapper (Flottenregel, hier am 2026-08-11 nachgezogen).
+       Sie ersetzt die gemessene Media-Query ab 880px samt der Krücke
+       `#nav-einstellungen[hidden] + button`: der Wrapper bricht als Ganzes um
+       und bleibt dabei zusammen, deshalb entsteht keine Treppe und es muss
+       beim Ergänzen eines Reiters nichts mehr nachgemessen werden. Ist
+       „Einstellungen“ für eine Rolle versteckt, steht „Info“ trotzdem rechts. -->
+  <div class="nav-right">
+    <button data-tab="tab-einstellungen" id="nav-einstellungen" hidden>Einstellungen</button>
+    <button data-tab="tab-info">Info</button>
+  </div>
+</nav>
+
+<main>
+
+  <!-- Anmelde-Schirm. Standardzustand im HTML, damit vor der ersten
+       Antwort nichts Falsches aufblitzt. Gate haengt ausschliesslich am
+       Vorhandensein des Tokens. -->
+  <section id="anmelde-schirm" class="karte">
+    <h2>Anmeldung erforderlich</h2>
+    <p>Diese Anwendung enthält Mitgliederdaten des Vereins und ist nur für angemeldete Personen zugänglich.</p>
+    <p><a class="btn" href="https://sc1911heiligenstadt.github.io/ToolsUebersicht/" style="display:inline-block;text-decoration:none;padding:10px 18px;background:#1a56a0;color:#fff;border-radius:8px;">Zur Anmeldung</a></p>
+  </section>
+
+  <div id="app-bereich" hidden>
+
+    <section id="tab-mitglieder" class="tab aktiv">
+      <div class="karte">
+        <h2>Mitglieder</h2>
+
+        <div id="sicht-hinweis" hidden></div>
+
+        <div class="filterleiste">
+          <div class="feld suchfeld">
+            <label for="f-suche">Suche (Name oder Mitgliedsnummer)</label>
+            <input type="search" id="f-suche" placeholder="z. B. Müller oder T100042" autocomplete="off">
+          </div>
+          <div class="feld">
+            <label for="f-sparte">Sparte</label>
+            <select id="f-sparte"><option value="">Alle</option></select>
+          </div>
+          <div class="feld">
+            <label for="f-status">Status</label>
+            <select id="f-status">
+              <option value="aktiv">Aktiv</option>
+              <option value="">Alle</option>
+              <option value="antrag">Antrag</option>
+              <option value="ruhend">Ruhend</option>
+              <option value="gekuendigt">Gekündigt</option>
+              <option value="beendet">Beendet</option>
+            </select>
+          </div>
+          <div class="feld">
+            <label>&nbsp;</label>
+            <button class="btn" id="btn-suchen">Suchen</button>
+          </div>
+          <div class="feld">
+            <label>&nbsp;</label>
+            <button class="btn" id="btn-neu" hidden>+ Neues Mitglied</button>
+          </div>
+        </div>
+
+        <div class="zaehler">
+          <span id="zaehler-text">&nbsp;</span>
+          <span id="zaehler-seite"></span>
+        </div>
+
+        <div id="liste-bereich"></div>
+
+        <div class="blaetterleiste" id="blaetterleiste" hidden>
+          <button class="btn grau" id="btn-zurueck">Zurück</button>
+          <span id="seiten-info"></span>
+          <button class="btn grau" id="btn-weiter">Weiter</button>
+        </div>
+      </div>
+
+      <!-- Die Datei, die der Landessportbund einliest. Sie steht HIER und
+           nicht auf vorstand.html: sie enthält Namen, Geburtsdaten und
+           Abteilungen aller Mitglieder, und jene Seite lädt bewusst
+           keinen Code, der Personendaten anzeigen kann. Sichtbar ab
+           darfSchreiben — dieselbe Stufe wie das Anlegen von Hand
+           (Export ab Bearbeiten). -->
+      <div class="karte" id="lsb-karte" hidden>
+        <h2>Bestandsmeldung an den Landessportbund</h2>
+        <p class="fussnote">Erzeugt die <strong>Mitgliederliste im Format des LSB Thüringen</strong>
+        (CSV mit einer Zeile je Person). Im Portal
+        <a href="https://www.unser-sportverein.net/" target="_blank" rel="noopener">unser-sportverein.net</a>
+        wird sie in Schritt 3 der Bestandserhebung über „Bestandsdaten einlesen“ hochgeladen; das
+        Portal rechnet daraus selbst die Jahrgangs- und Fachverbandsmeldung. Meldezeitraum ist
+        der 1. Januar bis Mitte Februar. <strong>Die Zahlen je Altersgruppe zum Gegenrechnen
+        stehen in den Auswertungen.</strong></p>
+
+        <!-- Der Rehasport wird außerhalb dieser App geführt; einmal im Jahr
+             kommt von dort die ausgefüllte Bestandserhebung des Behinderten-
+             und Rehabilitationssportverbandes. Sie enthält nur Zählwerte je
+             Jahrgang, deshalb entstehen daraus Platzhalter-Zeilen — das
+             Portal nimmt ausschließlich Einzelpersonen entgegen. Dieselbe
+             Karte steht auf vorstand.html, der geladene Stand gilt für
+             beide. -->
+        <div id="lsb-reha"></div>
+
+        <div class="filterleiste">
+          <div class="feld">
+            <label for="lsb-stichtag">Stichtag</label>
+            <input type="date" id="lsb-stichtag">
+          </div>
+          <div class="feld">
+            <label>&nbsp;</label>
+            <button class="btn" id="btn-lsb-liste">Liste erzeugen</button>
+          </div>
+          <div class="feld">
+            <label>&nbsp;</label>
+            <button class="btn" id="btn-lsb-csv" hidden>Datei für das Portal (CSV)</button>
+          </div>
+        </div>
+
+        <div id="lsb-ergebnis"></div>
+      </div>
+    </section>
+
+    <!-- Beiträge. Die Sätze stehen in der Datenbank, nicht im Code:
+         ein Beschluss der Mitgliederversammlung darf kein Deploy sein. -->
+    <section id="tab-beitraege" class="tab">
+
+      <div class="karte">
+        <h2>Beitragsordnung</h2>
+        <p class="fussnote">Der Beitrag fällt <strong>einmal je Mitglied</strong> an, nicht je Sparte.
+        Wer in zwei Abteilungen aktiv ist, zahlt einmal.</p>
+        <div id="b-status" class="hinweis info" hidden></div>
+        <div id="b-klassen"></div>
+        <div class="knopfreihe">
+          <button class="btn grau" id="btn-b-neu-laden">Neu berechnen</button>
+          <button class="btn grau" id="btn-b-init" hidden>Beitragsordnung anlegen</button>
+          <button class="btn" id="btn-b-zuordnen" hidden>Mitglieder zuordnen</button>
+        </div>
+      </div>
+
+      <div class="karte" id="b-karte-pruefen" hidden>
+        <h2>Zu prüfen</h2>
+        <p class="fussnote">Klasse und Alter passen hier nicht zusammen. Das ist <strong>kein Fehler
+        der App</strong>, sondern so aus dem Vereinsmeister übernommen — es kann eine Sonderregelung
+        sein oder ein Pflegefehler. Die Entscheidung trifft die Geschäftsstelle, nicht die Software.</p>
+        <div id="b-auffaellig"></div>
+      </div>
+
+      <div class="karte" id="b-karte-uneindeutig" hidden>
+        <h2>Verschiedene Beitragsarten je Sparte</h2>
+        <p class="fussnote">Bei diesen Mitgliedern nennt der Vereinsmeister in den einzelnen Sparten
+        <strong>unterschiedliche</strong> Beitragsarten. Übernommen wurde jeweils die erste. Wenn das
+        nicht stimmt, hier anklicken und die Klasse von Hand setzen.</p>
+        <div id="b-uneindeutig"></div>
+      </div>
+
+      <div class="karte">
+        <h2>Beitragssatz ändern</h2>
+        <p class="fussnote">Ein neuer Satz ersetzt den alten nicht, sondern gilt ab einem Stichtag.
+        Was davor gerechnet wurde, bleibt nachvollziehbar.</p>
+        <div class="filterleiste">
+          <div class="feld suchfeld">
+            <label for="b-satz-klasse">Beitragsklasse</label>
+            <select id="b-satz-klasse"></select>
+          </div>
+          <div class="feld">
+            <label for="b-satz-betrag">Jahresbeitrag (€)</label>
+            <input id="b-satz-betrag" inputmode="decimal" placeholder="96,00">
+          </div>
+          <div class="feld">
+            <label for="b-satz-ab">Gültig ab</label>
+            <input type="date" id="b-satz-ab">
+          </div>
+          <div class="feld">
+            <label for="b-satz-beschluss">Beschlossen am</label>
+            <input type="date" id="b-satz-beschluss">
+          </div>
+          <div class="feld">
+            <label>&nbsp;</label>
+            <button class="btn" id="btn-b-satz">Satz eintragen</button>
+          </div>
+        </div>
+        <div id="b-satz-status" class="hinweis info" hidden></div>
+      </div>
+
+    </section>
+
+    <!-- Beitragslauf und SEPA. Hängt am Schatzmeister, nicht am
+         Bearbeiten-Recht: hier entstehen Forderungen und eine Datei mit
+         500 IBANs. -->
+    <section id="tab-lauf" class="tab">
+
+      <div class="karte">
+        <h2>Vereinsstammdaten</h2>
+        <p class="fussnote">Ohne diese Angaben lässt sich keine SEPA-Datei erzeugen. Sie stehen in der
+        Datenbank und nicht im Programmcode — eine Vereins-IBAN gehört nicht in ein öffentliches
+        Repository.</p>
+        <div id="l-stammdaten"></div>
+        <div id="l-stamm-status" class="hinweis info" hidden></div>
+      </div>
+
+      <div class="karte">
+        <h2>Beitragsläufe</h2>
+        <div id="l-liste"></div>
+        <div id="l-liste-status" class="hinweis info" hidden></div>
+        <div class="knopfreihe">
+          <button class="btn grau" id="btn-l-neu-laden">Neu laden</button>
+          <button class="btn" id="btn-l-neu">Neuen Lauf anlegen</button>
+        </div>
+      </div>
+
+      <div class="karte" id="l-karte-detail" hidden>
+        <h2 id="l-detail-titel">Lauf</h2>
+        <div id="l-detail"></div>
+        <div id="l-fortschritt-huelle" hidden>
+          <div class="balken"><div class="balken-fuellung" id="l-balken"></div></div>
+          <div class="fussnote" id="l-fortschritt-text"></div>
+        </div>
+        <div id="l-detail-status" class="hinweis info" hidden></div>
+        <div class="knopfreihe" id="l-detail-knoepfe"></div>
+      </div>
+
+      <div class="karte" id="l-karte-ergebnis" hidden>
+        <h2 id="l-ergebnis-titel">Ergebnis</h2>
+        <div id="l-ergebnis"></div>
+      </div>
+
+      <div class="karte" id="l-karte-mandate">
+        <h2>Übernommene Mandate</h2>
+        <p class="fussnote">Im Altbestand steht nicht, wann ein Mandat zuletzt benutzt wurde. Ohne
+        diese Angabe behandelt die App jeden Einzug als <strong>Erstlastschrift</strong> — die braucht
+        fünf statt zwei Bankarbeitstage Vorlauf. Bestätigt die Bank, dass die alten Mandate
+        weiterlaufen, wird das hier einmalig eingetragen.</p>
+        <div class="filterleiste">
+          <div class="feld">
+            <label for="l-mandat-datum">Zuletzt vom Vereinsmeister eingezogen am</label>
+            <input type="date" id="l-mandat-datum">
+          </div>
+          <div class="feld">
+            <label>&nbsp;</label>
+            <button class="btn grau" id="btn-l-mandate">Als Folgelastschrift kennzeichnen</button>
+          </div>
+        </div>
+        <div id="l-mandat-status" class="hinweis info" hidden></div>
+      </div>
+
+    </section>
+
+    <!-- Zahlungseingänge. forderung.status wird nie von Hand gesetzt,
+         sondern immer aus den Zahlungen abgeleitet -- sonst steht in
+         dieser Liste etwas anderes als auf dem Konto. -->
+    <section id="tab-zahlungen" class="tab">
+
+      <div class="karte">
+        <h2>Offene Posten</h2>
+        <div class="filterleiste">
+          <div class="feld">
+            <label for="z-jahr">Beitragsjahr</label>
+            <select id="z-jahr"><option value="">Alle</option></select>
+          </div>
+          <div class="feld">
+            <label>&nbsp;</label>
+            <label class="ankreuz"><input type="checkbox" id="z-nur-faellig"> nur bereits fällige</label>
+          </div>
+          <div class="feld">
+            <label>&nbsp;</label>
+            <button class="btn grau" id="btn-z-neu-laden">Neu laden</button>
+          </div>
+        </div>
+        <div id="z-summe" class="betrag-anzeige"></div>
+        <div id="z-liste"></div>
+      </div>
+
+      <div class="karte" id="z-karte-konto" hidden>
+        <h2 id="z-konto-titel">Kontoauszug</h2>
+        <p class="fussnote">Alles, was diesem Haushalt in Rechnung gestellt und von ihm gezahlt
+        wurde. Stornierte Zahlungen bleiben sichtbar — eine Rücklastschrift ist genau das, wonach
+        hier jemand sucht.</p>
+        <div id="z-konto"></div>
+        <div id="z-konto-status" class="hinweis info" hidden></div>
+        <div class="knopfreihe" id="z-konto-knoepfe"></div>
+      </div>
+
+    </section>
+
+    <!-- Aufnahmeanträge nach § 4. Der Reiter macht sichtbar, was das
+         öffentliche Formular auf antrag.html liefert — und wo aus einem
+         Antrag eine Mitgliedschaft wird. Nirgends sonst. -->
+    <section id="tab-antraege" class="tab">
+
+      <div class="karte">
+        <h2>Aufnahmeanträge</h2>
+        <p class="fussnote">Über die Aufnahme entscheidet nach § 4 der Satzung der
+        Gesamtvorstand. Ein Antrag wird hier <strong>nie</strong> von selbst zur
+        Mitgliedschaft — dafür braucht es das Datum des Beschlusses.</p>
+        <div id="an-erfolg" class="hinweis erfolg" hidden></div>
+        <div class="knopfreihe" id="an-reiter"></div>
+      </div>
+
+      <div class="karte">
+        <div id="an-liste"></div>
+      </div>
+
+      <!-- Nur für Geschäftsstelle und Schatzmeister: der Schalter dreht das
+           öffentliche Formular zu, die Häkchen bestimmen, welche Abteilungen
+           darin stehen. Beides sind Eingriffe in den Aufnahmeweg des ganzen
+           Vereins — die Passstelle bekommt die Karte nicht zu sehen. -->
+      <div class="karte" id="an-formular-karte">
+        <h2>Das öffentliche Formular</h2>
+        <div id="an-schalter"></div>
+        <div id="an-sparten"></div>
+      </div>
+
+    </section>
+
+    <!-- Elternkodex. Die Nachwuchs-ANMELDUNG erhebt die Kenntnisnahme seit
+         dem 18.08.2026 mit; wer schon Mitglied ist, hat sie nie abgegeben.
+         Dieser Reiter zeigt, wer noch fehlt, und nimmt auf, was über
+         kodex.html nachkommt. -->
+    <section id="tab-kodex" class="tab">
+
+      <div class="karte">
+        <h2>Elternkodex</h2>
+        <p class="fussnote">Der Kodex gilt <strong>nur der Abteilung Fußball</strong>.
+        Der Abgleich läuft deshalb gegen die minderjährigen Mitglieder <em>dieser</em>
+        Abteilung — Kinder aus Turnen, Volleyball oder Handball stehen hier nicht und
+        werden nicht angeschrieben. Wer volljährig wird oder austritt, verschwindet aus
+        der Liste; die abgegebene Erklärung bleibt gespeichert.</p>
+        <div id="ko-erfolg" class="hinweis erfolg" hidden></div>
+        <div id="ko-fehler" class="hinweis fehler" hidden></div>
+        <div id="ko-stand"></div>
+      </div>
+
+      <!-- Der Link zum Verteilen und der Schalter. Nur für Rollen mit
+           Schreibrecht: den Eingangsweg des ganzen Vereins zuzudrehen ist
+           kein Leserecht. -->
+      <div class="karte" id="ko-verteilen-karte" hidden>
+        <h2>Der Link für die Eltern</h2>
+        <p class="fussnote">Dieser Link führt zur Seite, auf der Eltern den Kodex
+        herunterladen und unterschreiben. Er braucht kein Vereinskonto und darf
+        an alle Eltern, in Mannschafts-Chats und an die Trainerteams weitergegeben
+        werden.</p>
+        <div class="feld">
+          <label for="ko-link">Adresse</label>
+          <input id="ko-link" readonly>
+        </div>
+        <div class="knopfreihe">
+          <button class="btn" id="btn-ko-kopieren" type="button">Link kopieren</button>
+          <a class="btn grau" id="btn-ko-oeffnen" href="kodex.html"
+             target="_blank" rel="noopener">Seite ansehen</a>
+        </div>
+        <div id="ko-schalter"></div>
+      </div>
+
+      <div class="karte">
+        <div class="knopfreihe" id="ko-reiter"></div>
+        <!-- Kein Abteilungs-Filter: der Kodex gilt ausschließlich der
+             Abteilung Fußball, und das ist eine Festlegung des Vereins,
+             keine Ansichtssache. Welche Abteilung zugrunde liegt, steht
+             oben im Stand. -->
+        <div class="feld">
+          <label for="ko-suche">Suchen</label>
+          <input id="ko-suche" placeholder="Name des Kindes">
+        </div>
+      </div>
+
+      <div class="karte">
+        <div id="ko-liste"></div>
+      </div>
+
+      <!-- Erklärungen, die zu keinem Kind im Bestand passen. Diese Liste
+           ist der wichtigere Teil: ohne sie läge eine Erklärung mit
+           abweichender Schreibweise vor, die Familie hielte sie für
+           erledigt, und in keiner Übersicht stünde sie. -->
+      <div class="karte" id="ko-offen-karte" hidden>
+        <h2>Nicht zuzuordnen <span id="ko-offen-zahl" class="version-badge"></span></h2>
+        <p class="fussnote">Diese Erklärungen sind eingegangen, passen aber zu keinem
+        Kind der Liste — meist eine abweichende Schreibweise oder ein Rufname. Bitte von
+        Hand zuordnen; die Familie hält ihre Erklärung für erledigt. Zeilen mit dem
+        Vermerk <em>andere Abteilung</em> brauchen nichts: dort ist das Kind Mitglied,
+        aber nicht im Fußball — für die gilt der Kodex nicht.</p>
+        <div id="ko-offen-liste"></div>
+      </div>
+
+    </section>
+
+    <!-- Einstellungen: Sammelort für Bereiche, die nicht in den täglichen
+         Ablauf gehören. Seit 2026-08-10 liegen hier auch „Rollen“ und
+         „Import“ (Michel-Vorgabe) — beides seltene Vorgänge, die die
+         Reiterleiste nicht dauerhaft belegen sollten.
+
+         ⚠️ Jeder der drei Blöcke trägt sein EIGENES Recht: Rollen isAdmin,
+         Import darfSchreiben, Buchhaltung darfBuchen. Der Reiter selbst
+         wird eingeblendet, sobald eines davon greift — sonst sähe die
+         Geschäftsstelle einen Reiter, in dem nur der Rollenkasten stünde,
+         den sie nicht öffnen darf. Wer hier etwas ergänzt, gibt ihm
+         wieder ein eigenes Gate in app.js. -->
+    <section id="tab-einstellungen" class="tab">
+
+      <!-- Wer hier eine Rolle bekommt, sieht Mitgliederdaten. Deshalb nur
+           für globale Administratoren -- sonst könnte sich die
+           Geschäftsstelle selbst zum Schatzmeister machen und damit an die
+           Bankdaten. -->
+      <div id="ein-rollen" hidden>
+        <div class="karte">
+          <h2>Rolle vergeben</h2>
+          <p class="fussnote">Die Anmeldung selbst läuft über das Dashboard. Hier wird nur
+          festgelegt, <strong>was</strong> jemand in der Vereinsverwaltung darf. Ohne Rolle
+          sieht ein angemeldetes Konto hier keine Personendaten.</p>
+
+          <div class="filterleiste">
+            <div class="feld suchfeld">
+              <label for="r-nutzer">Konto</label>
+              <select id="r-nutzer"></select>
+            </div>
+            <div class="feld">
+              <label for="r-rolle">Rolle</label>
+              <select id="r-rolle">
+                <option value="geschaeftsstelle">Geschäftsstelle</option>
+                <option value="schatzmeister">Schatzmeister</option>
+                <option value="abteilungsleiter">Abteilungsleitung</option>
+                <option value="vorstand">Vorstand</option>
+                <option value="passstelle">Passstelle</option>
+              </select>
+            </div>
+            <div class="feld" id="r-sparte-feld" hidden>
+              <label for="r-sparte">Sparte</label>
+              <select id="r-sparte"></select>
+            </div>
+            <div class="feld">
+              <label>&nbsp;</label>
+              <button class="btn" id="btn-rolle-setzen">Rolle vergeben</button>
+            </div>
+          </div>
+          <div id="r-status" class="hinweis info" hidden></div>
+          <p class="fussnote" id="r-erklaerung"></p>
+        </div>
+
+        <div class="karte">
+          <h2>Vergebene Rollen</h2>
+          <div id="r-warnung" class="hinweis warn" hidden></div>
+          <div id="r-liste"></div>
+        </div>
+
+        <div class="karte">
+          <h2>Sicherung der Datenbank</h2>
+          <p class="fussnote">Jede Nacht schreibt der Server den vollständigen Datenbestand
+          nach Nextcloud — einmal als Datei zum Zurückspielen, einmal als Mitgliederliste
+          zum Ausdrucken. Die sieben Wochentagsdateien überschreiben sich der Reihe nach,
+          vom Monatsersten bleibt eine Kopie dauerhaft stehen. Gelöscht wird nichts.</p>
+          <div id="s-stand"></div>
+          <div id="s-meldung" class="hinweis" hidden></div>
+          <div class="knopfreihe">
+            <button class="btn grau" id="btn-sicherung-jetzt">Jetzt sichern</button>
+          </div>
+          <div id="s-liste"></div>
+        </div>
+      </div>
+
+      <!-- Bestandsuebernahme aus GLS Vereinsmeister. Bewusst generisch:
+           Das Ausgabeformat der Altsoftware ist nicht bekannt, deshalb wird
+           die Zuordnung der Spalten im Browser gemacht und alles nicht
+           Zugeordnete in ein Auffangfeld geschrieben -- so geht beim Import
+           nichts verloren, auch wenn die Feldnamen ueberraschen. -->
+      <div id="ein-import" hidden>
+        <div class="karte">
+          <h2>Mitgliederbestand übernehmen</h2>
+          <p class="fussnote">Aus dem Vereinsmeister exportierte Datei (CSV oder Excel) auswählen.
+          Die Spalten werden im nächsten Schritt zugeordnet. <strong>Nichts wird geschrieben,
+          bevor der Probelauf gelaufen ist.</strong></p>
+
+          <div class="schritt-nummer">Schritt 1 — Datei</div>
+          <input type="file" id="imp-datei" accept=".csv,.txt,.xlsx,.xls">
+          <div id="imp-datei-info" class="hinweis info" hidden></div>
+        </div>
+
+        <div class="karte" id="imp-karte-zuordnung" hidden>
+          <div class="schritt-nummer">Schritt 2 — Spalten zuordnen</div>
+          <p class="fussnote">Erkannte Zuordnungen sind vorbelegt. Was auf „übernehmen, ohne Feld"
+          steht, wird beim Mitglied als Zusatzangabe mitgespeichert und geht nicht verloren.</p>
+          <div id="imp-zuordnung"></div>
+
+          <h3>Einstellungen</h3>
+          <label class="ankreuz"><input type="checkbox" id="imp-haushalte" checked>
+            Personen mit gleichem Nachnamen unter derselben Anschrift zu einem Haushalt zusammenfassen
+            <span class="fussnote">Grundlage für Familienrabatt und ein gemeinsames SEPA-Mandat. Lässt sich später einzeln korrigieren.</span>
+          </label>
+          <label class="ankreuz"><input type="checkbox" id="imp-sparten-anlegen" checked>
+            Sparten aus der Datei anlegen, wenn es sie noch nicht gibt
+            <span class="fussnote">Beim ersten Import der Normalfall. Später eher ein Tippfehler in der
+            Quelldatei — dann abwählen: unbekannte Sparten werden dann im Bericht gemeldet, statt neu zu entstehen.</span>
+          </label>
+          <label class="ankreuz"><input type="checkbox" id="imp-ergaenzen">
+            Bereits vorhandene Mitglieder um fehlende Angaben ergänzen
+            <span class="fussnote">Für die zweite Datei: trägt Bankverbindung, Kontaktdaten und Sparten
+            nach. Es wird ausschließlich in leere Felder geschrieben — nichts wird überschrieben.
+            Ohne Haken werden vorhandene Mitgliedsnummern übersprungen.</span>
+          </label>
+
+          <div class="knopfreihe">
+            <button class="btn grau" id="btn-imp-probe">Probelauf starten</button>
+            <button class="btn" id="btn-imp-start" disabled>Import starten</button>
+          </div>
+          <div id="imp-status" class="hinweis info" hidden></div>
+          <div id="imp-fortschritt" hidden>
+            <div class="balken"><div class="balken-fuellung" id="imp-balken"></div></div>
+            <div class="fussnote" id="imp-fortschritt-text"></div>
+          </div>
+        </div>
+
+        <div class="karte" id="imp-karte-bericht" hidden>
+          <h2>Bericht</h2>
+          <div id="imp-bericht"></div>
+        </div>
+      </div>
+
+      <div class="karte" id="ein-buchhaltung" hidden>
+        <h2>Buchhaltung</h2>
+        <p>Doppelte Buchführung mit Kontenrahmen, Journal, Saldenliste und
+        Jahresabschluss &mdash; dazu die Übernahme der Beitragsläufe und
+        SEPA-Einzüge aus der Beitragsverwaltung.</p>
+        <p class="fussnote">Der Bereich ist vollständig gebaut, wird aber auf
+        absehbare Zeit nicht gebraucht: gebucht wird bis auf Weiteres in der
+        bisherigen Software. Er liegt deshalb hier und nicht mehr in der
+        Reiterleiste. Nichts daran ist abgeschaltet oder gelöscht &mdash; wer
+        ihn öffnet, findet ihn unverändert vor.</p>
+        <p><a class="btn-link" href="buchhaltung.html">Buchhaltung öffnen &rarr;</a></p>
+      </div>
+    </section>
+
+    <section id="tab-info" class="tab">
+      <div class="karte">
+        <h2>Über die Vereinsverwaltung <span class="version-badge" id="version-badge-2">1.0</span></h2>
+        <p>Mitglieder-, Beitrags- und Finanzverwaltung des 1. SC 1911 Heiligenstadt. Ersetzt schrittweise die bisherige Windows-Software.</p>
+        <h3>Rechte</h3>
+        <ul>
+          <li><strong>Geschäftsstelle und Schatzmeister</strong> sehen und bearbeiten alle Mitglieder.</li>
+          <li><strong>Abteilungsleiter</strong> sehen ausschließlich Mitglieder ihrer eigenen Sparte &mdash; ohne Bankdaten und ohne Einblick, in welchen weiteren Sparten eine Person aktiv ist. Diese Grenze wird auf dem Server durchgesetzt, nicht in der Anzeige.</li>
+          <li><strong>Vorstand</strong> sieht Kennzahlen, aber keine Personendaten.</li>
+        </ul>
+      </div>
+      <div class="karte">
+        <h2>Änderungen</h2>
+        <div id="changelog-liste"></div>
+      </div>
+    
+      <div class="karte" id="ds-info-karte">
+        <h2>Datenschutz</h2>
+        <p>Dieses Werkzeug gehört zu den internen Anwendungen des
+        1. SC 1911 Heiligenstadt. Die hier erfassten Daten werden
+        ausschließlich für die Vereinsarbeit verwendet und liegen auf Servern
+        in Deutschland, die ein Auftragsverarbeiter für den Verein betreibt.
+        Eine Weitergabe an Dritte findet nur statt, soweit sie für den
+        jeweiligen Zweck erforderlich oder gesetzlich vorgeschrieben ist.</p>
+        <p>Verantwortlich ist der 1. SC 1911 Heiligenstadt, Leineberg 2,
+        37308 Heilbad Heiligenstadt, Telefon 03606 612206,
+        <a href="mailto:info@sc1911-heiligenstadt.de">info@sc1911-heiligenstadt.de</a>.
+        Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung,
+        Datenübertragbarkeit und Widerspruch lassen sich unter dieser
+        Anschrift geltend machen. Beschwerden nimmt der Thüringer
+        Landesbeauftragte für den Datenschutz und die Informationsfreiheit
+        entgegen.</p>
+        <p><a href="https://www.sc1911-heiligenstadt.de/datenschutz/" target="_blank" rel="noopener">Datenschutzerklärung des Vereins</a>
+        &middot;
+        <a href="https://www.sc1911-heiligenstadt.de/impressum-2/" target="_blank" rel="noopener">Impressum</a></p>
+      </div>
+</section>
+
+  </div>
+</main>
+
+<!-- Detailansicht. Der Dialog scrollt in sich selbst (max-height in der
+     Basisklasse), sonst rutschen die Knöpfe unten aus dem Bild. -->
+<div class="overlay" id="detail-overlay" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="detail-titel">
+    <div class="dialog-kopf">
+      <h2 id="detail-titel">Mitglied</h2>
+      <button class="dialog-zu" id="btn-detail-zu" aria-label="Schließen">&times;</button>
+    </div>
+    <div class="dialog-inhalt" id="detail-inhalt">
+
+      <div id="detail-hinweis" hidden></div>
+
+      <h3>Person</h3>
+      <div class="formraster">
+        <div class="feld"><label for="d-vorname">Vorname</label><input id="d-vorname"></div>
+        <div class="feld"><label for="d-nachname">Nachname</label><input id="d-nachname"></div>
+        <div class="feld"><label for="d-geburtsdatum">Geburtsdatum</label><input type="date" id="d-geburtsdatum"></div>
+        <div class="feld"><label for="d-geburtsort">Geburtsort</label><input id="d-geburtsort"></div>
+        <div class="feld"><label for="d-geschlecht">Geschlecht</label>
+          <select id="d-geschlecht">
+            <option value="">&mdash;</option>
+            <option value="w">weiblich</option>
+            <option value="m">männlich</option>
+            <option value="d">divers</option>
+          </select>
+        </div>
+        <div class="feld breit"><label for="d-strasse">Straße und Hausnummer</label><input id="d-strasse"></div>
+        <div class="feld"><label for="d-plz">PLZ</label><input id="d-plz"></div>
+        <div class="feld"><label for="d-ort">Ort</label><input id="d-ort"></div>
+        <div class="feld"><label for="d-email">E-Mail</label><input type="email" id="d-email"></div>
+        <div class="feld"><label for="d-telefon">Telefon</label><input id="d-telefon"></div>
+        <div class="feld"><label for="d-mobil">Mobil</label><input id="d-mobil"></div>
+      </div>
+
+      <h3>Mitgliedschaft</h3>
+      <div class="formraster">
+        <div class="feld"><label for="d-nummer">Mitgliedsnummer</label><input id="d-nummer" disabled></div>
+        <div class="feld"><label for="d-art">Art</label>
+          <select id="d-art">
+            <option value="ordentlich">Ordentliches Mitglied</option>
+            <option value="ausserordentlich">Außerordentliches Mitglied</option>
+            <option value="ehrenmitglied">Ehrenmitglied</option>
+          </select>
+        </div>
+        <div class="feld"><label for="d-eintritt">Eintritt</label><input type="date" id="d-eintritt"></div>
+        <div class="feld"><label for="d-status">Status</label>
+          <select id="d-status">
+            <option value="antrag">Antrag</option>
+            <option value="aktiv">Aktiv</option>
+            <option value="ruhend">Ruhend</option>
+            <option value="gekuendigt">Gekündigt</option>
+            <option value="beendet">Beendet</option>
+          </select>
+        </div>
+      </div>
+      <p class="fussnote" id="d-beschluss-hinweis"></p>
+
+      <h3>Sparten</h3>
+      <div id="d-sparten"></div>
+      <div class="sparte-hinzu" id="d-sparte-hinzu" hidden>
+        <select id="d-sparte-neu"></select>
+        <button class="btn grau" id="btn-sparte-hinzu">Sparte hinzufügen</button>
+      </div>
+
+      <h3>Beitrag</h3>
+      <div id="d-beitrag-bereich">
+        <div class="formraster">
+          <div class="feld"><label for="d-beitragsklasse">Beitragsklasse</label>
+            <select id="d-beitragsklasse"></select>
+          </div>
+          <div class="feld"><label>Jahresbeitrag</label>
+            <div class="betrag-anzeige" id="d-beitrag-betrag">—</div>
+          </div>
+        </div>
+        <p class="fussnote" id="d-beitrag-hinweis"></p>
+      </div>
+
+      <div id="d-austritt-bereich" class="austritt-kasten" hidden>
+        <h3>Austritt erfassen</h3>
+        <p class="fussnote">Nach § 5 Abs. 2 der Satzung ist ein Austritt nur zum 30.06. oder 31.12.
+        möglich, mit vier Wochen Frist. Der Termin ergibt sich aus dem Eingang der Kündigung
+        und ist nicht frei wählbar.</p>
+        <div class="formraster">
+          <div class="feld"><label for="d-kuendigung">Kündigung eingegangen am</label><input type="date" id="d-kuendigung"></div>
+          <div class="feld"><label for="d-austritt-grund">Grund</label>
+            <select id="d-austritt-grund">
+              <option value="austritt">Austritt auf eigenen Wunsch</option>
+              <option value="ausschluss">Ausschluss (§ 5 Abs. 3)</option>
+              <option value="tod">Tod</option>
+              <option value="streichung">Streichung</option>
+            </select>
+          </div>
+        </div>
+        <p id="d-austritt-vorschau" class="hinweis info" hidden></p>
+        <button class="btn grau" id="btn-austritt">Austritt eintragen</button>
+      </div>
+
+    </div>
+    <div class="dialog-fuss">
+      <span id="detail-status"></span>
+      <button class="btn grau" id="btn-detail-abbrechen">Schließen</button>
+      <button class="btn" id="btn-detail-speichern">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<!-- Neues Mitglied. Eigener Dialog statt einer leeren Detailansicht:
+     beim Anlegen gibt es keine Sparten-Historie und keinen Austritt,
+     dafuer aber Pflichtfelder. -->
+<div class="overlay" id="neu-overlay" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="neu-titel">
+    <div class="dialog-kopf">
+      <h2 id="neu-titel">Neues Mitglied</h2>
+      <button class="dialog-zu" id="btn-neu-zu" aria-label="Schließen">&times;</button>
+    </div>
+    <div class="dialog-inhalt">
+      <h3>Person</h3>
+      <div class="formraster">
+        <div class="feld"><label for="n-vorname">Vorname *</label><input id="n-vorname"></div>
+        <div class="feld"><label for="n-nachname">Nachname *</label><input id="n-nachname"></div>
+        <div class="feld"><label for="n-geburtsdatum">Geburtsdatum</label><input type="date" id="n-geburtsdatum"></div>
+        <div class="feld"><label for="n-geburtsort">Geburtsort</label><input id="n-geburtsort"></div>
+        <div class="feld"><label for="n-geschlecht">Geschlecht</label>
+          <select id="n-geschlecht">
+            <option value="">&mdash;</option>
+            <option value="w">weiblich</option>
+            <option value="m">männlich</option>
+            <option value="d">divers</option>
+          </select>
+        </div>
+        <div class="feld breit"><label for="n-strasse">Straße und Hausnummer</label><input id="n-strasse"></div>
+        <div class="feld"><label for="n-plz">PLZ</label><input id="n-plz"></div>
+        <div class="feld"><label for="n-ort">Ort</label><input id="n-ort"></div>
+        <div class="feld"><label for="n-email">E-Mail</label><input type="email" id="n-email"></div>
+        <div class="feld"><label for="n-telefon">Telefon</label><input id="n-telefon"></div>
+        <div class="feld"><label for="n-mobil">Mobil</label><input id="n-mobil"></div>
+      </div>
+
+      <h3>Mitgliedschaft</h3>
+      <div class="formraster">
+        <div class="feld"><label for="n-nummer">Mitgliedsnummer</label>
+          <input id="n-nummer" placeholder="leer lassen = nächste freie">
+        </div>
+        <div class="feld"><label for="n-art">Art</label>
+          <select id="n-art">
+            <option value="ordentlich">Ordentliches Mitglied</option>
+            <option value="ausserordentlich">Außerordentliches Mitglied</option>
+            <option value="ehrenmitglied">Ehrenmitglied</option>
+          </select>
+        </div>
+        <div class="feld"><label for="n-eintritt">Eintritt *</label><input type="date" id="n-eintritt"></div>
+        <div class="feld"><label for="n-status">Status</label>
+          <select id="n-status">
+            <option value="aktiv">Aktiv</option>
+            <option value="antrag">Antrag</option>
+            <option value="ruhend">Ruhend</option>
+          </select>
+        </div>
+        <div class="feld breit"><label for="n-beschluss">Aufnahme beschlossen am</label><input type="date" id="n-beschluss"></div>
+      </div>
+      <p class="fussnote">Nach § 4 der Satzung wird eine Mitgliedschaft erst durch Beschluss des
+      Gesamtvorstands wirksam. Bei übernommenen Bestandsmitgliedern darf das Feld leer bleiben.</p>
+
+      <h3>Sparten</h3>
+      <div id="n-sparten" class="ankreuz-raster"></div>
+    </div>
+    <div class="dialog-fuss">
+      <span id="neu-status"></span>
+      <button class="btn grau" id="btn-neu-abbrechen">Abbrechen</button>
+      <button class="btn" id="btn-neu-speichern">Anlegen</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="zahlung-overlay" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="zahlung-titel">
+    <div class="dialog-kopf">
+      <h2 id="zahlung-titel">Zahlung erfassen</h2>
+      <button class="dialog-zu" id="btn-zahlung-zu" aria-label="Schließen">&times;</button>
+    </div>
+    <div class="dialog-inhalt">
+      <p class="fussnote" id="nz-empfaenger"></p>
+      <div class="formraster">
+        <div class="feld"><label for="nz-betrag">Betrag (€) *</label>
+          <input id="nz-betrag" inputmode="decimal" placeholder="96,00"></div>
+        <div class="feld"><label for="nz-datum">Eingegangen am *</label>
+          <input type="date" id="nz-datum"></div>
+        <div class="feld"><label for="nz-art">Art</label>
+          <select id="nz-art">
+            <option value="ueberweisung">Überweisung</option>
+            <option value="bar">Bar</option>
+            <option value="lastschrift">Lastschrift</option>
+            <option value="verrechnung">Verrechnung</option>
+          </select>
+        </div>
+        <div class="feld breit"><label for="nz-zweck">Verwendungszweck</label>
+          <input id="nz-zweck" placeholder="wie auf dem Kontoauszug"></div>
+      </div>
+      <p class="fussnote">Der Betrag wird auf die offenen Forderungen dieses Haushalts verteilt,
+      die <strong>zuerst fällige zuerst</strong>. Bleibt etwas übrig, wird das gemeldet und nicht
+      still einbehalten.</p>
+    </div>
+    <div class="dialog-fuss">
+      <span id="zahlung-status"></span>
+      <button class="btn grau" id="btn-zahlung-abbrechen">Abbrechen</button>
+      <button class="btn" id="btn-zahlung-speichern">Buchen</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="rueck-overlay" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="rueck-titel">
+    <div class="dialog-kopf">
+      <h2 id="rueck-titel">Rücklastschrift</h2>
+      <button class="dialog-zu" id="btn-rueck-zu" aria-label="Schließen">&times;</button>
+    </div>
+    <div class="dialog-inhalt">
+      <p class="fussnote" id="nr-zahlung"></p>
+      <div class="formraster">
+        <div class="feld breit"><label for="nr-grund">Grund der Bank *</label>
+          <input id="nr-grund" placeholder="z. B. Konto erloschen, Widerspruch, keine Deckung"></div>
+        <div class="feld"><label for="nr-entgelt">Entgelt der Bank (€)</label>
+          <input id="nr-entgelt" inputmode="decimal" placeholder="3,00"></div>
+      </div>
+      <label class="ankreuz"><input type="checkbox" id="nr-weiter">
+        Entgelt dem Mitglied weiterberechnen
+        <span class="fussnote">Legt eine eigene Forderung an, statt den Beitrag zu erhöhen — sonst
+        lässt sich später nicht mehr erklären, woraus die Summe besteht.</span>
+      </label>
+      <p class="fussnote">Die ursprüngliche Zahlung wird storniert, nicht gelöscht, und die
+      Forderung lebt wieder auf.</p>
+    </div>
+    <div class="dialog-fuss">
+      <span id="rueck-status"></span>
+      <button class="btn grau" id="btn-rueck-abbrechen">Abbrechen</button>
+      <button class="btn warn" id="btn-rueck-speichern">Rücklastschrift buchen</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="lauf-overlay" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="lauf-titel">
+    <div class="dialog-kopf">
+      <h2 id="lauf-titel">Neuer Beitragslauf</h2>
+      <button class="dialog-zu" id="btn-lauf-zu" aria-label="Schließen">&times;</button>
+    </div>
+    <div class="dialog-inhalt">
+      <div class="formraster">
+        <div class="feld"><label for="nl-jahr">Beitragsjahr *</label>
+          <input id="nl-jahr" inputmode="numeric" placeholder="2027"></div>
+        <div class="feld"><label for="nl-rhythmus">Zahlungsrhythmus</label>
+          <select id="nl-rhythmus">
+            <option value="jaehrlich">Jährlich — eine Abbuchung</option>
+            <option value="halbjaehrlich">Halbjährlich — zwei Abbuchungen</option>
+            <option value="vierteljaehrlich">Vierteljährlich — vier Abbuchungen</option>
+          </select></div>
+        <div class="feld breit"><label for="nl-bezeichnung">Bezeichnung</label>
+          <input id="nl-bezeichnung" placeholder="leer lassen = Jahresbeitrag &lt;Jahr&gt;"></div>
+        <div class="feld"><label for="nl-stichtag">Stichtag für Bestand und Sätze</label>
+          <input type="date" id="nl-stichtag"></div>
+      </div>
+
+      <h3>Wann eingezogen wird</h3>
+      <!-- Bei mehreren Raten hängt hier je Rate ein eigenes Datumsfeld.
+           Das erste ist immer `nl-faelligkeit` — es trägt den Wert, aus
+           dem der Server die übrigen ableitet, wenn eines leer bleibt. -->
+      <div class="formraster" id="nl-termine">
+        <div class="feld"><label for="nl-faelligkeit" id="nl-faellig-label">Fällig am *</label>
+          <input type="date" id="nl-faelligkeit"></div>
+      </div>
+      <p class="fussnote" id="nl-rhythmus-hinweis"></p>
+
+      <h3>Wie gerechnet wird</h3>
+      <div class="ankreuz-raster">
+        <label><input type="checkbox" id="nl-anteilig">
+          Unterjährigen Eintritt anteilig berechnen</label>
+        <label><input type="checkbox" id="nl-ehren">
+          Ehrenmitglieder mit einbeziehen</label>
+        <label><input type="checkbox" id="nl-ruhend">
+          Ruhende Mitgliedschaften mit einbeziehen</label>
+      </div>
+      <p class="fussnote">Ohne Häkchen zahlt jedes Mitglied den <strong>vollen Beitrag des
+      Zeitraums</strong>, auch bei Eintritt im letzten Monat davon — so rechnet der Vereinsmeister,
+      und daran hängt die Kontrollzahl des Altbestands. Ehrenmitglieder sind beitragsfrei, ruhende
+      Mitgliedschaften zahlen nicht. Diese drei Festlegungen werden beim Lauf gespeichert und lassen
+      sich später nachlesen.</p>
+    </div>
+    <div class="dialog-fuss">
+      <span id="lauf-status"></span>
+      <button class="btn grau" id="btn-lauf-abbrechen">Abbrechen</button>
+      <button class="btn" id="btn-lauf-speichern">Anlegen</button>
+    </div>
+  </div>
+</div>
+
+<!-- Nachweise und das erzeugte Verbandsformular werden HIER angezeigt, statt
+     in einem neuen Tab zu landen. Ein Blob-Tab ist je nach Browser und
+     Dateityp ein Download statt einer Ansicht — und auf dem Handy verliert
+     man dabei den Antrag, aus dem man kam. Der Download bleibt als Knopf im
+     Fuß erreichbar. -->
+<div class="overlay" id="datei-overlay" hidden>
+  <div class="dialog breit" role="dialog" aria-modal="true" aria-labelledby="datei-titel">
+    <div class="dialog-kopf">
+      <h2 id="datei-titel">Nachweis</h2>
+      <button class="dialog-zu" id="btn-datei-zu" aria-label="Schließen">&times;</button>
+    </div>
+    <div class="dialog-inhalt">
+      <div class="datei-buehne" id="datei-buehne"></div>
+    </div>
+    <div class="dialog-fuss">
+      <span id="datei-hinweis"></span>
+      <a class="btn" id="btn-datei-laden" download>Herunterladen</a>
+      <button class="btn grau" id="btn-datei-schliessen">Schließen</button>
+    </div>
+  </div>
+</div>
+
+<!-- Eine Erklaerung im Ganzen, samt Unterschrift. Gleiches Muster wie das
+     Antrags-Overlay darunter: die Liste laedt die Bilder nicht mit. -->
+<div class="overlay" id="kodex-overlay" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="ko-titel">
+    <div class="dialog-kopf">
+      <h2 id="ko-titel">Kenntnisnahme des Elternkodex</h2>
+      <button class="dialog-zu" id="btn-ko-zu" aria-label="Schließen">&times;</button>
+    </div>
+    <div class="dialog-inhalt" id="ko-inhalt"></div>
+    <div class="dialog-fuss">
+      <button class="btn grau" id="btn-ko-schliessen">Schließen</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="antrag-overlay" hidden>
+  <div class="dialog breit" role="dialog" aria-modal="true" aria-labelledby="an-titel">
+    <div class="dialog-kopf">
+      <h2 id="an-titel">Aufnahmeantrag</h2>
+      <button class="dialog-zu" id="btn-an-zu" aria-label="Schließen">&times;</button>
+    </div>
+    <div class="dialog-inhalt" id="an-inhalt"></div>
+    <div class="dialog-fuss">
+      <button class="btn grau" id="btn-an-schliessen">Schließen</button>
+    </div>
+  </div>
+</div>
+
+<footer>1. SC 1911 Heiligenstadt &mdash; interne Vereinsverwaltung</footer>
+
+<script src="config.js?v=1.0"></script>
+<script src="db.js?v=1.0"></script>
+<script src="import.js?v=1.0"></script>
+<script src="rollen.js?v=1.0"></script>
+<script src="beitraege.js?v=1.0"></script>
+<script src="lauf.js?v=1.0"></script>
+<script src="zahlungen.js?v=1.0"></script>
+<script src="antrag-druck.js?v=1.0"></script>
+<!-- Fuellt das Verbandsformular AO21. Muss VOR antraege.js stehen: der
+     Knopf im Antrags-Reiter ruft tfvAntragHerunterladen(). pdf-lib laedt
+     die Datei selbst nach, erst beim ersten Klick. -->
+<script src="tfv-antrag.js?v=1.0"></script>
+<script src="antraege.js?v=1.0"></script>
+<!-- Die Datei für den Landessportbund. Steht vor app.js wie die übrigen
+     Reiter-Skripte; app.js macht die Karte sichtbar, sobald die Rechte da
+     sind. reha.js muss VOR lsb.js stehen: lsbKarteZeigen() baut die
+     Rehasport-Karte über rehaKarteHtml(). Dieselbe Datei lädt auch
+     vorstand.html — eine Kopie wäre nach der ersten Änderung eine zweite,
+     andere Umrechnung. -->
+<script src="reha.js?v=1.0"></script>
+<script src="lsb.js?v=1.0"></script>
+<script src="kodex-verwaltung.js?v=1.0"></script>
+<script src="app.js?v=1.0"></script>
+</body>
+</html>

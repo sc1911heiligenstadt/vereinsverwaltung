@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#1a56a0">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=1.0">
+<link rel="icon" href="/favicon.png?v=1.0" type="image/png">
+<title>Mitgliedsantrag Nachwuchs &mdash; 1. SC 1911 Heiligenstadt</title>
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="style.css?v=1.0">
+</head>
+<!-- Zweite Klasse zusätzlich zu .antragseite: die Rechtsbündigkeits-Regel
+     der Antragsseite hängt an #nav-eingang, den es hier nicht gibt. -->
+<body class="antragseite nachwuchsseite">
+
+<!-- Gleicher Kopf wie antrag.html: die Dashboard-Pille erscheint NUR mit
+     vorhandener Sitzung, das Wappen immer. Ein Formular, das nach
+     Bankdaten und dem Ausweis eines Kindes fragt, muss auf den ersten
+     Blick zum Verein gehören. -->
+<header>
+  <h1>Mitgliedsantrag Nachwuchs</h1>
+  <a class="dashboard-pille" id="dashboard-pille" hidden
+     href="https://sc1911heiligenstadt.github.io/ToolsUebersicht/">&larr; Zurück zum Dashboard</a>
+  <div class="kopf-rechts">
+    <span id="verein-name">1. SC 1911 Heiligenstadt e.&nbsp;V.</span>
+    <img class="kopf-logo" src="https://sc1911heiligenstadt.github.io/logo.svg"
+         alt="1. SC 1911 Heiligenstadt e.V.">
+  </div>
+</header>
+
+<nav>
+  <button data-tab="tab-formular" class="aktiv">Anmelden</button>
+  <div class="nav-right">
+    <button data-tab="tab-info">Info</button>
+  </div>
+</nav>
+
+<main>
+
+<section id="tab-formular" class="tab aktiv">
+
+  <div id="lade-schirm" class="karte">
+    <p class="fussnote">Das Formular wird geladen …</p>
+  </div>
+
+  <div id="zu-schirm" class="karte" hidden>
+    <h2>Zurzeit keine Online-Anmeldung</h2>
+    <p>Die Nachwuchs-Anmeldung ist im Augenblick geschlossen. Die Geschäftsstelle
+    nimmt Ihre Anmeldung gerne auf dem üblichen Weg entgegen.</p>
+  </div>
+
+  <div id="formular" hidden>
+
+    <div class="karte">
+      <h2>Willkommen beim <span class="verein-name-text">1. SC 1911 Heiligenstadt e.&nbsp;V.</span></h2>
+      <p>Mit diesem Formular melden Sie Ihr Kind zum Fußball an. In einem Durchgang
+      entstehen daraus <strong>beide</strong> Anträge, die der Verein braucht:</p>
+      <ul>
+        <li>der <strong>Aufnahmeantrag</strong> in den Verein nach § 4 der Satzung</li>
+        <li>der <strong>Antrag auf Spielerlaubnis</strong> beim Thüringer Fußball-Verband,
+        ohne die kein Pflichtspiel möglich ist</li>
+      </ul>
+      <p>Ausfüllen und unterschreiben geht am Handy — ein Ausdruck ist nicht nötig.</p>
+      <div class="hinweis info">
+        <strong>Die Anmeldung ist noch keine Mitgliedschaft.</strong> Nach § 4 der Satzung
+        entscheidet der Gesamtvorstand über die Aufnahme. Die Spielerlaubnis erteilt der
+        Verband; der Verein stellt den Antrag.
+      </div>
+      <div id="beitrags-info"></div>
+    </div>
+
+    <div class="karte">
+      <div class="schritt-nummer">1 — Das Kind</div>
+      <div class="formraster">
+        <div class="feld">
+          <label for="a-vorname">Vorname *</label>
+          <input id="a-vorname" autocomplete="given-name">
+        </div>
+        <div class="feld">
+          <label for="a-nachname">Nachname *</label>
+          <input id="a-nachname" autocomplete="family-name">
+        </div>
+        <div class="feld">
+          <label for="a-geburtsdatum">Geburtsdatum *</label>
+          <input id="a-geburtsdatum" type="date">
+        </div>
+        <div class="feld">
+          <label for="a-geburtsort">Geburtsort</label>
+          <input id="a-geburtsort">
+        </div>
+        <div class="feld">
+          <label for="a-geschlecht">Geschlecht *</label>
+          <select id="a-geschlecht">
+            <option value="">—</option>
+            <option value="w">weiblich</option>
+            <option value="m">männlich</option>
+            <option value="d">divers</option>
+          </select>
+        </div>
+        <!-- Der Verband verlangt die Staatsangehörigkeit auf dem
+             Spielerlaubnisantrag. Sie steht deshalb hier und nicht im
+             allgemeinen Aufnahmeantrag. -->
+        <div class="feld">
+          <label for="a-nationalitaet">Staatsangehörigkeit *</label>
+          <input id="a-nationalitaet" placeholder="z. B. deutsch">
+        </div>
+        <div class="feld">
+          <label>&nbsp;</label>
+          <span id="a-alter-hinweis" class="fussnote">&nbsp;</span>
+        </div>
+      </div>
+
+      <div id="a-freigabe-hinweis" class="hinweis warn" hidden></div>
+
+      <h3>Anschrift</h3>
+      <div class="formraster">
+        <div class="feld breit">
+          <label for="a-strasse">Straße und Hausnummer *</label>
+          <input id="a-strasse" autocomplete="street-address">
+        </div>
+        <div class="feld">
+          <label for="a-plz">PLZ *</label>
+          <input id="a-plz" inputmode="numeric" autocomplete="postal-code">
+        </div>
+        <div class="feld">
+          <label for="a-ort">Ort *</label>
+          <input id="a-ort" autocomplete="address-level2">
+        </div>
+      </div>
+      <!-- Das Geschlecht ist hier Pflicht, anders als im allgemeinen
+           Antrag: der Verbandsbogen kennt nur die Kästchen „männlich" und
+           „weiblich" und muss eines davon tragen. -->
+      <p class="fussnote">Der Verband führt getrennte Spielklassen und verlangt die
+      Angabe auf dem Antrag.</p>
+    </div>
+
+    <!-- Erscheint aus dem Geburtsdatum. Ein Minderjähriger kann weder
+         wirksam beitreten noch ein Lastschriftmandat erteilen. Bei einem
+         volljährigen A-Jugend-Spieler entfällt der Block, und die
+         Schrittnummern rechnen mit. -->
+    <div class="karte" id="a-karte-gesetzl" hidden>
+      <div class="schritt-nummer">2 — Erziehungsberechtigte</div>
+      <div class="hinweis warn">
+        Das Kind ist noch nicht volljährig. Aufnahmeantrag, Spielerlaubnis und
+        Lastschriftmandat müssen deshalb von den Erziehungsberechtigten
+        unterschrieben werden.
+      </div>
+      <div class="formraster">
+        <div class="feld">
+          <label for="a-gesetzl-name">Name *</label>
+          <input id="a-gesetzl-name">
+        </div>
+        <div class="feld">
+          <label for="a-gesetzl-verhaeltnis">Verhältnis</label>
+          <select id="a-gesetzl-verhaeltnis">
+            <option value="">—</option>
+            <option>Mutter</option>
+            <option>Vater</option>
+            <option>Vormund</option>
+          </select>
+        </div>
+      </div>
+
+      <label class="ankreuz">
+        <input type="checkbox" id="a-allein-sorge">
+        <span>Ich bin allein sorgeberechtigt.</span>
+      </label>
+
+      <div id="a-gesetzl2-block">
+        <div class="formraster">
+          <div class="feld">
+            <label for="a-gesetzl2-name">Name des zweiten Erziehungsberechtigten *</label>
+            <input id="a-gesetzl2-name">
+          </div>
+          <div class="feld">
+            <label for="a-gesetzl2-verhaeltnis">Verhältnis</label>
+            <select id="a-gesetzl2-verhaeltnis">
+              <option value="">—</option>
+              <option>Mutter</option>
+              <option>Vater</option>
+              <option>Vormund</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <h3>Erreichbarkeit</h3>
+      <div class="formraster">
+        <div class="feld breit">
+          <label for="a-email">E-Mail *</label>
+          <input id="a-email" type="email" inputmode="email" autocomplete="email">
+        </div>
+        <div class="feld">
+          <label for="a-mobil">Mobil</label>
+          <input id="a-mobil" type="tel" inputmode="tel" autocomplete="tel">
+        </div>
+        <div class="feld">
+          <label for="a-telefon">Festnetz</label>
+          <input id="a-telefon" type="tel" inputmode="tel">
+        </div>
+      </div>
+      <p class="fussnote">Über diese Adresse erreichen Sie die Bestätigung und die
+      Ankündigung des Beitragseinzugs. Die Mannschaftsleitung meldet sich zum
+      Trainingsbeginn.</p>
+    </div>
+
+    <div class="karte">
+      <div class="schritt-nummer" id="nr-fussball">3 — Spielerlaubnis</div>
+      <p class="fussnote">Ohne Spielerlaubnis des Thüringer Fußball-Verbandes darf Ihr
+      Kind trainieren, aber kein Pflichtspiel bestreiten. Der Verein stellt den Antrag;
+      dafür braucht er die folgenden Angaben.</p>
+
+      <h3>Art der Passausstellung *</h3>
+      <label class="ankreuz">
+        <input type="radio" name="sp-art" id="sp-art-erst" value="erstausstellung" checked>
+        <span><strong>Erstausstellung</strong> — das Kind hatte noch nie einen Spielerpass</span>
+      </label>
+      <label class="ankreuz">
+        <input type="radio" name="sp-art" id="sp-art-wechsel" value="vereinswechsel">
+        <span><strong>Vereinswechsel</strong> — das Kind hat bisher in einem anderen Verein gespielt</span>
+      </label>
+      <label class="ankreuz">
+        <input type="radio" name="sp-art" id="sp-art-rueck" value="rueckkehrer">
+        <span><strong>Rückkehrer</strong> — das Kind war schon einmal bei uns gemeldet</span>
+      </label>
+      <label class="ankreuz">
+        <input type="radio" name="sp-art" id="sp-art-namen" value="namensaenderung">
+        <span><strong>Namensänderung oder Korrektur</strong> eines bestehenden Passes</span>
+      </label>
+
+      <!-- Der ganze Block erscheint nur beim Vereinswechsel. Bei einer
+           Erstausstellung gibt es keinen vorherigen Verein, und ein
+           stehengebliebener Wert landete sonst auf dem Verbandsbogen. -->
+      <div id="sp-wechsel-block" hidden>
+        <div class="formraster">
+          <div class="feld breit">
+            <label for="sp-letzter-verein">Bisheriger Verein *</label>
+            <input id="sp-letzter-verein" placeholder="vollständiger Vereinsname">
+          </div>
+          <div class="feld breit">
+            <label for="sp-landesverband">Landesverband
+              <span class="fussnote">(nur wenn außerhalb Thüringens)</span></label>
+            <input id="sp-landesverband" placeholder="z. B. Hessischer Fußball-Verband">
+          </div>
+          <div class="feld">
+            <label for="sp-pass-nr">Pass-Nummer
+              <span class="fussnote">(wenn bekannt)</span></label>
+            <input id="sp-pass-nr" inputmode="numeric">
+          </div>
+        </div>
+
+        <h3>Abmeldung beim bisherigen Verein *</h3>
+        <label class="ankreuz">
+          <input type="radio" name="sp-abmeldung" id="sp-abm-1" value="1">
+          <span>Die Abmeldung ist <strong>bereits erfolgt</strong>. Die Kündigung mit
+          Einschreibebeleg liegt vor.</span>
+        </label>
+        <label class="ankreuz">
+          <input type="radio" name="sp-abmeldung" id="sp-abm-2" value="2">
+          <span>Die Abmeldung ist <strong>noch nicht erfolgt</strong>. Wir beauftragen den
+          1. SC 1911 Heiligenstadt, sie beim bisherigen Verein zu erklären.</span>
+        </label>
+        <p class="fussnote">Der zweite Weg ist nur möglich, wenn der Wechsel bis
+        spätestens 30.06. (Erwachsene) beziehungsweise 31.12. (Nachwuchs) beantragt wird.
+        Er betrifft nur das Spielrecht, nicht die Mitgliedschaft im bisherigen Verein.</p>
+      </div>
+
+      <h3>Abteilungen</h3>
+      <div id="a-sparten" class="ankreuz-raster"></div>
+      <p class="fussnote">Fußball ist vorausgewählt. Der Beitrag fällt nur einmal an —
+      nicht je Abteilung.</p>
+    </div>
+
+    <div class="karte">
+      <div class="schritt-nummer" id="nr-beitrag">4 — Beitragszahlung</div>
+      <!-- Seit 14.08.2026 gibt es hier KEINE Auswahl mehr: der Beitrag wird
+           ausschliesslich per SEPA-Lastschrift eingezogen. Die Ueberweisung
+           stand bis dahin daneben. Bestehende Antraege und Haushalte mit
+           "ueberweisung" bleiben davon unberuehrt und werden weiter
+           angezeigt und verarbeitet -- weggefallen ist nur der Weg, einen
+           NEUEN Antrag ohne Mandat zu stellen. -->
+      <p class="hinweis info">Der Beitrag wird per <strong>SEPA-Lastschrift</strong>
+      eingezogen. Eine andere Zahlungsweise bietet der Verein nicht an.</p>
+
+      <div id="a-bank-block">
+        <div class="formraster">
+          <div class="feld breit">
+            <label for="a-kontoinhaber">Kontoinhaber *</label>
+            <input id="a-kontoinhaber" autocomplete="name">
+          </div>
+          <div class="feld breit">
+            <label for="a-kontoinhaber-anschrift">Anschrift des Kontoinhabers
+              <span class="fussnote">(nur wenn abweichend)</span></label>
+            <input id="a-kontoinhaber-anschrift" placeholder="Straße, PLZ und Ort">
+          </div>
+          <div class="feld">
+            <label for="a-iban">IBAN *</label>
+            <input id="a-iban" autocomplete="off" spellcheck="false" placeholder="DE00 0000 0000 0000 0000 00">
+          </div>
+          <div class="feld">
+            <label for="a-bic">BIC (nur wenn bekannt)</label>
+            <input id="a-bic" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="feld breit">
+            <label for="a-bank-name">Kreditinstitut</label>
+            <input id="a-bank-name" placeholder="z. B. VR-Bank Mitte">
+          </div>
+        </div>
+        <div id="a-iban-hinweis" class="hinweis fehler" hidden></div>
+        <div class="mandatstext" id="a-mandatstext"></div>
+      </div>
+    </div>
+
+    <div class="karte">
+      <div class="schritt-nummer" id="nr-einwilligung">5 — Erklärungen</div>
+
+      <details class="ds-block">
+        <summary>Was mit den Daten geschieht (Information nach Art. 13 DSGVO)</summary>
+        <div class="ds-inhalt">
+          <p><strong>Verantwortlich</strong> ist der 1. SC 1911 Heiligenstadt,
+          Leineberg 2, 37308 Heilbad Heiligenstadt, Telefon 03606 612206,
+          <a href="mailto:info@sc1911-heiligenstadt.de">info@sc1911-heiligenstadt.de</a>.
+          Fragen zum Datenschutz beantwortet der Datenschutzbeauftragte des
+          Vereins, erreichbar über dieselbe Anschrift.</p>
+
+          <p><strong>Wozu wir die Angaben verarbeiten und auf welcher Grundlage:</strong></p>
+          <ul>
+            <li>Name, Geburtsdatum, Anschrift und Kontaktdaten, um über die
+            Aufnahme zu entscheiden und die Mitgliedschaft zu führen
+            (Art. 6 Abs. 1 lit. b DSGVO).</li>
+            <li>Staatsangehörigkeit, Geburtsort und die Angaben zur
+            Spielerlaubnis, um den Antrag beim Thüringer Fußball-Verband zu
+            stellen (Art. 6 Abs. 1 lit. b DSGVO). Diese Angaben gehen an den
+            Verband, ohne sie gibt es keine Spielerlaubnis.</li>
+            <li>Die hochgeladenen Nachweise (Geburtsurkunde, Ausweis,
+            Spielerpass, Abmeldung) verlangt der Verband als Anlage. Sie werden
+            beim Verein <strong>getrennt und zugriffsbeschränkt</strong>
+            aufbewahrt — nur die Geschäftsstelle kommt an sie heran.</li>
+            <li>Bankverbindung und SEPA-Mandat, um die Beiträge einzuziehen
+            (Art. 6 Abs. 1 lit. b DSGVO).</li>
+            <li>Die Meldung an den Landessportbund und die Fachverbände erfolgt
+            auf Ihre Einwilligung hin (Art. 6 Abs. 1 lit. a DSGVO).</li>
+            <li>Die Foto-Einwilligung und die Einwilligung in die Nutzung der
+            Adressdaten durch den DFB sind freiwillig, für die Aufnahme und die
+            Spielerlaubnis ohne Bedeutung und jederzeit widerrufbar
+            (Art. 6 Abs. 1 lit. a DSGVO).</li>
+            <li>Die Kenntnisnahme des Elternkodex samt der Fassung, die Sie
+            anerkannt haben, und der gesonderten Unterschrift darunter, um sie
+            belegen zu können (Art. 6 Abs. 1 lit. b DSGVO). Sie wird gespeichert,
+            solange Ihr Kind Mitglied des Vereins ist.</li>
+            <li>Zeitpunkt, Internetadresse und Gerätekennung speichern wir als
+            Nachweis, dass die Unterschrift von Ihnen stammt
+            (Art. 6 Abs. 1 lit. f DSGVO).</li>
+          </ul>
+
+          <p><strong>Wer die Daten erhält:</strong> Der Antrag wird auf Servern
+          in Deutschland gespeichert, die ein Auftragsverarbeiter für uns
+          betreibt. Die Angaben zur Spielerlaubnis gehen an den Thüringer
+          Fußball-Verband und den DFB, soweit für die Spielberechtigung
+          erforderlich. Die Bankverbindung geht an unsere Bank, soweit für den
+          Einzug erforderlich. Darüber hinaus geben wir nichts weiter.</p>
+
+          <p><strong>Wie lange wir speichern:</strong> Für die Dauer der
+          Mitgliedschaft. Den unterschriebenen Antrag samt Anlagen bewahrt der
+          Verein nach den Vorgaben des Verbandes mindestens zwei Jahre auf.
+          Danach löschen wir, soweit keine gesetzlichen Aufbewahrungspflichten
+          entgegenstehen.</p>
+
+          <p><strong>Ihre Rechte:</strong> Sie können Auskunft über die Daten
+          verlangen sowie deren Berichtigung, Löschung oder Einschränkung der
+          Verarbeitung; Sie können der Verarbeitung widersprechen und die
+          Daten in einem übertragbaren Format erhalten. Erteilte
+          Einwilligungen können Sie jederzeit mit Wirkung für die Zukunft
+          widerrufen — die bis dahin erfolgte Verarbeitung bleibt rechtmäßig.
+          Beschweren können Sie sich beim Thüringer Landesbeauftragten für den
+          Datenschutz und die Informationsfreiheit.</p>
+
+          <p><strong>Pflichtangaben:</strong> Die mit * gekennzeichneten Felder
+          brauchen wir, um die Mitgliedschaft begründen und die Spielerlaubnis
+          beantragen zu können. Alle übrigen Angaben sind freiwillig.</p>
+
+          <p>Ausführlich steht das in der
+          <a href="https://www.sc1911-heiligenstadt.de/datenschutz/" target="_blank" rel="noopener">Datenschutzerklärung
+          des Vereins</a>.</p>
+        </div>
+      </details>
+
+      <label class="ankreuz">
+        <input type="checkbox" id="a-ew-satzung">
+        <span>Wir erkennen die <a href="https://www.sc1911-heiligenstadt.de/satzung/" target="_blank" rel="noopener">Satzung</a>
+        und die Beitragsordnung des Vereins an. Mit den Unterschriften wird zugleich die
+        Richtigkeit aller Angaben zur Spielerlaubnis versichert und die Satzung des
+        Thüringer Fußball-Verbandes anerkannt. *</span>
+      </label>
+      <label class="ankreuz">
+        <input type="checkbox" id="a-ew-datenschutz">
+        <span>Die Daten dürfen zur Mitglieder- und Beitragsverwaltung gespeichert und
+        an den Landessportbund und die zuständigen Fachverbände gemeldet werden. *</span>
+      </label>
+      <label class="ankreuz">
+        <input type="checkbox" id="a-ew-fotos">
+        <span>Fotos von Vereinsveranstaltungen, auf denen mein Kind zu sehen ist, dürfen
+        für die Vereinsberichterstattung verwendet werden. <em>(freiwillig)</em></span>
+      </label>
+
+      <!-- Eigene Erklärung, kein viertes Häkchen im Block darüber: anderer
+           Empfänger (DFB, seine Verbände und deren Partner) und anderer
+           Zweck als die drei des Vereins. Auf dem Verbandsbogen ist das ein
+           eigenes Kästchen. -->
+      <label class="ankreuz">
+        <input type="checkbox" id="sp-ew-dfb">
+        <span>Die Adressdaten meines Kindes dürfen für Werbezwecke des DFB, seiner
+        Verbände sowie deren Partner genutzt werden. <em>(freiwillig)</em></span>
+      </label>
+      <p class="fussnote">Die beiden freiwilligen Einwilligungen haben keinen Einfluss
+      auf die Aufnahme oder die Spielerlaubnis und lassen sich jederzeit widerrufen.</p>
+
+      <div class="feld" style="margin-top:12px">
+        <label for="a-bemerkung">Anmerkung an die Geschäftsstelle</label>
+        <textarea id="a-bemerkung" rows="3"
+                  placeholder="z. B. bisherige Mannschaft, Geschwister im Verein, Besonderheiten"></textarea>
+      </div>
+    </div>
+
+    <!-- Der Elternkodex ist eine eigene Erklärung mit eigener Unterschrift und
+         kein viertes Häkchen im Block darüber: er verpflichtet nicht das Kind,
+         sondern die Eltern, Angehörigen und Fans, und er gilt weiter, wenn die
+         Aufnahme längst beschlossen ist. Wer ihn unter die Erklärungen mischte,
+         hätte später keinen Beleg dafür, dass genau dieser Text gelesen wurde.
+         Nur bei Minderjährigen sichtbar — ein volljähriger Spieler meldet sich
+         selbst an, dann gibt es hier keine unterschreibenden Eltern. -->
+    <div class="karte" id="a-karte-kodex" hidden>
+      <div class="schritt-nummer" id="nr-kodex">6 — Elternkodex</div>
+      <p>Der Elternkodex regelt, wie sich Eltern, Angehörige und Fans bei Training,
+      Spielen, Turnieren und Vereinsfahrten verhalten — wo man steht, warum
+      Anfeuern erwünscht und Coachen von außen nicht erwünscht ist, der Umgang
+      mit Schiedsrichtern und Gegnern, und auf welchem Weg Anliegen besprochen
+      werden.</p>
+
+      <div class="knopfreihe" style="margin:14px 0">
+        <a class="btn" id="btn-kodex-laden" href="elternkodex.pdf?v=1.0" download
+           target="_blank" rel="noopener">Elternkodex herunterladen (PDF)</a>
+      </div>
+
+      <label class="ankreuz">
+        <input type="checkbox" id="a-ew-kodex">
+        <span>Wir haben den Elternkodex des Vereins
+        (Version 1.0, Stand 23.03.2026) heruntergeladen, gelesen und erkennen ihn
+        an. *</span>
+      </label>
+
+      <div class="unterschrift-block">
+        <div class="unterschrift-titel">Unterschrift der Erziehungsberechtigten
+          — Kenntnisnahme des Elternkodex</div>
+        <canvas id="a-sig-kodex" class="unterschrift-feld"></canvas>
+        <div class="knopfreihe">
+          <button class="btn grau klein" id="btn-sig-kodex-loeschen" type="button">Neu zeichnen</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="karte">
+      <div class="schritt-nummer" id="nr-unterschrift">7 — Unterschriften</div>
+      <p class="fussnote">Mit dem Finger, dem Stift oder der Maus in die Felder
+      unterschreiben. Die Unterschriften gelten für den Aufnahmeantrag, den
+      Spielerlaubnisantrag und — bei Lastschrift — für das SEPA-Mandat.</p>
+
+      <div class="formraster">
+        <div class="feld">
+          <label for="a-sig-ort">Ort der Unterschrift</label>
+          <input id="a-sig-ort">
+        </div>
+        <div class="feld">
+          <label>Datum</label>
+          <input id="a-sig-datum" disabled>
+        </div>
+      </div>
+
+      <!-- Der Verbandsbogen hat eine Zeile für die Unterschrift des
+           Spielers. Ein Siebenjähriger unterschreibt nicht — deshalb ist
+           dieses Feld ausdrücklich freiwillig, während das der
+           Erziehungsberechtigten Pflicht ist. -->
+      <div class="unterschrift-block">
+        <div class="unterschrift-titel" id="a-sig-titel">Unterschrift des Kindes
+          <span class="fussnote">(soweit es schon schreiben kann)</span></div>
+        <canvas id="a-sig" class="unterschrift-feld"></canvas>
+        <div class="knopfreihe">
+          <button class="btn grau klein" id="btn-sig-loeschen" type="button">Neu zeichnen</button>
+        </div>
+      </div>
+
+      <div class="unterschrift-block" id="a-sig-gesetzl-block" hidden>
+        <div class="unterschrift-titel" id="a-sig-gesetzl-titel">Unterschrift des Erziehungsberechtigten</div>
+        <canvas id="a-sig-gesetzl" class="unterschrift-feld"></canvas>
+        <div class="knopfreihe">
+          <button class="btn grau klein" id="btn-sig-gesetzl-loeschen" type="button">Neu zeichnen</button>
+        </div>
+      </div>
+
+      <div class="unterschrift-block" id="a-sig-gesetzl2-block" hidden>
+        <div class="unterschrift-titel">Unterschrift des zweiten Erziehungsberechtigten</div>
+        <canvas id="a-sig-gesetzl2" class="unterschrift-feld"></canvas>
+        <div class="knopfreihe">
+          <button class="btn grau klein" id="btn-sig-gesetzl2-loeschen" type="button">Neu zeichnen</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Nur bei Erstausstellung und Vereinswechsel: für beide braucht der
+         Verband ein Passbild, das die Geschäftsstelle beim Eintragen in
+         DFBnet Pass-Online hochlädt. Bei Rückkehrern und einer
+         Namensänderung liegt es dort bereits. -->
+    <div class="karte" id="sp-passbild-karte" hidden>
+      <div class="schritt-nummer" id="nr-passbild">8 — Passbild</div>
+      <p class="fussnote">Für den Spielerpass wird ein Bild vom Kopf gebraucht. Ein Foto
+      mit dem Handy genügt — den Ausschnitt wählen Sie danach selbst.</p>
+
+      <div class="hinweis info">
+        <strong>So wird es gut:</strong> vor einer möglichst hellen, einfarbigen Wand
+        aufnehmen, das Gesicht gerade nach vorn, Augen offen, keine Mütze und keine
+        Sonnenbrille. Gleichmäßiges Licht ohne harten Schatten im Gesicht.
+      </div>
+
+      <div class="knopfreihe">
+        <button class="btn" id="btn-passbild-kamera" type="button">📷 Foto aufnehmen</button>
+        <button class="btn grau" id="btn-passbild-datei" type="button">Bild auswählen</button>
+      </div>
+      <!-- Rückfallebene: capture="user" springt in die System-Kamera. Wird
+           nur benutzt, wenn die eigene Vorschau nicht geht (kein
+           getUserMedia, keine Erlaubnis, keine Kamera) — dort lässt sich
+           keine Hilfslinie einblenden, deshalb ist sie der zweite Weg. -->
+      <input type="file" id="passbild-kamera" accept="image/*" capture="user" hidden>
+      <input type="file" id="passbild-datei" accept="image/*" hidden>
+
+      <div id="passbild-stand"></div>
+    </div>
+
+    <div class="karte">
+      <div class="schritt-nummer" id="nr-nachweise">9 — Nachweise</div>
+      <p class="fussnote">Der Verband verlangt Anlagen zum Spielerlaubnisantrag. Ein
+      Foto mit dem Handy genügt. Sie werden getrennt von den übrigen Daten und nur für
+      die Geschäftsstelle einsehbar abgelegt.</p>
+
+      <div id="sp-nachweis-liste"></div>
+
+      <div class="hinweis info">
+        Fehlt ein Nachweis gerade, können Sie die Anmeldung trotzdem absenden — die
+        Geschäftsstelle fragt dann nach.
+      </div>
+    </div>
+
+    <div class="karte">
+      <div id="a-meldung" class="hinweis fehler" hidden></div>
+      <div class="knopfreihe">
+        <button class="btn gross" id="btn-antrag-senden" type="button">Anmeldung verbindlich absenden</button>
+      </div>
+      <p class="fussnote">Mit dem Absenden gehen Aufnahmeantrag und Spielerlaubnisantrag
+      bei der Geschäftsstelle ein. Zeitpunkt, Internetadresse und Gerätekennung werden
+      als Nachweis der Unterschrift mitgespeichert.</p>
+    </div>
+
+  </div>
+
+  <div id="danke" hidden>
+    <div class="karte">
+      <h2>Die Anmeldung ist eingegangen</h2>
+      <div class="hinweis erfolg" id="danke-kopf"></div>
+      <p>Über die Aufnahme entscheidet nach § 4 der Satzung der Gesamtvorstand. Den
+      Antrag auf Spielerlaubnis stellt die Geschäftsstelle beim Thüringer
+      Fußball-Verband. Sie hören von uns, sobald beides vorliegt.</p>
+      <p class="fussnote"><strong>Bitte sichern Sie sich diese Seite</strong> — sie ist
+      Ihre Kopie der Erklärung samt Unterschriften.</p>
+      <div class="knopfreihe nicht-drucken">
+        <button class="btn" id="btn-drucken" type="button">Drucken oder als PDF sichern</button>
+      </div>
+    </div>
+    <div class="karte" id="danke-zusammenfassung"></div>
+  </div>
+
+</section>
+
+<section id="tab-info" class="tab">
+  <div class="karte">
+    <h2>Über die Nachwuchs-Anmeldung <span class="version-badge" id="info-version">1.0</span></h2>
+    <p>Dieses Formular gehört zur Vereinsverwaltung des
+    <span class="verein-name-text">1. SC 1911 Heiligenstadt e.&nbsp;V.</span> Es nimmt in
+    einem Durchgang den Aufnahmeantrag nach § 4 der Satzung und die Angaben für den
+    Antrag auf Spielerlaubnis beim Thüringer Fußball-Verband entgegen.</p>
+    <p class="fussnote">Wer bereits Mitglied ist und nur eine Spielerlaubnis braucht,
+    wendet sich bitte unmittelbar an die Geschäftsstelle. Für eine Mitgliedschaft ohne
+    Fußball gibt es den
+    <a href="antrag.html">allgemeinen Aufnahmeantrag</a>.</p>
+    <p class="fussnote">Fragen beantwortet die Geschäftsstelle:
+    Leineberg 2, 37308 Heilbad Heiligenstadt, Telefon 03606 612206,
+    <a href="mailto:info@sc1911-heiligenstadt.de">info@sc1911-heiligenstadt.de</a>.</p>
+    <p class="fussnote">
+      <a href="https://www.sc1911-heiligenstadt.de/satzung/" target="_blank" rel="noopener">Satzung</a> ·
+      <a href="https://www.sc1911-heiligenstadt.de/datenschutz/" target="_blank" rel="noopener">Datenschutzerklärung</a>
+    </p>
+  </div>
+
+  <div class="karte">
+    <h3>Was sich geändert hat</h3>
+    <div class="changelog-liste" id="info-changelog"></div>
+  </div>
+</section>
+
+</main>
+
+<!-- Eigene Kameravorschau mit Hilfslinie (Michel-Wunsch 06.08.2026: der
+     Kreis soll schon BEIM Fotografieren zu sehen sein).
+     ⚠️ Der Stream muss beim Schließen zwingend gestoppt werden, sonst
+     leuchtet die Kamera-Anzeige des Geräts weiter. -->
+<div class="foto-overlay" id="kamera-overlay" hidden>
+  <div class="foto-dialog kamera-dialog">
+    <h2>Foto aufnehmen</h2>
+    <p class="fussnote">Den Kopf in das Oval bringen — Kinn unten, Scheitel oben.
+    Möglichst vor einer hellen, einfarbigen Wand.</p>
+
+    <!-- playsinline ist auf iOS Pflicht: ohne das reisst Safari das Video
+         in den Vollbild-Player und die Hilfslinie ist weg. -->
+    <div class="kamera-buehne" id="kamera-buehne-halter">
+      <video id="kamera-video" playsinline autoplay muted></video>
+      <div class="kamera-oval"></div>
+    </div>
+
+    <div id="kamera-fehler" class="hinweis fehler" hidden></div>
+
+    <div class="knopfreihe">
+      <button class="btn grau klein" id="btn-kamera-wechseln" type="button">🔄 Kamera wechseln</button>
+      <button class="btn grau klein" id="btn-kamera-abbrechen" type="button">Abbrechen</button>
+      <button class="btn" id="btn-kamera-ausloesen" type="button">Auslösen</button>
+    </div>
+  </div>
+</div>
+
+<!-- Zuschnitt des Passbilds. Eigenes Overlay statt eines dritten Reiters:
+     es gehört zu genau einer Handlung und ist danach wieder weg.
+     ⚠️ Der Canvas wird erst vermessen, wenn das Overlay sichtbar ist —
+     hinter display:none bleibt er 300×150. -->
+<div class="foto-overlay" id="passbild-overlay" hidden>
+  <div class="foto-dialog">
+    <h2>Ausschnitt wählen</h2>
+    <p class="fussnote">Das Bild mit dem Finger verschieben, mit dem Regler vergrößern.
+    Der Kopf soll die <strong>ovale Hilfslinie</strong> ausfüllen — Kinn unten, Scheitel
+    oben, etwas Luft über dem Kopf.</p>
+
+    <canvas id="passbild-canvas"></canvas>
+
+    <div class="feld">
+      <label for="passbild-zoom">Größe</label>
+      <input type="range" id="passbild-zoom" min="100" max="300" value="100">
+    </div>
+
+    <div class="knopfreihe">
+      <button class="btn grau klein" id="btn-passbild-drehen" type="button">↻ Drehen</button>
+      <button class="btn grau klein" id="btn-passbild-abbrechen" type="button">Abbrechen</button>
+      <button class="btn" id="btn-passbild-uebernehmen" type="button">Übernehmen</button>
+    </div>
+  </div>
+</div>
+
+<script src="signature-pad.js?v=1.0"></script>
+<script src="antrag-felder.js?v=1.0"></script>
+<script src="db-antrag.js?v=1.0"></script>
+<script src="nachwuchs.js?v=1.0"></script>
+</body>
+</html>

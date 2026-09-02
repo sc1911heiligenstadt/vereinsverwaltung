@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#1a56a0">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=1.0">
+<link rel="icon" href="/favicon.png?v=1.0" type="image/png">
+<title>Buchhaltung &mdash; 1. SC 1911 Heiligenstadt</title>
+<link rel="stylesheet" href="style.css?v=1.0">
+</head>
+<body>
+
+<header>
+  <h1>Buchhaltung</h1>
+  <a class="dashboard-pille" href="index.html">&larr; Vereinsverwaltung</a>
+  <div class="kopf-rechts">
+    <span class="rollen-pille" id="jahr-pille" hidden></span>
+    <img class="kopf-logo" src="https://sc1911heiligenstadt.github.io/logo.svg" alt="1. SC 1911 Heiligenstadt e.V.">
+  </div>
+</header>
+
+<nav id="haupt-nav" hidden>
+  <button data-tab="tab-buchen" class="aktiv">Buchen</button>
+  <button data-tab="tab-journal">Journal</button>
+  <button data-tab="tab-auswertung">Auswertung</button>
+  <button data-tab="tab-uebernahme">Übernahme</button>
+  <button data-tab="tab-abschluss">Jahresabschluss</button>
+  <button data-tab="tab-konten">Konten</button>
+  <!-- „Info“ ganz rechts, wie auf jeder anderen Seite der Flotte. Diese
+       Seite war bis 2026-08-11 die einzige ohne Info-Reiter — damit stand
+       die Versionsangabe hier nirgends. -->
+  <div class="nav-right">
+    <button data-tab="tab-info">Info</button>
+  </div>
+</nav>
+
+<main>
+
+  <section id="anmelde-schirm" class="karte">
+    <h2>Anmeldung erforderlich</h2>
+    <p>Diese Seite enthält die Finanzdaten des Vereins und ist nur für angemeldete
+    Personen zugänglich.</p>
+    <p><a class="btn-link" href="https://sc1911heiligenstadt.github.io/ToolsUebersicht/">Zur Anmeldung</a></p>
+  </section>
+
+  <!-- Eigene Seite statt eines Reiters in der Mitgliederverwaltung: die
+       Buchhaltung ist dem Schatzmeister vorbehalten, und eine Seite, die
+       gar nicht erst geladen wird, ist die klarste Grenze. -->
+  <section id="kein-zugriff" class="karte" hidden>
+    <h2>Kein Zugriff</h2>
+    <p>Die Buchhaltung ist dem Schatzmeister vorbehalten. Ihre Rolle in der
+    Vereinsverwaltung reicht dafür nicht.</p>
+    <p><a class="btn-link" href="index.html">Zurück zur Vereinsverwaltung</a></p>
+  </section>
+
+  <div id="app-bereich" hidden>
+
+    <div class="karte" id="einrichtung-karte" hidden>
+      <h2>Buchhaltung einrichten</h2>
+      <p>Es ist noch kein Kontenrahmen angelegt. Der Startbestand ist an
+      <strong>SKR49</strong> angelehnt und umfasst die Konten, die ein Sportverein
+      üblicherweise braucht, dazu geführte Geschäftsvorfälle im Klartext.</p>
+      <div class="hinweis warn">Die Kontonummern sind ein <strong>Vorschlag</strong>.
+      Ein Kontenrahmen ist eine Absprache mit dem Steuerberater — vor dem ersten
+      echten Buchungsjahr abgleichen. Ändern kostet keinen Deploy, die Konten liegen
+      in der Datenbank.</div>
+      <div class="knopfreihe">
+        <button class="btn" id="btn-einrichten">Kontenrahmen anlegen</button>
+      </div>
+      <div id="einrichtung-status"></div>
+    </div>
+
+    <div class="karte" id="jahr-karte">
+      <div class="filterleiste">
+        <div class="feld">
+          <label for="f-jahr">Geschäftsjahr</label>
+          <select id="f-jahr"></select>
+        </div>
+        <div class="feld">
+          <label for="nj-jahr">Neues Jahr anlegen</label>
+          <input id="nj-jahr" inputmode="numeric" placeholder="2027" size="6">
+        </div>
+        <div class="feld">
+          <label>&nbsp;</label>
+          <button class="btn grau klein" id="btn-jahr-anlegen">Anlegen</button>
+        </div>
+      </div>
+      <div id="jahr-status"></div>
+    </div>
+
+    <section id="tab-buchen" class="tab aktiv">
+      <div class="karte">
+        <h2>Geführter Geschäftsvorfall</h2>
+        <p class="fussnote">Der übliche Weg. Jede Vorlage sagt, in welche Sphäre der
+        Vorgang gehört und warum — das entscheidet über die Steuerpflicht.</p>
+        <div class="feld">
+          <label for="b-vorlage">Vorgang</label>
+          <select id="b-vorlage"><option value="">— freie Eingabe —</option></select>
+        </div>
+        <div id="b-erklaerung"></div>
+      </div>
+
+      <div class="karte">
+        <h2>Beleg</h2>
+        <div class="formraster">
+          <div class="feld">
+            <label for="b-datum">Belegdatum *</label>
+            <input type="date" id="b-datum">
+          </div>
+          <div class="feld">
+            <label for="b-betrag">Betrag (Euro) *</label>
+            <input id="b-betrag" inputmode="decimal" placeholder="0,00">
+          </div>
+          <div class="feld breit">
+            <label for="b-text">Buchungstext *</label>
+            <input id="b-text" placeholder="z. B. Spende Herr Müller">
+          </div>
+        </div>
+
+        <h3>Soll und Haben</h3>
+        <div id="b-zeilen"></div>
+        <div class="knopfreihe">
+          <button class="btn grau klein" id="btn-zeile-mehr">+ Zeile</button>
+          <span id="b-summe" class="betrag-anzeige"></span>
+        </div>
+
+        <div id="b-meldung" class="hinweis fehler" hidden></div>
+        <div class="knopfreihe">
+          <button class="btn" id="btn-buchen">Buchen</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-journal" class="tab">
+      <div class="karte">
+        <h2>Journal</h2>
+        <p class="fussnote">Alle Belege des Jahres, neueste zuerst. Gelöscht wird nie —
+        eine falsche Buchung wird storniert, und beide bleiben stehen.</p>
+        <div class="filterleiste">
+          <div class="feld suchfeld">
+            <label for="j-suche">Suche (Text oder Belegnummer)</label>
+            <input type="search" id="j-suche" autocomplete="off">
+          </div>
+          <div class="feld">
+            <label>&nbsp;</label>
+            <button class="btn" id="btn-journal">Anzeigen</button>
+          </div>
+        </div>
+        <div id="j-liste"></div>
+      </div>
+    </section>
+
+    <section id="tab-auswertung" class="tab">
+      <div class="karte">
+        <h2>Ergebnis je Sphäre</h2>
+        <p class="fussnote">Die vier Sphären des Gemeinnützigkeitsrechts. Der ideelle
+        Bereich und der Zweckbetrieb sind steuerfrei, die Vermögensverwaltung
+        weitgehend — der wirtschaftliche Geschäftsbetrieb nicht.</p>
+        <div id="a-sphaeren"></div>
+      </div>
+      <div class="karte">
+        <h2>Summen- und Saldenliste</h2>
+        <div id="a-salden"></div>
+      </div>
+    </section>
+
+    <section id="tab-uebernahme" class="tab">
+      <div class="karte">
+        <h2>Aus der Beitragsverwaltung übernehmen</h2>
+        <p class="fussnote">Festgeschriebene Beitragsläufe und gebuchte Lastschrift-Einzüge,
+        die noch nicht in der Buchhaltung stehen. Jeder Vorgang lässt sich nur
+        <strong>einmal</strong> buchen — das erzwingt die Datenbank, nicht die Oberfläche.</p>
+        <div id="u-liste"></div>
+        <div class="knopfreihe">
+          <button class="btn grau" id="btn-uebernahme-neu">Neu laden</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-abschluss" class="tab">
+      <div class="karte">
+        <h2>Jahresabschluss</h2>
+        <p class="fussnote">Der Abschluss stellt alle Erfolgskonten glatt und bucht das
+        Ergebnis ins Vereinsvermögen. Danach ist das Jahr zu: Korrekturen laufen über
+        eine Buchung im Folgejahr.</p>
+        <div class="hinweis warn">Vor dem Abschluss prüfen, ob alles aus der
+        Beitragsverwaltung übernommen ist. Der Abschluss lässt sich <strong>nicht
+        wiederholen</strong>.</div>
+        <div id="ab-jahre"></div>
+        <div id="ab-ergebnis"></div>
+      </div>
+    </section>
+
+    <section id="tab-konten" class="tab">
+      <div class="karte">
+        <h2>Kontenrahmen</h2>
+        <div class="hinweis info">Die Sphäre hängt am <strong>Konto</strong>, nicht an der
+        einzelnen Buchung. Wer dieselbe Art Einnahme in zwei Sphären braucht, legt zwei
+        Konten an — genau so ist SKR49 aufgebaut. Bereits gebuchte Zeilen behalten ihre
+        Sphäre; eine Änderung wirkt nur nach vorn.</div>
+        <div class="knopfreihe">
+          <button class="btn klein" id="btn-konto-neu">+ Neues Konto</button>
+        </div>
+        <div id="k-liste"></div>
+      </div>
+    </section>
+
+    <section id="tab-info" class="tab">
+      <div class="karte">
+        <h2>Über die Buchhaltung <span class="version-badge" id="version-badge-2">1.0</span></h2>
+        <p>Doppelte Buchführung des 1. SC 1911 Heiligenstadt: buchen, Journal, Saldenliste
+        und Auswertung, Übernahme der Beitragsläufe sowie Jahresabschluss und
+        Eröffnungsbilanz. Sie gehört zur Vereinsverwaltung und ist dem
+        <strong>Schatzmeister</strong> vorbehalten.</p>
+        <h3>Der Kontenrahmen ist ein Vorschlag</h3>
+        <p>Die angelegten Konten sind an den SKR49 angelehnt, aber ausdrücklich ein
+        Startbestand. Ein Kontenrahmen ist eine Absprache mit dem Steuerberater — die
+        Konten liegen in der Datenbank und lassen sich ohne Programmänderung anpassen.</p>
+      </div>
+      <div class="karte">
+        <h2>Änderungen</h2>
+        <div id="changelog-liste"></div>
+      </div>
+    
+      <div class="karte" id="ds-info-karte">
+        <h2>Datenschutz</h2>
+        <p>Dieses Werkzeug gehört zu den internen Anwendungen des
+        1. SC 1911 Heiligenstadt. Die hier erfassten Daten werden
+        ausschließlich für die Vereinsarbeit verwendet und liegen auf Servern
+        in Deutschland, die ein Auftragsverarbeiter für den Verein betreibt.
+        Eine Weitergabe an Dritte findet nur statt, soweit sie für den
+        jeweiligen Zweck erforderlich oder gesetzlich vorgeschrieben ist.</p>
+        <p>Verantwortlich ist der 1. SC 1911 Heiligenstadt, Leineberg 2,
+        37308 Heilbad Heiligenstadt, Telefon 03606 612206,
+        <a href="mailto:info@sc1911-heiligenstadt.de">info@sc1911-heiligenstadt.de</a>.
+        Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung,
+        Datenübertragbarkeit und Widerspruch lassen sich unter dieser
+        Anschrift geltend machen. Beschwerden nimmt der Thüringer
+        Landesbeauftragte für den Datenschutz und die Informationsfreiheit
+        entgegen.</p>
+        <p><a href="https://www.sc1911-heiligenstadt.de/datenschutz/" target="_blank" rel="noopener">Datenschutzerklärung des Vereins</a>
+        &middot;
+        <a href="https://www.sc1911-heiligenstadt.de/impressum-2/" target="_blank" rel="noopener">Impressum</a></p>
+      </div>
+</section>
+
+  </div>
+</main>
+
+<div class="overlay" id="konto-overlay" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="konto-titel">
+    <div class="dialog-kopf">
+      <h2 id="konto-titel">Konto</h2>
+      <button class="dialog-zu" id="btn-konto-zu" aria-label="Schließen">&times;</button>
+    </div>
+    <div class="dialog-inhalt">
+      <div class="formraster">
+        <div class="feld"><label for="ko-nummer">Nummer *</label><input id="ko-nummer"></div>
+        <div class="feld"><label for="ko-name">Bezeichnung *</label><input id="ko-name"></div>
+        <div class="feld"><label for="ko-art">Art *</label>
+          <select id="ko-art">
+            <option value="aktiv">Aktiv (Bestand, z. B. Bank)</option>
+            <option value="passiv">Passiv (Kapital, Schulden)</option>
+            <option value="ertrag">Ertrag</option>
+            <option value="aufwand">Aufwand</option>
+          </select>
+        </div>
+        <div class="feld"><label for="ko-sphaere">Sphäre</label>
+          <select id="ko-sphaere"></select>
+        </div>
+        <div class="feld"><label for="ko-gruppe">Gruppe (Gliederung)</label><input id="ko-gruppe"></div>
+        <div class="feld">
+          <label>&nbsp;</label>
+          <label class="ankreuz"><input type="checkbox" id="ko-aktiv" checked><span>aktiv</span></label>
+        </div>
+      </div>
+      <p class="fussnote" id="ko-hinweis"></p>
+      <div id="ko-meldung" class="hinweis fehler" hidden></div>
+    </div>
+    <div class="dialog-fuss">
+      <button class="btn grau" id="btn-konto-abbrechen">Abbrechen</button>
+      <button class="btn" id="btn-konto-speichern">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<footer>1. SC 1911 Heiligenstadt &mdash; interne Vereinsverwaltung</footer>
+
+<script src="config.js?v=1.0"></script>
+<script src="db.js?v=1.0"></script>
+<script src="buchhaltung.js?v=1.0"></script>
+</body>
+</html>
