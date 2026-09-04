@@ -45,6 +45,21 @@ let koSortAb = false;
 // wird. Ohne den Merker wuesste der Klick auf ein Kind nicht, wohin.
 let koZuordnenId = null;
 
+// Liegt die Kenntnisnahme vor?
+//
+// ⚠️ Seit dem 04.09.2026 gibt es dafuer ZWEI Wege: die nachgereichte
+// Erklaerung und die Unterschrift, die mit der Nachwuchs-Anmeldung
+// abgegeben wurde. `bestaetigung_id` beantwortet nur noch den halben Fall
+// -- wer weiter danach fragt, zaehlt die Angemeldeten als offen und laesst
+// die Geschaeftsstelle Familien anmahnen, die laengst unterschrieben haben.
+// Der Server beantwortet die ganze Frage in `kodex_da`.
+//
+// ⚠️ Der Rueckfall ist keine Zierde. Beim Rollout geht der Worker voran,
+// aber ein Browser mit altem kodex-verwaltung.js aus dem Cache trifft auch
+// die umgekehrte Reihenfolge; ohne ihn stuende in genau diesem Fenster
+// jedes Kind auf „offen".
+const koDa = (k) => (k.kodex_da === undefined ? !!k.bestaetigung_id : !!k.kodex_da);
+
 // ---------------------------------------------------------------------
 // Laden
 // ---------------------------------------------------------------------
@@ -92,7 +107,7 @@ function koMeldung(text, art) {
 
 function zeichneKodexStand() {
   const kinder = koDaten.kinder || [];
-  const fertig = kinder.filter((k) => k.bestaetigung_id).length;
+  const fertig = kinder.filter(koDa).length;
   const offen = kinder.length - fertig;
   const anteil = kinder.length ? Math.round((fertig / kinder.length) * 100) : 0;
 
@@ -169,8 +184,8 @@ async function schalteKodex(wert) {
 function zeichneKodexReiter() {
   const kinder = koDaten.kinder || [];
   const zahl = {
-    offen: kinder.filter((k) => !k.bestaetigung_id).length,
-    bestaetigt: kinder.filter((k) => k.bestaetigung_id).length,
+    offen: kinder.filter((k) => !koDa(k)).length,
+    bestaetigt: kinder.filter(koDa).length,
     alle: kinder.length
   };
   $("ko-reiter").innerHTML = Object.keys(KO_SICHT).map((s) =>
@@ -210,7 +225,7 @@ const KO_SPALTEN = [
     zweit: (k) => String(k.mitgliedsnummer || "") },
   { schluessel: "stand",    text: "Kenntnisnahme",
     // Offen zuerst -- wer noch fehlt, ist die Arbeit.
-    wert: (k) => (k.bestaetigung_id ? 1 : 0) },
+    wert: (k) => (koDa(k) ? 1 : 0) },
   { schluessel: "wann",     text: "Unterschrieben am",
     wert: (k) => k.bestaetigt_am || "" },
   { schluessel: "vonwem",   text: "Unterschrieben von",
@@ -255,8 +270,8 @@ function koSortiert(zeilen) {
 }
 
 function koPasst(k) {
-  if (koSicht === "offen" && k.bestaetigung_id) return false;
-  if (koSicht === "bestaetigt" && !k.bestaetigung_id) return false;
+  if (koSicht === "offen" && koDa(k)) return false;
+  if (koSicht === "bestaetigt" && !koDa(k)) return false;
   if (!koSuche) return true;
   return (k.vorname + " " + k.nachname).toLowerCase().includes(koSuche);
 }
@@ -306,8 +321,14 @@ function zeichneKodexListe() {
         // eigenen Spalte -- sonst liesse es sich nicht danach sortieren,
         // und „Kenntnisnahme: 18.08.2026" beantwortet die Frage „liegt sie
         // vor?" nur auf Umwegen.
-        "<td>" + (k.bestaetigung_id
+        "<td>" + (koDa(k)
           ? '<span class="chip aktiv">liegt vor</span>' +
+            // ⚠️ Woher sie kam. „aus der Anmeldung“ beantwortet die
+            // Rückfrage, warum zu diesem Kind nichts nachgereicht wurde —
+            // ohne den Chip sähe es aus, als hätte die Familie den Link
+            // benutzt, und niemand fände die Unterschrift wieder.
+            (k.quelle === "anmeldung"
+              ? ' <span class="chip ruhend">aus der Anmeldung</span>' : "") +
             (k.von_hand ? ' <span class="chip ruhend">von Hand</span>' : "") +
             // ⚠️ Eine ersetzte Erklärung sieht sonst aus wie jede andere.
             // Die Familie korrigiert sich selbst — oder jemand Fremdes hat
@@ -316,10 +337,18 @@ function zeichneKodexListe() {
           : '<span class="chip gekuendigt">offen</span>') + "</td>" +
         "<td>" + esc(k.bestaetigt_am ? datumDe(k.bestaetigt_am) : "") + "</td>" +
         "<td>" + esc(k.erz_name || "") + "</td>" +
-        "<td>" + (k.bestaetigung_id && !zuordnen
-          ? '<button class="btn grau klein" data-ko-detail="' + esc(k.bestaetigung_id) +
-            '">Ansehen</button>'
-          : "") + "</td>" +
+        "<td>" + (zuordnen ? ""
+          : k.bestaetigung_id
+            ? '<button class="btn grau klein" data-ko-detail="' + esc(k.bestaetigung_id) +
+              '">Ansehen</button>'
+            // Der Beleg aus der Anmeldung liegt am Aufnahmeantrag und
+            // braucht deshalb einen eigenen Knopf. Ohne ihn wäre der Chip
+            // eine Sackgasse: man sähe DASS unterschrieben wurde, aber nie
+            // WAS und von wem.
+            : k.antrag_id
+              ? '<button class="btn grau klein" data-ko-antrag="' + esc(k.antrag_id) +
+                '">Ansehen</button>'
+              : "") + "</td>" +
       "</tr>").join("") +
     "</tbody></table></div>";
 
@@ -337,6 +366,13 @@ function zeichneKodexListe() {
     b.addEventListener("click", (e) => {
       e.stopPropagation();
       zeigeKodexDetail(b.dataset.koDetail);
+    });
+  });
+
+  ziel.querySelectorAll("[data-ko-antrag]").forEach((b) => {
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      zeigeKodexDetail(null, b.dataset.koAntrag);
     });
   });
 
@@ -412,14 +448,14 @@ function zeichneKodexOffene() {
 // Eine Erklaerung ansehen
 // ---------------------------------------------------------------------
 
-async function zeigeKodexDetail(id) {
+async function zeigeKodexDetail(id, antragId) {
   const inhalt = $("ko-inhalt");
   inhalt.innerHTML = '<div class="leer">Wird geladen …</div>';
   $("kodex-overlay").hidden = false;
 
   let d;
   try {
-    d = await ladeKodexDetail(id);
+    d = await ladeKodexDetail(id, antragId);
   } catch (e) {
     inhalt.innerHTML = '<div class="hinweis fehler">' + esc(e.message) + "</div>";
     return;
@@ -429,6 +465,15 @@ async function zeigeKodexDetail(id) {
     ? "<tr><th>" + esc(titel) + "</th><td>" + wert + "</td></tr>" : "";
 
   inhalt.innerHTML =
+    // ⚠️ Zuerst sagen, WOHER dieser Beleg kommt. Sonst sucht die
+    // Geschäftsstelle die Erklärung im Nachreich-Eingang und findet sie
+    // nie — sie liegt beim Aufnahmeantrag.
+    (d.quelle === "anmeldung"
+      ? '<div class="hinweis info">Diese Kenntnisnahme wurde mit der ' +
+        "<strong>Nachwuchs-Anmeldung</strong> abgegeben, nicht über den " +
+        "Nachreich-Link. Sie gehört zum Aufnahmeantrag und steht auch im " +
+        "Reiter „Anträge“.</div>"
+      : "") +
     '<div class="tabelle-scroll"><table class="zusammenfassung"><tbody>' +
       zeile("Eingegangen", esc(datumDe(d.eingang_am))) +
       zeile("Kind (Angabe der Eltern)", esc(d.kind_vorname + " " + d.kind_nachname)) +
@@ -442,8 +487,16 @@ async function zeigeKodexDetail(id) {
       // anerkannt wurde. Der Kodex wird fortgeschrieben.
       zeile("Fassung des Kodex", esc(d.kodex_version)) +
       zeile("Zugeordnet zu", d.person_name
-        ? esc(d.person_name) + ' <span class="chip ruhend">von Hand, ' +
-          esc(datumDe(d.zugeordnet_am)) + " durch " + esc(d.zugeordnet_von || "") + "</span>"
+        ? esc(d.person_name) +
+          // ⚠️ Aus der Anmeldung heraus ist die Zuordnung KEINE Handarbeit:
+          // sie steht am Antrag, seit er angenommen wurde. „von Hand, —
+          // durch “ wäre hier eine falsche Auskunft über einen Vorgang,
+          // den nie jemand ausgeführt hat.
+          (d.quelle === "anmeldung"
+            ? ' <span class="chip ruhend">aus der Anmeldung</span>'
+            : ' <span class="chip ruhend">von Hand, ' +
+              esc(datumDe(d.zugeordnet_am)) + " durch " +
+              esc(d.zugeordnet_von || "") + "</span>")
         : "") +
     "</tbody></table></div>" +
     '<p class="fussnote">Erklärt wurde: Der Elternkodex des Vereins wurde ' +
@@ -484,7 +537,11 @@ async function zeigeKodexDetail(id) {
               : '<div class="leer">Keine Unterschrift gespeichert.</div>') +
           "</div>").join("")
       : "") +
-    (d.darf_schreiben
+    // ⚠️ Nur die NACHGEREICHTE Erklärung lässt sich zuordnen, aufheben und
+    // löschen. Die aus der Anmeldung gehört zum Aufnahmeantrag und stirbt
+    // mit ihm; Knöpfe dafür zeigten nur Fehler, und „Erklärung löschen“
+    // würde eine Löschung anbieten, die es an dieser Stelle nicht gibt.
+    (d.darf_schreiben && d.quelle !== "anmeldung"
       ? '<div class="knopfreihe" style="margin-top:14px">' +
           '<button class="btn" id="btn-ko-zuordnen" data-id="' + esc(d.id) + '">' +
             (d.person_id ? "Anderem Kind zuordnen" : "Von Hand zuordnen") + "</button>" +
@@ -498,7 +555,7 @@ async function zeigeKodexDetail(id) {
         "gedacht. Die Unterschrift wird mitgelöscht.</p>"
       : "");
 
-  if (d.darf_schreiben) {
+  if (d.darf_schreiben && d.quelle !== "anmeldung") {
     $("btn-ko-zuordnen").addEventListener("click", () => starteZuordnung(d.id));
     if ($("btn-ko-loesen")) {
       $("btn-ko-loesen").addEventListener("click", () => loeseZuordnung(d.id));

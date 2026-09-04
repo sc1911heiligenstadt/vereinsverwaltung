@@ -125,8 +125,14 @@ async function ladeKodexListe() {
 
 // Eigene Aktion, weil die Unterschrift 19 KB traegt und die Liste sie
 // nicht anzeigt.
-async function ladeKodexDetail(id) {
-  return vvRequest("vv-kodex-detail", { id });
+//
+// ⚠️ Zwei Herkuenfte: `id` meint eine nachgereichte Erklaerung aus
+// elternkodex_bestaetigung, `antragId` eine Kenntnisnahme, die mit der
+// Nachwuchs-Anmeldung abgegeben wurde und am Aufnahmeantrag haengt. Der
+// Server unterscheidet daran, welche Ablage er liest -- die Antwort hat
+// beide Male dieselbe Gestalt und traegt in `quelle`, woher sie kam.
+async function ladeKodexDetail(id, antragId) {
+  return vvRequest("vv-kodex-detail", antragId ? { antrag_id: antragId } : { id });
 }
 
 // Handzuordnung fuer den Fall, dass der Namensabgleich nicht trifft. Eine

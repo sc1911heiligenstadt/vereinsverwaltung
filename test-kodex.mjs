@@ -17,6 +17,8 @@
 //   G  Das Fenster zwischen Deploy und erster Migration
 //   H  Zusagen der Browser-Seiten
 //   I  Spalten und Sortierung der Kinderliste
+//   J  Ersetzen hinterlaesst eine Spur (Sicherheits-Review 18.08.2026)
+//   K  Die Kenntnisnahme aus der ANMELDUNG zaehlt mit (04.09.2026)
 
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
@@ -1169,6 +1171,216 @@ pruefe("J29 Die Kinderliste zeigt die Zahl der Ersetzungen",
        /k\.ersetzt \? ' <span class="chip ruhend">' \+ k\.ersetzt/.test(kodexVerw));
 pruefe("J30 Die Liste \u201eNicht zuzuordnen\u201c ebenfalls",
        /b\.ersetzt \? ' <span class="chip ruhend">' \+ b\.ersetzt/.test(kodexVerw));
+
+// ======================================================================
+console.log("K  Die Kenntnisnahme aus der ANMELDUNG zaehlt mit");
+// ======================================================================
+
+// Der Befund vom 04.09.2026: die Nachwuchs-Anmeldung erhebt den Kodex
+// seit dem 18.08.2026 selbst, legt die Unterschrift aber in der SPALTE
+// aufnahmeantrag.unterschrift_elternkodex_datei ab. Die Liste las nur
+// elternkodex_bestaetigung -- angemeldete und aufgenommene Kinder standen
+// deshalb auf "offen", obwohl ihre Eltern unterschrieben hatten.
+
+// Klarer Stand.
+db.exec("DELETE FROM elternkodex_verlauf");
+db.exec("DELETE FROM elternkodex_bestaetigung");
+db.exec("DELETE FROM aufnahmeantrag");
+
+// ⚠️ Der Antrag traegt eine ECHTE IBAN. Ohne sie waere jede Zusage
+// darueber, dass Liste und Detail keine Bankdaten ausliefern, auch dann
+// gruen, wenn im antrag_json nie eine gestanden haette.
+const antragInhalt = (mehr) => Object.assign({
+  vorname: "Tom", nachname: "Beispiel", geburtsdatum: "2017-09-01",
+  minderjaehrig: true,
+  gesetzl_name: "Petra Beispiel",
+  gesetzl_verhaeltnis: "Mutter",
+  email: "petra@example.org",
+  strasse: "Musterweg 3", plz: "37308", ort: "Heilbad Heiligenstadt",
+  unterschrift_ort: "Heilbad Heiligenstadt",
+  iban: "DE02120300000000202051", bic: "BYLADEM1001",
+  einwilligung_elternkodex: true,
+  elternkodex_version: W.ELTERNKODEX_VERSION
+}, mehr);
+
+function legeAntrag(id, inhalt, mehr) {
+  const s = Object.assign({
+    quelle: "nachwuchs", status: "angenommen", person_id: null,
+    kodex: SIG, zeit: "2026-08-14T09:00:00.000Z"
+  }, mehr);
+  db.prepare(
+    "INSERT INTO aufnahmeantrag (id, eingang_am, antrag_json, unterschrift_datei, " +
+    "unterschrift_elternkodex_datei, signatur_zeit, quelle, status, person_id) " +
+    "VALUES (?,?,?,?,?,?,?,?,?)"
+  ).run(id, s.zeit, JSON.stringify(inhalt), SIG, s.kodex, s.zeit,
+        s.quelle, s.status, s.person_id);
+}
+
+// Tom: angemeldet, aufgenommen -- person_id steht am Antrag.
+legeAntrag("ant-tom", antragInhalt(), { person_id: "p2" });
+// ⚠️ Die GEGENPROBE gleich daneben: Anna-Lena hat einen Antrag OHNE
+// Unterschrift unter dem Kodex. Ohne diese Zeile waere K7 auch dann
+// gruen, wenn die Abfrage jeden Antrag mitzaehlte.
+legeAntrag("ant-annalena-ohne", antragInhalt({
+  vorname: "Anna-Lena", nachname: "Mustermann", geburtsdatum: "2015-04-12",
+  gesetzl_name: "Sabine Mustermann", einwilligung_elternkodex: false,
+  elternkodex_version: null
+}), { kodex: null, status: "neu" });
+
+const kl1 = await W.handleKodexListe({ stichtag: HEUTE }, env, me, cors);
+pruefe("K1 Liste antwortet 200", kl1.status === 200, "status " + kl1.status);
+const KL = await kl1.json();
+const kTom = (KL.kinder || []).find((k) => k.vorname === "Tom");
+const kAnna = (KL.kinder || []).find((k) => k.vorname === "Anna-Lena");
+
+pruefe("K2 Das angemeldete Kind gilt als bestaetigt", !!kTom && kTom.kodex_da === true,
+       JSON.stringify(kTom));
+pruefe("K3 Die Herkunft steht dabei", kTom.quelle === "anmeldung", "" + kTom.quelle);
+pruefe("K4 Es gibt keine nachgereichte Erklaerung dazu", kTom.bestaetigung_id === null,
+       "" + kTom.bestaetigung_id);
+pruefe("K5 Der Antrag wird benannt", kTom.antrag_id === "ant-tom", "" + kTom.antrag_id);
+pruefe("K6 Der Zeitpunkt ist der der Unterschrift",
+       kTom.bestaetigt_am === "2026-08-14T09:00:00.000Z", "" + kTom.bestaetigt_am);
+pruefe("K6b Die Fassung steht dabei", kTom.kodex_version === W.ELTERNKODEX_VERSION,
+       "" + kTom.kodex_version);
+pruefe("K6c Der gesetzliche Vertreter ist der Unterschreiber",
+       kTom.erz_name === "Petra Beispiel", "" + kTom.erz_name);
+pruefe("K6d Sie gilt nicht als von Hand zugeordnet", kTom.von_hand === false);
+pruefe("K6e Und nicht als ersetzt", kTom.ersetzt === 0, "" + kTom.ersetzt);
+
+// ⚠️ Die Gegenprobe. Ein Antrag OHNE Unterschrift unter dem Kodex belegt
+// nichts -- er darf das Kind nicht als erledigt ausweisen.
+pruefe("K7 Ein Antrag ohne Kodex-Unterschrift zaehlt NICHT",
+       kAnna.kodex_da === false && kAnna.quelle === null,
+       JSON.stringify(kAnna));
+pruefe("K7b Ein offenes Kind nennt keinen Unterschreiber", kAnna.erz_name === null);
+pruefe("K7c Und keinen Antrag", kAnna.antrag_id === null, "" + kAnna.antrag_id);
+
+// ⚠️ Ein Antrag ist keine herrenlose Erklaerung. Er gehoert NICHT in
+// "Nicht zuzuordnen" -- dort suchte die Geschaeftsstelle nach einem
+// Tippfehler, wo sie auf einen Vorstandsbeschluss wartet.
+pruefe("K8 Kein Antrag steht in offene_eingaenge",
+       (KL.offene_eingaenge || []).length === 0,
+       JSON.stringify((KL.offene_eingaenge || []).map((o) => o.kind_vorname)));
+
+// ⚠️ Was nicht ausgeliefert wird, steht auch nicht im Netzwerk-Tab.
+const kText = JSON.stringify(KL);
+pruefe("K9 Die Liste schleppt keine Unterschrift mit", !kText.includes("data:image/png"));
+pruefe("K10 Die Liste nennt keine Bankdaten", !/DE0212030000|BYLADEM/.test(kText));
+pruefe("K11 Die Liste nennt keine Anschrift", !/Musterweg|37308/.test(kText));
+// Gegenprobe zur Gegenprobe: die IBAN steht sehr wohl in der Datenbank.
+pruefe("K12 GEGENPROBE Die IBAN steht im antrag_json",
+       /DE02120300000000202051/.test(
+         db.prepare("SELECT antrag_json FROM aufnahmeantrag WHERE id = 'ant-tom'")
+           .get().antrag_json));
+
+// --- Der noch nicht angenommene Antrag --------------------------------
+// person_id ist erst nach der Annahme gesetzt. Ein Kind, das schon
+// Mitglied ist und sich neu anmeldet (Vereinswechsel), muss deshalb ueber
+// den Abgleichsschluessel treffen -- und zwar mit derselben Toleranz wie
+// der Nachreich-Weg.
+db.exec("DELETE FROM aufnahmeantrag WHERE id = 'ant-annalena-ohne'");
+legeAntrag("ant-annalena", antragInhalt({
+  vorname: "MUSTERMANN", nachname: "anna lena", geburtsdatum: "2015-04-12",
+  gesetzl_name: "Sabine Mustermann"
+}), { status: "neu", person_id: null });
+
+const kl2 = await W.handleKodexListe({ stichtag: HEUTE }, env, me, cors);
+const KL2 = await kl2.json();
+const kAnna2 = KL2.kinder.find((k) => k.vorname === "Anna-Lena");
+pruefe("K13 Ein noch nicht angenommener Antrag trifft ueber den Namen",
+       kAnna2.kodex_da === true && kAnna2.quelle === "anmeldung", JSON.stringify(kAnna2));
+pruefe("K13b Auch mit vertauschter Schreibweise", kAnna2.antrag_id === "ant-annalena");
+
+// --- Der Konfliktfall: beide Wege zugleich ----------------------------
+// ⚠️ Ein gebauter Fall, in dem nur EINE Antwort richtig sein kann. Waere
+// hier nur der Antrag da, waere die Reihenfolge ungeprueft -- genau der
+// Fehler, den die Handzuordnung schon einmal hatte.
+await W.handleKodexSenden(koerper({
+  kind_vorname: "Tom", kind_nachname: "Beispiel", kind_geburtsdatum: "2017-09-01",
+  erz_name: "Nachgereicht Beispiel"
+}), env, anfrage("7.7.7.7"), cors);
+
+const kl3 = await W.handleKodexListe({ stichtag: HEUTE }, env, me, cors);
+const KL3 = await kl3.json();
+const kTom3 = KL3.kinder.find((k) => k.vorname === "Tom");
+pruefe("K14 Die nachgereichte Erklaerung schlaegt die Anmeldung",
+       kTom3.quelle === "nachreichen", "" + kTom3.quelle);
+pruefe("K14b Sie liefert die Kennung der Bestaetigung", !!kTom3.bestaetigung_id);
+pruefe("K14c Und nennt keinen Antrag mehr", kTom3.antrag_id === null,
+       "" + kTom3.antrag_id);
+pruefe("K14d Der Unterschreiber ist der der nachgereichten Erklaerung",
+       kTom3.erz_name === "Nachgereicht Beispiel", "" + kTom3.erz_name);
+// ⚠️ Der Antrag darf davon NICHT in "Nicht zuzuordnen" rutschen.
+pruefe("K14e Der ueberstimmte Antrag steht in keiner offenen Liste",
+       !JSON.stringify(KL3.offene_eingaenge || []).includes("ant-tom"));
+
+// --- Das Detail zur Anmeldung -----------------------------------------
+const kd1 = await W.handleKodexDetail({ antrag_id: "ant-annalena" }, env, me, cors);
+pruefe("K15 Das Detail zum Antrag antwortet 200", kd1.status === 200, "status " + kd1.status);
+const KD = await kd1.json();
+pruefe("K16 Es nennt seine Herkunft", KD.quelle === "anmeldung", "" + KD.quelle);
+pruefe("K17 Es liefert die Unterschrift", KD.unterschrift === SIG);
+pruefe("K18 Es nennt die Fassung", KD.kodex_version === W.ELTERNKODEX_VERSION);
+pruefe("K19 Es nennt den Unterschreiber", KD.erz_name === "Sabine Mustermann");
+pruefe("K20 Es hat keinen Verlauf", Array.isArray(KD.verlauf) && KD.verlauf.length === 0);
+pruefe("K21 Es hat keine Kennung einer Bestaetigung", KD.id === null, "" + KD.id);
+// ⚠️ Der wichtigste Punkt des Abschnitts: neben dem Kodex steht im
+// antrag_json die IBAN. Die Passstelle darf diese Liste lesen -- die
+// Bankdaten nicht.
+pruefe("K22 Das Detail nennt KEINE Bankdaten",
+       !/DE0212030000|BYLADEM/.test(JSON.stringify(KD)), "Bankdaten im Detail");
+pruefe("K23 Und keine Anschrift", !/Musterweg|37308/.test(JSON.stringify(KD)));
+
+// Ein Antrag ohne Kodex hat hier nichts zu zeigen.
+legeAntrag("ant-ohne-kodex", antragInhalt({ vorname: "Ohne", nachname: "Kodex" }),
+           { kodex: null });
+const kd2 = await W.handleKodexDetail({ antrag_id: "ant-ohne-kodex" }, env, me, cors);
+pruefe("K24 Ein Antrag ohne Kodex antwortet 404", kd2.status === 404, "status " + kd2.status);
+const kd3 = await W.handleKodexDetail({ antrag_id: "gibtesnicht" }, env, me, cors);
+pruefe("K25 Ein unbekannter Antrag ebenso", kd3.status === 404, "status " + kd3.status);
+
+// Dasselbe Recht wie fuer die Liste, kein zweiter Weg daran vorbei.
+const kd4 = await W.handleKodexDetail({ antrag_id: "ant-annalena" }, env, ohneRolle, cors);
+pruefe("K26 Ohne Rolle antwortet auch dieser Weg 403", kd4.status === 403,
+       "status " + kd4.status);
+
+// --- Die Oberflaeche --------------------------------------------------
+const VK = new Function(
+  readFileSync(REPO + "/kodex-verwaltung.js", "utf8") +
+  ";\nreturn { koDa };")();
+
+pruefe("K27 koDa sagt ja bei kodex_da", VK.koDa({ kodex_da: true, bestaetigung_id: null }));
+pruefe("K28 koDa sagt nein ohne beides", !VK.koDa({ kodex_da: false, bestaetigung_id: null }));
+// ⚠️ Der Rueckfall fuer das Deploy-Fenster: antwortet ein alter Worker
+// ohne kodex_da, darf die Liste nicht den ganzen Verein als offen zeigen.
+pruefe("K29 Ohne kodex_da faellt koDa auf bestaetigung_id zurueck",
+       VK.koDa({ bestaetigung_id: "b1" }) === true &&
+       VK.koDa({ bestaetigung_id: null }) === false);
+
+pruefe("K30 Der Stand zaehlt ueber koDa", /kinder\.filter\(koDa\)/.test(kodexVerw));
+pruefe("K31 Die Reiter ebenfalls", /offen: kinder\.filter\(\(k\) => !koDa\(k\)\)/.test(kodexVerw));
+pruefe("K32 Der Filter ebenfalls", /koSicht === "offen" && koDa\(k\)/.test(kodexVerw));
+pruefe("K33 Die Sortierspalte ebenfalls", /wert: \(k\) => \(koDa\(k\) \? 1 : 0\)/.test(kodexVerw));
+// ⚠️ Keine Zeile darf mehr allein an bestaetigung_id haengen -- genau das
+// war der Fehler.
+pruefe("K34 Nichts zaehlt mehr an bestaetigung_id",
+       !/filter\(\(k\) => !?k\.bestaetigung_id\)/.test(kodexVerw));
+pruefe("K35 Die Zeile zeigt die Herkunft",
+       /chip ruhend">aus der Anmeldung/.test(kodexVerw));
+pruefe("K36 Es gibt einen eigenen Ansehen-Knopf fuer den Antrag",
+       /data-ko-antrag="/.test(kodexVerw));
+pruefe("K37 Er oeffnet dasselbe Detail",
+       /zeigeKodexDetail\(null, b\.dataset\.koAntrag\)/.test(kodexVerw));
+// ⚠️ Zuordnen, Aufheben und Loeschen gibt es fuer den Antrag nicht: der
+// Beleg gehoert zum Antrag und stirbt mit ihm.
+pruefe("K38 Die Schreibknoepfe fehlen bei der Anmeldung",
+       /d\.darf_schreiben && d\.quelle !== "anmeldung"/.test(kodexVerw));
+pruefe("K39 Der Dialog sagt, woher der Beleg kommt",
+       /Nachwuchs-Anmeldung<\/strong> abgegeben/.test(kodexVerw));
+pruefe("K40 db.js reicht den Antrag durch",
+       /antragId \? \{ antrag_id: antragId \} : \{ id \}/
+         .test(readFileSync(REPO + "/db.js", "utf8")));
 
 // ======================================================================
 

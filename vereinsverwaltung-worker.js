@@ -5794,6 +5794,62 @@ async function handleKodexListe(body, env, me, corsHeaders) {
   ).all();
   const bestaetigungen = bestR.results || [];
 
+  // ⚠️ Die Kenntnisnahme aus der ANMELDUNG zaehlt mit (04.09.2026).
+  //
+  // Seit dem 18.08.2026 erhebt die Nachwuchs-Anmeldung den Elternkodex
+  // selbst -- die Unterschrift landet dort aber in der eigenen SPALTE
+  // aufnahmeantrag.unterschrift_elternkodex_datei und nicht in dieser
+  // Tabelle. Wer sich so angemeldet hat und aufgenommen wurde, stand hier
+  // als "offen": die Eltern hatten unterschrieben, die Liste behauptete
+  // das Gegenteil, und die Geschaeftsstelle mahnte sie ein zweites Mal an.
+  //
+  // ⚠️ GELESEN, nicht kopiert. Der andere Weg waere gewesen, beim Annehmen
+  // eine Zeile in elternkodex_bestaetigung zu schreiben. Er haette die
+  // bereits aufgenommenen Kinder nicht geheilt (die Annahme ist laengst
+  // gelaufen) und die Unterschrift ein zweites Mal abgelegt. So bleibt es
+  // bei genau einer Ablage je Weg.
+  //
+  // ⚠️ Ein Antrag kommt NIE in offene_eingaenge. Er ist keine
+  // herrenlose Erklaerung, sondern eine Anmeldung -- passt er zu keinem
+  // Mitglied, ist er schlicht noch nicht angenommen. Dort aufzutauchen
+  // hiesse, die Geschaeftsstelle nach einem Tippfehler suchen zu lassen,
+  // wo sie auf einen Vorstandsbeschluss wartet.
+  const anmeldungNachPerson = new Map();
+  const anmeldungNachSchluessel = new Map();
+  if (await hatKodexSpalte(env)) {
+    // ⚠️ Die Unterschrift bleibt draussen, wie oben. antrag_json wird NUR
+    // hier im Server ausgewertet: daneben stehen IBAN und Anschrift, und
+    // was nicht ausgeliefert wird, steht auch nicht im Netzwerk-Tab.
+    const antrR = await env.VV_DB.prepare(
+      "SELECT id, eingang_am, signatur_zeit, person_id, antrag_json FROM aufnahmeantrag " +
+      "WHERE unterschrift_elternkodex_datei IS NOT NULL " +
+      "AND unterschrift_elternkodex_datei <> '' ORDER BY eingang_am DESC"
+    ).all();
+    for (const a of antrR.results || []) {
+      let inhalt = {};
+      try { inhalt = JSON.parse(a.antrag_json || "{}"); } catch { inhalt = {}; }
+      const eintrag = {
+        antrag_id: a.id,
+        // Der Zeitpunkt der Unterschrift, nicht der des Eingangs -- beim
+        // Antrag sind das zwei Felder, und unterschrieben wurde damals.
+        eingang_am: a.signatur_zeit || a.eingang_am,
+        kodex_version: sauber(inhalt.elternkodex_version, 60),
+        // Im Antrag heisst der Unterschreiber "gesetzlicher Vertreter".
+        erz_name: sauber(inhalt.gesetzl_name, 120)
+      };
+      // ⚠️ Zuerst person_id: sie wird beim Annehmen gesetzt und ist der
+      // EXAKTE Verweis auf das Mitglied -- kein Namensraten. Der
+      // Abgleichsschluessel ist der Rueckfall fuer den Antrag, der noch
+      // nicht angenommen ist: etwa den Vereinswechsel eines Kindes, das
+      // hier schon Mitglied ist.
+      if (a.person_id && !anmeldungNachPerson.has(a.person_id)) {
+        anmeldungNachPerson.set(a.person_id, eintrag);
+      }
+      const s = kodexSchluessel(inhalt.vorname, inhalt.nachname, inhalt.geburtsdatum);
+      if (s && !anmeldungNachSchluessel.has(s)) anmeldungNachSchluessel.set(s, eintrag);
+    }
+  }
+
   // ⚠️ Wie oft eine Erklaerung schon ersetzt wurde. Ohne diese Angabe
   // waere das Ersetzen zwar gesichert, aber unsichtbar -- und genau die
   // Unsichtbarkeit war der Fund vom 18.08.2026. Eine Familie korrigiert
@@ -5819,9 +5875,17 @@ async function handleKodexListe(body, env, me, corsHeaders) {
 
   const benutzt = new Set();
   const kinder = (kinderR.results || []).map((k) => {
-    const treffer = nachPerson.get(k.id)
-      || nachSchluessel.get(kodexSchluessel(k.vorname, k.nachname, k.geburtsdatum));
+    const schluessel = kodexSchluessel(k.vorname, k.nachname, k.geburtsdatum);
+    const treffer = nachPerson.get(k.id) || nachSchluessel.get(schluessel);
     if (treffer) benutzt.add(treffer.id);
+    // ⚠️ Die NACHGEREICHTE Erklaerung schlaegt die aus der Anmeldung. Sie
+    // ist der spaetere und eigenstaendige Vorgang: sie traegt ihren
+    // Verlauf, laesst sich zuordnen und loeschen -- und hat eine Familie
+    // zur neuen Fassung noch einmal unterschrieben, ist genau die die
+    // gueltige. Umgekehrt zeigte die Liste die alte Fassung als Stand.
+    const ausAnmeldung = treffer ? null
+      : (anmeldungNachPerson.get(k.id) || anmeldungNachSchluessel.get(schluessel));
+    const beleg = treffer || ausAnmeldung;
     return {
       person_id: k.id,
       mitgliedsnummer: k.mitgliedsnummer,
@@ -5829,9 +5893,25 @@ async function handleKodexListe(body, env, me, corsHeaders) {
       nachname: k.nachname,
       geburtsdatum: k.geburtsdatum,
       bestaetigung_id: treffer ? treffer.id : null,
-      bestaetigt_am: treffer ? treffer.eingang_am : null,
-      kodex_version: treffer ? treffer.kodex_version : null,
-      erz_name: treffer ? treffer.erz_name : null,
+      // Der Antrag, aus dem die Kenntnisnahme stammt. Ueber ihn holt das
+      // Detail die Unterschrift -- ohne ihn waere der Chip "aus der
+      // Anmeldung" eine Sackgasse: man saehe DASS unterschrieben wurde,
+      // aber nie WAS.
+      antrag_id: ausAnmeldung ? ausAnmeldung.antrag_id : null,
+      // ⚠️ DER STAND HAENGT AN DIESEM FELD, nicht mehr an
+      // bestaetigung_id. Es gibt seit dem 04.09.2026 zwei Wege, auf denen
+      // eine Kenntnisnahme vorliegen kann; wer weiter die Kennung der
+      // Bestaetigung abfragt, zaehlt die Angemeldeten faelschlich als offen.
+      kodex_da: !!beleg,
+      // Auf welchem der beiden Wege sie kam. Die Oberflaeche nennt ihn:
+      // "aus der Anmeldung" beantwortet die Rueckfrage, warum zu diesem
+      // Kind nichts nachgereicht wurde.
+      quelle: treffer ? "nachreichen" : (ausAnmeldung ? "anmeldung" : null),
+      bestaetigt_am: beleg ? beleg.eingang_am : null,
+      kodex_version: beleg ? beleg.kodex_version : null,
+      erz_name: beleg ? beleg.erz_name : null,
+      // Nur die nachgereichte Erklaerung fragt nach der Mannschaft; der
+      // Anmeldebogen kennt das Feld nicht.
       mannschaft: treffer ? treffer.mannschaft : null,
       // Sagt der Geschaeftsstelle, ob sie diesen Treffer nachgesehen hat
       // oder ob der Namensabgleich ihn gefunden hat.
@@ -5882,9 +5962,75 @@ async function handleKodexListe(body, env, me, corsHeaders) {
 
 // Eine Erklaerung im Ganzen, samt Unterschrift. Eigene Aktion, damit die
 // Liste die Bilder nicht mitschleppt.
+// Die Kenntnisnahme, die mit der Nachwuchs-ANMELDUNG abgegeben wurde. Sie
+// liegt in aufnahmeantrag.unterschrift_elternkodex_datei, nicht in
+// elternkodex_bestaetigung -- die Antwort hat trotzdem dieselbe Gestalt,
+// damit der Dialog nicht ein zweites Mal gebaut werden muss.
+async function kodexDetailAusAntrag(id, env, rolle, corsHeaders) {
+  if (!(await hatKodexSpalte(env))) {
+    return json({ error: "Die Kenntnisnahme aus der Anmeldung ist hier noch nicht " +
+                         "eingerichtet" }, 409, corsHeaders);
+  }
+  const z = await env.VV_DB.prepare(
+    "SELECT a.id, a.eingang_am, a.signatur_zeit, a.antrag_json, a.person_id, " +
+    "a.unterschrift_elternkodex_datei AS unterschrift, " +
+    "p.vorname AS p_vorname, p.nachname AS p_nachname FROM aufnahmeantrag a " +
+    "LEFT JOIN person p ON p.id = a.person_id WHERE a.id = ?"
+  ).bind(id).first();
+  // Ein Antrag ohne Kodex antwortet wie ein nicht vorhandener. Die
+  // Unterscheidung braucht hier niemand -- sie verriete nur, dass es den
+  // Antrag gibt.
+  if (!z || !z.unterschrift) {
+    return json({ error: "Zu diesem Antrag liegt keine Kenntnisnahme des Elternkodex vor" },
+                404, corsHeaders);
+  }
+
+  let inhalt = {};
+  try { inhalt = JSON.parse(z.antrag_json || "{}"); } catch { inhalt = {}; }
+
+  // ⚠️ Aus dem antrag_json kommen NUR die Felder, die zum Kodex gehoeren.
+  // Daneben stehen IBAN, Anschrift und der Spielerlaubnisantrag. Die
+  // Passstelle darf diese Liste lesen, die Bankdaten aber nicht -- und
+  // "die Oberflaeche zeigt sie ja nicht an" waere kein Zurueckhalten,
+  // sondern ein Ausblenden.
+  return json({
+    // Die Herkunft steht in der ANTWORT, nicht im Ermessen der
+    // Oberflaeche: Zuordnen, Aufheben und Loeschen gibt es hier nicht,
+    // weil sie nichts haetten, woran sie arbeiten. Der Beleg gehoert zum
+    // Antrag und stirbt mit ihm.
+    quelle: "anmeldung",
+    antrag_id: z.id,
+    id: null,
+    verlauf: [],
+    eingang_am: z.signatur_zeit || z.eingang_am,
+    kind_vorname: sauber(inhalt.vorname, 80) || "",
+    kind_nachname: sauber(inhalt.nachname, 80) || "",
+    kind_geburtsdatum: sauber(inhalt.geburtsdatum, 10),
+    // Der Anmeldebogen fragt die Mannschaft nicht ab.
+    mannschaft: null,
+    erz_name: sauber(inhalt.gesetzl_name, 120),
+    erz_email: sauber(inhalt.email, 120),
+    ort: sauber(inhalt.unterschrift_ort, 80),
+    kodex_version: sauber(inhalt.elternkodex_version, 60),
+    unterschrift: z.unterschrift,
+    person_id: z.person_id,
+    person_name: z.person_id ? ((z.p_vorname || "") + " " + (z.p_nachname || "")).trim() : null,
+    zugeordnet_am: null,
+    zugeordnet_von: null,
+    signatur_zeit: z.signatur_zeit,
+    darf_schreiben: !!rolle.darfSchreiben
+  }, 200, corsHeaders);
+}
+
 async function handleKodexDetail(body, env, me, corsHeaders) {
   const rolle = await ladeRolle(env, me);
   if (!rolle.darfNachwuchs) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+
+  // ⚠️ Zwei Herkuenfte, zwei Ablagen -- aber ein Dialog. Ohne diesen
+  // Zweig zeigte die Liste den Chip "aus der Anmeldung" und haette
+  // nichts, was sich dazu aufschlagen liesse.
+  const ausAntrag = sauber(body.antrag_id, 40);
+  if (ausAntrag) return kodexDetailAusAntrag(ausAntrag, env, rolle, corsHeaders);
 
   const id = sauber(body.id, 40);
   if (!id) return json({ error: "Keine Erklaerung angegeben" }, 400, corsHeaders);

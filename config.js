@@ -39,6 +39,21 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "1.1",
+    groups: [
+      {
+        title: "Elternkodex",
+        items: [
+          "Die Kenntnisnahme des Elternkodex, die Eltern schon bei der Nachwuchs-Anmeldung unterschrieben haben, zählt jetzt im Reiter „Elternkodex“ mit. Bisher las die Liste allein die nachgereichten Erklärungen — angemeldete und aufgenommene Kinder standen deshalb als „offen“ da, obwohl ihre Eltern längst unterschrieben hatten, und wären ein zweites Mal angeschrieben worden.",
+          "Woher eine Kenntnisnahme stammt, steht an der Zeile: „aus der Anmeldung“ oder ohne Vermerk für eine nachgereichte Erklärung. „Ansehen“ zeigt in beiden Fällen die Unterschrift, die Fassung des Kodex und wer unterschrieben hat.",
+          "Hat eine Familie beides abgegeben, gilt die nachgereichte Erklärung. Sie ist die spätere und kann zu einer neueren Fassung des Kodex gehören.",
+          "Ein Aufnahmeantrag erscheint nie unter „Nicht zuzuordnen“. Passt er zu keinem Mitglied, ist er nicht falsch geschrieben, sondern noch nicht angenommen.",
+          "Zuordnen, Aufheben und Löschen gibt es weiterhin nur für nachgereichte Erklärungen. Was mit der Anmeldung kam, gehört zum Aufnahmeantrag und wird dort verwaltet."
+        ]
+      }
+    ]
+  },
+  {
     version: "1.0",
     groups: [
       {
