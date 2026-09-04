@@ -472,7 +472,7 @@
           <input id="a-sig-ort">
         </div>
         <div class="feld">
-          <label>Datum</label>
+          <label for="a-sig-datum">Datum</label>
           <input id="a-sig-datum" disabled>
         </div>
       </div>
@@ -530,8 +530,8 @@
            nur benutzt, wenn die eigene Vorschau nicht geht (kein
            getUserMedia, keine Erlaubnis, keine Kamera) — dort lässt sich
            keine Hilfslinie einblenden, deshalb ist sie der zweite Weg. -->
-      <input type="file" id="passbild-kamera" accept="image/*" capture="user" hidden>
-      <input type="file" id="passbild-datei" accept="image/*" hidden>
+      <input type="file" id="passbild-kamera" accept="image/*" capture="user" aria-label="Passbild mit der Kamera aufnehmen" hidden>
+      <input type="file" id="passbild-datei" accept="image/*" aria-label="Passbild als Datei hochladen" hidden>
 
       <div id="passbild-stand"></div>
     </div>
