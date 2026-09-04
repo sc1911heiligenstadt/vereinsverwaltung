@@ -5816,13 +5816,26 @@ async function handleKodexListe(body, env, me, corsHeaders) {
   // wo sie auf einen Vorstandsbeschluss wartet.
   const anmeldungNachPerson = new Map();
   const anmeldungNachSchluessel = new Map();
-  if (await hatKodexSpalte(env)) {
+  // ⚠️ hatNachwuchsSpalten MIT abfragen: an quelle haengt der Filter eine
+  // Zeile weiter unten. Fehlt die Spalte, liefe die Abfrage in einen
+  // nackten SQL-Fehler -- dann lieber gar keine Anmeldung mitzaehlen als
+  // die Liste zerlegen.
+  if (await hatKodexSpalte(env) && await hatNachwuchsSpalten(env)) {
     // ⚠️ Die Unterschrift bleibt draussen, wie oben. antrag_json wird NUR
     // hier im Server ausgewertet: daneben stehen IBAN und Anschrift, und
     // was nicht ausgeliefert wird, steht auch nicht im Netzwerk-Tab.
     const antrR = await env.VV_DB.prepare(
       "SELECT id, eingang_am, signatur_zeit, person_id, antrag_json FROM aufnahmeantrag " +
-      "WHERE unterschrift_elternkodex_datei IS NOT NULL " +
+      // ⚠️ quelle AUSDRUECKLICH, nicht bloss die Unterschrift. Heute kann
+      // nur die Nachwuchs-Anmeldung eine tragen (pruefeAntrag setzt sie
+      // allein im Zweig istNachwuchs && minderjaehrig) -- der Filter waere
+      // also entbehrlich. Er steht hier fuer den Tag, an dem jemand den
+      // Kodex auch in den allgemeinen Aufnahmeantrag baut: dann faellt
+      // sonst LAUTLOS die Grenze weg, die die Passstelle vom allgemeinen
+      // Antrag fernhaelt (Abnahme 04.09.2026). Wer ihn entfernt, weil er
+      // "redundant" aussieht, hebt genau diese Grenze auf.
+      "WHERE quelle = 'nachwuchs' " +
+      "AND unterschrift_elternkodex_datei IS NOT NULL " +
       "AND unterschrift_elternkodex_datei <> '' ORDER BY eingang_am DESC"
     ).all();
     for (const a of antrR.results || []) {
@@ -5967,7 +5980,7 @@ async function handleKodexListe(body, env, me, corsHeaders) {
 // elternkodex_bestaetigung -- die Antwort hat trotzdem dieselbe Gestalt,
 // damit der Dialog nicht ein zweites Mal gebaut werden muss.
 async function kodexDetailAusAntrag(id, env, rolle, corsHeaders) {
-  if (!(await hatKodexSpalte(env))) {
+  if (!(await hatKodexSpalte(env)) || !(await hatNachwuchsSpalten(env))) {
     return json({ error: "Die Kenntnisnahme aus der Anmeldung ist hier noch nicht " +
                          "eingerichtet" }, 409, corsHeaders);
   }
@@ -5975,7 +5988,12 @@ async function kodexDetailAusAntrag(id, env, rolle, corsHeaders) {
     "SELECT a.id, a.eingang_am, a.signatur_zeit, a.antrag_json, a.person_id, " +
     "a.unterschrift_elternkodex_datei AS unterschrift, " +
     "p.vorname AS p_vorname, p.nachname AS p_nachname FROM aufnahmeantrag a " +
-    "LEFT JOIN person p ON p.id = a.person_id WHERE a.id = ?"
+    // ⚠️ quelle steht in der Bedingung, nicht nur die Id. handleAntragDetail
+    // weist der Passstelle einen allgemeinen Antrag mit 403 ab; ohne diese
+    // Zeile gaebe es hier einen zweiten Weg an dieser Grenze vorbei, sobald
+    // ein allgemeiner Antrag jemals eine Kodex-Unterschrift traegt.
+    "LEFT JOIN person p ON p.id = a.person_id " +
+    "WHERE a.id = ? AND a.quelle = 'nachwuchs'"
   ).bind(id).first();
   // Ein Antrag ohne Kodex antwortet wie ein nicht vorhandener. Die
   // Unterscheidung braucht hier niemand -- sie verriete nur, dass es den

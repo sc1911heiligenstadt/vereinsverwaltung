@@ -1382,6 +1382,76 @@ pruefe("K40 db.js reicht den Antrag durch",
        /antragId \? \{ antrag_id: antragId \} : \{ id \}/
          .test(readFileSync(REPO + "/db.js", "utf8")));
 
+// --- ⚠️ Der ALLGEMEINE Aufnahmeantrag gehoert nicht hierher -----------
+//
+// Der Elternkodex haengt am Nachwuchs. handleAntragDetail weist der
+// Passstelle einen allgemeinen Antrag mit 403 ab; ohne den Filter auf
+// quelle gaebe vv-kodex-detail einen zweiten Weg an genau dieser Grenze
+// vorbei, sobald ein allgemeiner Antrag jemals eine Kodex-Unterschrift
+// traegt.
+//
+// ⚠️ Heute KANN pruefeAntrag ihm gar keine geben -- die Unterschrift wird
+// hier deshalb von Hand in die Datenbank gelegt. Genau das ist der Punkt:
+// die Grenze darf nicht davon abhaengen, dass eine andere Funktion sich
+// weiterhin richtig verhaelt.
+db.exec("DELETE FROM aufnahmeantrag WHERE id = 'ant-annalena'");
+legeAntrag("ant-allgemein", antragInhalt({
+  vorname: "MUSTERMANN", nachname: "anna lena", geburtsdatum: "2015-04-12",
+  gesetzl_name: "Sabine Mustermann"
+}), { quelle: "antrag", person_id: "p1" });
+
+const kl4 = await W.handleKodexListe({ stichtag: HEUTE }, env, me, cors);
+const KL4 = await kl4.json();
+const annaA = KL4.kinder.find((k) => k.vorname === "Anna-Lena");
+pruefe("K41 Ein allgemeiner Antrag zaehlt NICHT",
+       annaA.kodex_da === false && annaA.quelle === null, JSON.stringify(annaA));
+pruefe("K41b Auch der exakte Verweis ueber person_id hilft ihm nicht",
+       annaA.antrag_id === null, "" + annaA.antrag_id);
+
+const kd5 = await W.handleKodexDetail({ antrag_id: "ant-allgemein" }, env, me, cors);
+pruefe("K42 Sein Detail antwortet 404", kd5.status === 404, "status " + kd5.status);
+
+// ⚠️ Die GEGENPROBE. Ohne sie waeren K41 und K42 auch dann gruen, wenn die
+// Abfrage aus einem ganz anderen Grund nichts faende -- falsche Spalte,
+// vertippte Id, kaputtes SQL. Einziger Unterschied ist jetzt quelle.
+db.exec("UPDATE aufnahmeantrag SET quelle = 'nachwuchs' WHERE id = 'ant-allgemein'");
+const kl5 = await W.handleKodexListe({ stichtag: HEUTE }, env, me, cors);
+const annaN = (await kl5.json()).kinder.find((k) => k.vorname === "Anna-Lena");
+pruefe("K43 GEGENPROBE Als Nachwuchs-Antrag zaehlt derselbe Satz sehr wohl",
+       annaN.kodex_da === true && annaN.antrag_id === "ant-allgemein",
+       JSON.stringify(annaN));
+const kd6 = await W.handleKodexDetail({ antrag_id: "ant-allgemein" }, env, me, cors);
+pruefe("K43b GEGENPROBE Und sein Detail antwortet 200", kd6.status === 200,
+       "status " + kd6.status);
+
+// --- ⚠️ Ohne die Spalte quelle darf nichts KRACHEN --------------------
+//
+// Der Filter haengt an ihr. Fehlt sie (Datenbank vor der Migration), liefe
+// die Abfrage in einen nackten SQL-Fehler und die GANZE Liste waere weg --
+// wegen einer Absicherung, die nur einen Sonderfall betrifft. Lieber keine
+// Anmeldung mitzaehlen als die Kinderliste zerlegen.
+//
+// ⚠️ Eigener Worker-Kontext: hatNachwuchsSpalten merkt sich das Ja in einer
+// Modulvariablen und truege es aus den Abschnitten davor herueber.
+// Steht ganz am Ende, weil die Spalte danach fehlt.
+const WQ = neuerWorker();
+db.exec("ALTER TABLE aufnahmeantrag DROP COLUMN quelle");
+
+const kl6 = await WQ.handleKodexListe({ stichtag: HEUTE }, env, me, cors);
+pruefe("K44 Ohne die Spalte antwortet die Liste trotzdem 200",
+       kl6.status === 200, "status " + kl6.status);
+const KL6 = await kl6.json();
+pruefe("K44b Sie zaehlt dann keine Anmeldung mit",
+       (KL6.kinder || []).every((k) => k.quelle !== "anmeldung"),
+       JSON.stringify((KL6.kinder || []).map((k) => k.quelle)));
+pruefe("K44c Die nachgereichten Erklaerungen bleiben davon unberuehrt",
+       (KL6.kinder || []).some((k) => k.quelle === "nachreichen"),
+       JSON.stringify((KL6.kinder || []).map((k) => k.quelle)));
+
+const kd7 = await WQ.handleKodexDetail({ antrag_id: "ant-allgemein" }, env, me, cors);
+pruefe("K44d Das Detail antwortet 409 statt eines Serverfehlers",
+       kd7.status === 409, "status " + kd7.status);
+
 // ======================================================================
 
 console.log("");
