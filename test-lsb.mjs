@@ -450,7 +450,7 @@ pruefe("G3 app.js zeigt sie nur mit darfSchreiben",
 pruefe("G4 index.html laedt lsb.js vor app.js",
        indexHtml.indexOf('lsb.js?v=') > 0 &&
        indexHtml.indexOf('lsb.js?v=') < indexHtml.indexOf('app.js?v='));
-pruefe("G5 lsb.js ist mit Cache-Bust eingebunden", /lsb\.js\?v=\d/.test(indexHtml));
+pruefe("G5 lsb.js ist mit Cache-Bust eingebunden", /lsb\.js\?v=[0-9.]+/.test(indexHtml));
 
 // ⚠️ Die Vorstandsseite darf diesen Weg nicht kennen: sie laedt bewusst
 // keinen Code, der Personendaten anzeigen kann.
