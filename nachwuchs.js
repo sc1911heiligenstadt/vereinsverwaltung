@@ -863,14 +863,15 @@ async function absenden() {
 
   const daten = sammle();
 
-  // Bei Minderjaehrigen ist die Unterschrift des Kindes freiwillig --
-  // pruefeGemeinsameFelder verlangt sie aber. Deshalb hier ein
-  // Ersatzwert, bevor die geteilte Pruefung laeuft: der Server nimmt bei
-  // Minderjaehrigen ohnehin die des Vertreters als massgeblich.
-  const minder = !$("a-karte-gesetzl").hidden;
-  if (minder && !daten.unterschrift) {
-    daten.unterschrift = daten.unterschrift_gesetzl;
-  }
+  // ⚠️ Hier stand bis zum 05.09.2026 ein Ersatzwert: war das Feld des
+  // Kindes leer, wurde die Unterschrift der Eltern hineinkopiert, weil
+  // pruefeGemeinsameFelder sie unbedingt verlangte. Der Ersatzwert wurde
+  // mitgeschickt und abgelegt — auf dem Verbandsbogen AO21 stand danach
+  // die Unterschrift der Eltern im Feld des Spielers, und auf Blatt 4 des
+  // Papierantrags dieselbe Grafik zweimal. Die Unterschrift des Kindes ist
+  // ausdruecklich freiwillig („soweit es schon schreiben kann“); sie bleibt
+  // jetzt leer, und die geteilte Pruefung verlangt sie nur, wenn es keine
+  // Erziehungsberechtigten-Karte gibt.
 
   const fehler = pruefeGemeinsameFelder(daten) || pruefeEigeneFelder(daten);
   if (fehler) { meldung(fehler); return; }
@@ -961,7 +962,7 @@ function zeigeDanke(daten, antwort) {
     "</tbody></table></div>" +
     (daten.zahlungsart === "lastschrift" ? $("a-mandatstext").innerHTML : "") +
     '<div class="unterschrift-beleg">' +
-    (daten.unterschrift && daten.unterschrift !== daten.unterschrift_gesetzl
+    (daten.unterschrift
       ? '<div><div class="unterschrift-titel">Kind</div>' +
         '<img alt="Unterschrift des Kindes" src="' + esc(daten.unterschrift) + '"></div>'
       : "") +

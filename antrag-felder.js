@@ -171,7 +171,12 @@ function sammleGemeinsameFelder(padGesetzl2) {
 // ohne Rundlauf sagen lassen — massgeblich ist die Pruefung des Servers.
 // Der Client ist keine Zusage.
 function pruefeGemeinsameFelder(daten) {
-  if (!daten.unterschrift) {
+  // ⚠️ Nur verlangt, solange es KEINE Erziehungsberechtigten-Karte gibt.
+  // Ist sie da, unterschreibt der gesetzliche Vertreter (§ 4 der Satzung),
+  // und die Unterschrift des Kindes ist freiwillig — das Feld heißt auf
+  // der Nachwuchsseite „soweit es schon schreiben kann“. Dieselbe
+  // Bedingung, nach der die Karte überhaupt erscheint.
+  if (!daten.unterschrift && $("a-karte-gesetzl").hidden) {
     return "Bitte unterschreiben Sie im Feld unten.";
   }
   if (!$("a-karte-gesetzl").hidden && !daten.unterschrift_gesetzl) {

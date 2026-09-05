@@ -31,6 +31,12 @@ const ANTRAG_CHANGELOG = [
     version: "1.1",
     groups: [
       {
+        title: "Unterschrift bei Minderjährigen",
+        items: [
+          "Ist der Antragsteller minderjährig, unterschreiben die Erziehungsberechtigten; eine eigene Unterschrift des Kindes wird nicht mehr verlangt. Sie ist weiterhin möglich und wird dann auch übernommen."
+        ]
+      },
+      {
         title: "Anträge löschen",
         items: [
           "Scheitert das Entfernen der hochgeladenen Nachweise am fehlenden Recht, benennt die Meldung den Grund: dafür wird „Administrieren“ auf der Kachel Vereinsverwaltung gebraucht. Bisher hieß es „Bitte noch einmal versuchen“, obwohl der Versuch nie gelingen konnte."
@@ -81,6 +87,18 @@ const ANTRAG_CHANGELOG = [
 // der beschreibt den allgemeinen Aufnahmeantrag, und was den Nachwuchs
 // betrifft, geht dort zwischen Beitragsart und Familienverbund unter.
 const NACHWUCHS_CHANGELOG = [
+  {
+    version: "1.2",
+    groups: [
+      {
+        title: "Die Unterschrift des Kindes ist wirklich freiwillig",
+        items: [
+          "Unterschreibt das Kind nicht selbst — das Feld heißt „soweit es schon schreiben kann“ —, bleibt es jetzt leer. Bisher wurde still die Unterschrift der Erziehungsberechtigten hineinkopiert, damit die Vorprüfung zufrieden war. Sie wurde mitgeschickt und gespeichert.",
+          "Folge davon: auf dem Antrag auf Spielerlaubnis, den die Geschäftsstelle stempelt und beim Thüringer Fußball-Verband einreicht, stand die Unterschrift der Eltern im Feld des Spielers; auf dem ausgedruckten Papierantrag stand dieselbe Unterschrift zweimal, einmal falsch beschriftet. Beides ist behoben — die Felder bleiben frei, wenn nicht unterschrieben wurde."
+        ]
+      }
+    ]
+  },
   {
     version: "1.1",
     groups: [

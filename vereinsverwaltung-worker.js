@@ -3952,13 +3952,25 @@ function pruefeAntrag(roh, erlaubteSparten, heute, quelle) {
     return { fehler: "Bitte die Datenschutzhinweise bestaetigen" };
   }
 
-  const unterschrift = pruefeUnterschrift(roh.unterschrift, "Die Unterschrift");
-  if (unterschrift.fehler) return { fehler: unterschrift.fehler };
-
   // Ein Minderjaehriger kann weder wirksam beitreten noch ein Mandat
   // erteilen. Ohne die zweite Unterschrift ist der Antrag unvollstaendig.
+  //
+  // ⚠️ Das Alter steht VOR der Unterschriftspruefung, weil es ueber sie
+  // entscheidet: bei Minderjaehrigen unterschreibt der gesetzliche
+  // Vertreter, und die eigene Unterschrift des Kindes ist FREIWILLIG --
+  // ein Siebenjaehriger unterschreibt nicht. Bis zum 05.09.2026 war sie
+  // unbedingt verlangt; der Client fuellte das Feld deshalb mit der
+  // Unterschrift der Eltern, und die stand danach als die des Spielers auf
+  // dem Verbandsbogen AO21.
   const alter = alterAm(geburtsdatum, heute);
   const minderjaehrig = alter !== null && alter < 18;
+
+  let unterschrift = { wert: null };
+  if (roh.unterschrift || !minderjaehrig) {
+    unterschrift = pruefeUnterschrift(roh.unterschrift, "Die Unterschrift");
+    if (unterschrift.fehler) return { fehler: unterschrift.fehler };
+  }
+
   let gesetzl = null;
   let gesetzlName = null;
   let gesetzl2 = null;
