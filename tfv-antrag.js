@@ -88,6 +88,13 @@ function tfvDatumDe(iso) {
 // Die Standardschriften koennen nur Latin-1. Ein einziges typografisches
 // Anfuehrungszeichen aus einem kopierten Text wirft beim Zeichnen und
 // reisst die ganze Erzeugung mit.
+//
+// ⚠ normalize("NFC") MUSS vor der Ersetzungstabelle stehen -- dieselbe
+// Regel wie in sepaText() und kodexNamensteil() im Worker. Ein zerlegt
+// getipptes oder kopiertes "ü" ist u + U+0308; das kombinierende Trema
+// liegt ausserhalb von Latin-1 und wurde zum Fragezeichen: aus "Müller"
+// wurde auf dem Bogen fuer den Verband "Mu?ller", ohne jeden Hinweis.
+// Zerlegte Anfuehrungszeichen greift die Tabelle danach ebenfalls.
 function tfvLatin1(wert) {
   const ersatz = {
     "’": "'", "‘": "'", "‚": "'",
@@ -96,6 +103,7 @@ function tfvLatin1(wert) {
     " ": " ", " ": " "
   };
   let s = String(wert === null || wert === undefined ? "" : wert);
+  try { s = s.normalize("NFC"); } catch { /* alte Engine: unveraendert weiter */ }
   for (const [a, b] of Object.entries(ersatz)) s = s.split(a).join(b);
   // Was danach noch uebrig ist, ersetzt ein Fragezeichen -- sichtbar
   // falsch ist besser als ein Abbruch ohne Dokument.
@@ -234,6 +242,22 @@ function tfvUeberlaengen(felder) {
   return raus;
 }
 
+// Was auch nach der Normalisierung nicht in Latin-1 passt, wird beim
+// Zeichnen still zum Fragezeichen. Der Bogen geht gestempelt an den
+// Verband -- deshalb dieselbe Behandlung wie bei den Ueberlaengen: der
+// Aufrufer bekommt die Liste und zeigt sie an, statt sie zu schlucken.
+function tfvUnzeichenbar(felder) {
+  const raus = [];
+  for (const [name, wert] of Object.entries(felder)) {
+    if (!wert) continue;
+    const text = tfvLatin1(wert);
+    if (text.indexOf("?") !== -1 && String(wert).indexOf("?") === -1) {
+      raus.push({ feld: name, wert: String(wert), ersatz: text });
+    }
+  }
+  return raus;
+}
+
 // Mitte der i-ten Zelle eines Feldes. Einzeln nachrechenbar, damit der
 // Pruefstand die Position eines Zeichens gegen das gerenderte PDF halten
 // kann, statt sie am Bild abzuschaetzen.
@@ -280,6 +304,12 @@ async function tfvAntragErzeugen(opt) {
 
   const werte = tfvWerteAusAntrag(opt.antrag, opt.vereinsname);
   if (opt.vereinsNr) werte.felder.vereins_nr = String(opt.vereinsNr);
+
+  for (const kaputt of tfvUnzeichenbar(werte.felder)) {
+    hinweise.push("„" + kaputt.wert + "“ enthält ein Zeichen, das die Schrift des " +
+                  "Formulars nicht kennt. Auf dem Blatt steht dafür „" + kaputt.ersatz +
+                  "“ — bitte vor dem Einreichen prüfen.");
+  }
 
   for (const zuLang of tfvUeberlaengen(werte.felder)) {
     hinweise.push('"' + zuLang.wert + '" passt nicht in die ' + zuLang.zellen +

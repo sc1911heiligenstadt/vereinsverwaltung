@@ -42,6 +42,13 @@ const CHANGELOG = [
     version: "1.2",
     groups: [
       {
+        title: "Verbandsformular AO21",
+        items: [
+          "Umlaute und ß stehen jetzt in jedem Fall richtig auf dem Blatt für den Thüringer Fußball-Verband. Wird ein Name zerlegt getippt oder aus einer anderen Anwendung kopiert — also mit einem eigenständigen Tremazeichen statt dem fertigen „ü“ —, wurde daraus bisher stillschweigend ein Fragezeichen: aus „Müller“ wurde „Mu?ller“.",
+          "Bleibt trotzdem ein Zeichen übrig, das die Schrift des Formulars nicht kennt, steht das jetzt als Hinweis über dem erzeugten Blatt — wie schon bei zu langen Eintragungen. Vorher wurde es stumm gedruckt."
+        ]
+      },
+      {
         title: "Buchhaltung",
         items: [
           "Lehnt der Server eine Buchung ab, steht der Grund jetzt im roten Kasten und bleibt stehen. Bisher erbte die Ablehnung die grüne Farbe einer unmittelbar vorher geglückten Buchung — grün heißt auf dieser Seite „gebucht“ — und wurde vom Ausblend-Zeitgeber der alten Meldung nach sechs Sekunden wieder weggenommen."
