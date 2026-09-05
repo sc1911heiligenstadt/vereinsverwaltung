@@ -99,6 +99,16 @@ async function start() {
   pille.hidden = false;
   pille.textContent = rollenText(meineRechte);
 
+  // ⚠️ Diese Zeile MUSS vor dem darfPersonenSehen-Zweig stehen. Der endet
+  // mit einem return, und ladeRolle() im Worker setzt darfPersonenSehen
+  // fuer den Vorstand ausdruecklich NICHT — genau die Rolle, fuer die
+  // vorstand.html gebaut wurde, hat den Verweis darauf deshalb nie zu
+  // sehen bekommen (Bugjagd 05.09.2026). Sie braucht nur meineRechte.
+  // Die Auswertungen stehen jeder hinterlegten Rolle offen. Eigene Seite,
+  // weil sie keinen Code lädt, der etwas ändern kann.
+  $("nav-auswertung").hidden = !(meineRechte.isAdmin
+    || (meineRechte.rollen && meineRechte.rollen.length > 0));
+
   // Zwei Rollen kommen ohne Bestandssicht hierher, und sie brauchen
   // verschiedene Sätze: der Vorstand sieht wirklich nichts weiter, die
   // Passstelle hat einen eigenen Reiter. Ohne den Hinweis darauf sähe ihre
@@ -110,7 +120,8 @@ async function start() {
           "bleibt verschlossen, die Nachwuchs-Anmeldungen stehen im Reiter " +
           "<strong>Anträge</strong>."
         : "Ihre Rolle ist für Kennzahlen vorgesehen und hat keinen Zugriff auf Personendaten. " +
-          "Die Auswertungen entstehen in einer späteren Ausbaustufe.") +
+          "Die Auswertungen stehen im Eintrag <strong>Auswertungen &rarr;</strong> " +
+          "oben in der Leiste.") +
       "</div>";
     document.querySelector(".filterleiste").hidden = true;
 
@@ -176,12 +187,6 @@ async function start() {
   $("ein-buchhaltung").hidden = !meineRechte.darfBuchen;
   $("nav-einstellungen").hidden = !(meineRechte.darfBuchen
     || meineRechte.darfSchreiben || meineRechte.isAdmin);
-
-  // Die Auswertungen stehen jeder hinterlegten Rolle offen — der Vorstand
-  // hat genau dafür eine. Eigene Seite, weil sie keinen Code lädt, der
-  // etwas ändern kann.
-  $("nav-auswertung").hidden = !(meineRechte.isAdmin
-    || (meineRechte.rollen && meineRechte.rollen.length > 0));
 
   // Vor der ersten Abfrage von Personendaten: die Einzelansicht liest
   // p.geburtsort, und die Spalte entsteht erst hier. Nicht kritisch, wenn

@@ -25,7 +25,7 @@ const ROLLEN_ERKLAERUNG = {
   geschaeftsstelle: "Sieht und bearbeitet alle Mitglieder, legt neue an, erfasst Austritte und importiert Bestände. Sieht Bankdaten.",
   schatzmeister: "Wie die Geschäftsstelle, zusätzlich zuständig für Beiträge und Buchhaltung. Sieht Bankdaten.",
   abteilungsleiter: "Sieht ausschließlich Mitglieder der gewählten Sparte und darf deren Kontaktdaten pflegen. Sieht KEINE Bankdaten und erfährt nicht, in welchen weiteren Sparten jemand aktiv ist.",
-  vorstand: "Sieht keine Personendaten. Vorgesehen für Kennzahlen und Auswertungen einer späteren Ausbaustufe.",
+  vorstand: "Sieht keine Personendaten. Vorgesehen für die Kennzahlen und die Bestandsmeldung im Reiter „Auswertungen“.",
   passstelle: "Sieht ausschließlich die Nachwuchs-Anmeldungen mit ihren Nachweisen und erzeugt daraus den Antrag auf Spielerlaubnis für den Verband. Sieht KEINE Bankdaten und nicht den Mitgliederbestand; über die Aufnahme nach § 4 entscheidet sie nicht."
 };
 

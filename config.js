@@ -42,6 +42,13 @@ const CHANGELOG = [
     version: "1.2",
     groups: [
       {
+        title: "Auswertungen für den Vorstand",
+        items: [
+          "Der Eintrag „Auswertungen →“ erscheint jetzt für jede hinterlegte Rolle — auch für den Vorstand und die Passstelle. Bisher wurde er erst hinter der Mitgliedersicht freigeschaltet; ausgerechnet die Rolle, für die die Seite gebaut wurde, kam nicht dorthin.",
+          "Der Satz, der dem Vorstand stattdessen angezeigt wurde — die Auswertungen entstünden in einer späteren Ausbaustufe — ist ersetzt: er verweist auf den nun sichtbaren Eintrag. Auch die Erklärung bei der Rollenvergabe nennt jetzt, was die Rolle wirklich sieht."
+        ]
+      },
+      {
         title: "Eingegangene Anträge löschen",
         items: [
           "Scheitert das Entfernen der hochgeladenen Nachweise am fehlenden Recht, sagt die Meldung das jetzt: dafür wird „Administrieren“ auf der Kachel Vereinsverwaltung gebraucht, Bearbeiten allein reicht nicht. Bisher stand dort „Bitte noch einmal versuchen“ — ein Rat, dem nie ein Erfolg folgen konnte."
