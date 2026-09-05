@@ -243,8 +243,18 @@ function betragVerteilen() {
   zeigeSumme();
 }
 
+// Der Ausblend-Timer der Erfolgsmeldung. Er MUSS hier stehen und nicht in
+// buchen(): sonst nimmt der noch laufende Timer einer geglueckten Buchung
+// die Fehlermeldung der naechsten wieder weg (Bugjagd 05.09.2026).
+let bMeldungTimer = null;
+
+// ⚠ Setzt die Klasse IMMER mit. Ohne das erbte eine Fehlermeldung die
+// gruene Klasse der vorigen Erfolgsmeldung -- und gruen heisst auf dieser
+// Seite „gebucht“.
 function bMeldung(text) {
   const k = $("b-meldung");
+  if (bMeldungTimer) { clearTimeout(bMeldungTimer); bMeldungTimer = null; }
+  k.className = "hinweis fehler";
   if (!text) { k.hidden = true; return; }
   k.hidden = false;
   k.textContent = text;
@@ -292,8 +302,13 @@ async function buchen() {
   $("b-zeilen").innerHTML = "";
   zeileHinzu(); zeileHinzu();
   zeigeSumme();
-  // Die Meldung soll rot bleiben, sobald wieder ein Fehler kommt.
-  setTimeout(() => { k.className = "hinweis fehler"; k.hidden = true; }, 6000);
+  // Die Meldung soll rot bleiben, sobald wieder ein Fehler kommt. Der Timer
+  // liegt in bMeldungTimer, damit die naechste Meldung ihn abraeumen kann.
+  bMeldungTimer = setTimeout(() => {
+    bMeldungTimer = null;
+    k.className = "hinweis fehler";
+    k.hidden = true;
+  }, 6000);
 }
 
 // ---------------------------------------------------------------------

@@ -42,6 +42,12 @@ const CHANGELOG = [
     version: "1.2",
     groups: [
       {
+        title: "Buchhaltung",
+        items: [
+          "Lehnt der Server eine Buchung ab, steht der Grund jetzt im roten Kasten und bleibt stehen. Bisher erbte die Ablehnung die grüne Farbe einer unmittelbar vorher geglückten Buchung — grün heißt auf dieser Seite „gebucht“ — und wurde vom Ausblend-Zeitgeber der alten Meldung nach sechs Sekunden wieder weggenommen."
+        ]
+      },
+      {
         title: "Erste Einrichtung",
         items: [
           "Nach „Sparten anlegen“ in der noch leeren Datenbank steht die Abteilungs-Auswahl sofort bereit. Bisher blieb sie leer, bis die Seite neu geladen wurde — es sah aus, als hätte das Anlegen nichts bewirkt."
