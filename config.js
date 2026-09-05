@@ -42,6 +42,13 @@ const CHANGELOG = [
     version: "1.2",
     groups: [
       {
+        title: "Kennzahlen: „bezahlt“ und „offen“ stimmen mit den offenen Posten überein",
+        items: [
+          "Die Kacheln im Reiter „Auswertungen“ rechneten mit ganzen Forderungsbeträgen: eine angezahlte Forderung ging voll in „offen“ ein und gar nicht in „bezahlt“. Der Reiter „Offene Posten“ rechnete für dieselben Daten den echten Rest — zwei Reiter derselben App nannten deshalb verschiedene Zahlen.",
+          "Jetzt zählt beide Male, was wirklich eingegangen ist. Die drei Kacheln gehen untereinander auf (gestellt = bezahlt + offen) und stimmen mit dem anderen Reiter überein."
+        ]
+      },
+      {
         title: "Auswertungen für den Vorstand",
         items: [
           "Der Eintrag „Auswertungen →“ erscheint jetzt für jede hinterlegte Rolle — auch für den Vorstand und die Passstelle. Bisher wurde er erst hinter der Mitgliedersicht freigeschaltet; ausgerechnet die Rolle, für die die Seite gebaut wurde, kam nicht dorthin.",

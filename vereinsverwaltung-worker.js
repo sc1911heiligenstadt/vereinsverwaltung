@@ -7058,11 +7058,30 @@ async function handleKennzahlen(body, env, me, corsHeaders) {
     "WHERE austritt IS NOT NULL AND austritt >= ? AND austritt <= ? GROUP BY jahr ORDER BY jahr"
   ).bind(von, stichtag).all()).results) || [];
 
+  // ⚠️ Gerechnet wird mit dem, was WIRKLICH geflossen ist, nicht mit
+  // ganzen Forderungsbetraegen. Bis zum 05.09.2026 stand hier
+  //   SUM(CASE WHEN status IN ('offen','teilbezahlt') THEN betrag_cent ...)
+  //   SUM(CASE WHEN status = 'bezahlt'                THEN betrag_cent ...)
+  // Eine teilbezahlte Forderung ging damit VOLL in "offen" ein und GAR
+  // NICHT in "bezahlt". Teilzahlungen entstehen im Normalbetrieb --
+  // handleZahlungErfassen verteilt einen Eingang auf die offenen
+  // Forderungen eines Haushalts, aelteste zuerst. Der Reiter "Offene
+  // Posten" rechnete fuer dieselben Daten soll - ist, also den echten
+  // Rest: zwei Reiter derselben App nannten verschiedene Zahlen, und der
+  // Vorstand steuert mit dieser hier (sein einziger Finanzblick).
+  //
+  // Derselbe Ausdruck wie in handleOffenePosten (:3539): die Summe der
+  // nicht stornierten Zahlungen zu den Forderungen des Jahres. Damit
+  // gehen die drei Kacheln untereinander auf (gestellt = bezahlt + offen)
+  // UND mit dem anderen Reiter zusammen.
   const finanzen = await env.VV_DB.prepare(
-    "SELECT COUNT(*) AS forderungen, SUM(betrag_cent) AS summe_cent, " +
-    " SUM(CASE WHEN status = 'offen' OR status = 'teilbezahlt' THEN betrag_cent ELSE 0 END) AS offen_cent, " +
-    " SUM(CASE WHEN status = 'bezahlt' THEN betrag_cent ELSE 0 END) AS bezahlt_cent " +
-    "FROM forderung WHERE storniert_am IS NULL AND jahr = ?"
+    "SELECT COUNT(*) AS forderungen, COALESCE(SUM(f.betrag_cent),0) AS summe_cent, " +
+    "  COALESCE(SUM((SELECT COALESCE(SUM(z.betrag_cent),0) FROM zahlung z " +
+    "   WHERE z.forderung_id = f.id AND z.storniert_am IS NULL)),0) AS bezahlt_cent, " +
+    "  COALESCE(SUM(f.betrag_cent),0) - " +
+    "  COALESCE(SUM((SELECT COALESCE(SUM(z.betrag_cent),0) FROM zahlung z " +
+    "   WHERE z.forderung_id = f.id AND z.storniert_am IS NULL)),0) AS offen_cent " +
+    "FROM forderung f WHERE f.storniert_am IS NULL AND f.jahr = ?"
   ).bind(jahr).first();
 
   return json({
