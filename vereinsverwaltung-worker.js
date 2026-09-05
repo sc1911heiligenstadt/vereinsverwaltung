@@ -2513,6 +2513,29 @@ async function handleLaufVorschau(body, env, me, corsHeaders) {
   }, 200, corsHeaders);
 }
 
+// Die beiden Zahlen am Beitragslauf (anzahl_erzeugt, summe_cent) werden immer
+// aus der Forderungstabelle NEU ermittelt, nie hochgezaehlt -- nach einem
+// Wiederaufsetzen stimmte eine mitlaufende Summe sonst nicht mehr mit dem
+// ueberein, was wirklich in der Datenbank steht.
+//
+// ⚠️ Bis zum 06.09.2026 stand dieser Ausdruck NUR am Ende von
+// handleLaufAusfuehren. handleForderungStornieren schrieb danach allein an der
+// Forderung -- die Laufsumme blieb um den stornierten Betrag zu hoch stehen, und
+// handleUebernahmeBuchen machte daraus eine Sollstellung 1400 an 4100. Bei einem
+// festgeschriebenen Lauf gab es keinen Rueckweg: vv-lauf-ausfuehren lehnt ihn mit
+// 409 ab, der einzige Rechenweg lief also nie wieder.
+//
+// Gibt eine vorbereitete Anweisung zurueck, damit sie in denselben batch passt
+// wie das Storno -- sonst koennte zwischen beidem etwas dazwischenkommen.
+function laufZahlenNeu(env, laufId) {
+  return env.VV_DB.prepare(
+    "UPDATE beitragslauf SET " +
+    "  anzahl_erzeugt = (SELECT COUNT(*) FROM forderung WHERE beitragslauf_id = ? AND storniert_am IS NULL), " +
+    "  summe_cent = (SELECT COALESCE(SUM(betrag_cent),0) FROM forderung WHERE beitragslauf_id = ? AND storniert_am IS NULL) " +
+    "WHERE id = ?"
+  ).bind(laufId, laufId, laufId);
+}
+
 // Ein Block. Der Client ruft so lange auf, bis fertig true kommt.
 async function handleLaufAusfuehren(body, env, me, corsHeaders) {
   const rolle = await ladeRolle(env, me);
@@ -2576,17 +2599,13 @@ async function handleLaufAusfuehren(body, env, me, corsHeaders) {
 
   const fertig = gelesen < block;
 
-  // Die Zaehler werden aus der Forderungstabelle neu ermittelt statt
-  // hochgezaehlt: nach einem Wiederaufsetzen stimmt eine mitlaufende
-  // Summe sonst nicht mehr mit dem ueberein, was wirklich in der
-  // Datenbank steht.
   anweisungen.push(env.VV_DB.prepare(
-    "UPDATE beitragslauf SET fortschritt_ab = ?, status = ?, anzahl_erwartet = ?, " +
-    "  anzahl_erzeugt = (SELECT COUNT(*) FROM forderung WHERE beitragslauf_id = ? AND storniert_am IS NULL), " +
-    "  summe_cent = (SELECT COALESCE(SUM(betrag_cent),0) FROM forderung WHERE beitragslauf_id = ? AND storniert_am IS NULL) " +
-    "WHERE id = ?"
+    "UPDATE beitragslauf SET fortschritt_ab = ?, status = ?, anzahl_erwartet = ? WHERE id = ?"
   ).bind(fertig ? null : letzteId, fertig ? "fertig" : "laeuft", erwartet === undefined ? null : erwartet,
-         lauf.id, lauf.id, lauf.id));
+         lauf.id));
+  // Zaehler getrennt, weil derselbe Ausdruck auch beim Storno gebraucht wird.
+  // Beides liegt im selben batch, die Reihenfolge bleibt also erhalten.
+  anweisungen.push(laufZahlenNeu(env, lauf.id));
 
   await env.VV_DB.batch(anweisungen);
 
@@ -3531,12 +3550,20 @@ async function handleForderungStornieren(body, env, me, corsHeaders) {
   if (!grund) return json({ error: "Ein Stornogrund ist erforderlich" }, 400, corsHeaders);
 
   const jetzt = new Date().toISOString();
-  await env.VV_DB.batch([
+  const anweisungen = [
     env.VV_DB.prepare(
       "UPDATE forderung SET storniert_am = ?, storniert_von = ?, storno_grund = ? WHERE id = ?"
     ).bind(jetzt, me.username, grund, id),
     statusNeuBerechnen(env, [id])
-  ]);
+  ];
+  // ⚠️ Gehoert die Forderung zu einem Beitragslauf, muessen dessen anzahl_erzeugt
+  // und summe_cent mit -- sie sind die Zahl, aus der die Buchhaltung die
+  // Sollstellung 1400/4100 zieht. Ohne das stand der Lauf dauerhaft zu hoch.
+  // Eine bereits geschriebene Buchung bleibt unberuehrt (nichts wird rueckwirkend
+  // umgeschrieben); dass sie dann von der Laufsumme abweicht, ist gewollt -- die
+  // Differenz gehoert mit einer Storno-Buchung ausgeglichen, nicht versteckt.
+  if (f.beitragslauf_id) anweisungen.push(laufZahlenNeu(env, f.beitragslauf_id));
+  await env.VV_DB.batch(anweisungen);
   await protokolliere(env, me.username, "forderung-storniert", "forderung", id,
                       { grund, betrag: f.betrag_cent });
   return json({ ok: true }, 200, corsHeaders);
@@ -6801,7 +6828,15 @@ async function handleUebernahmeBuchen(body, env, me, corsHeaders) {
     // Erstelldatum landete die komplette Jahressollstellung im falschen
     // Jahr und beide Jahresergebnisse waeren falsch.
     datum = l.faelligkeit;
-    summe = l.summe_cent; text = "Beitragsforderungen " + l.bezeichnung;
+    // ⚠️ NICHT l.summe_cent. Das ist ein Schnappschuss vom Ausfuehren; jedes
+    // spaetere Storno liesse ihn zu hoch stehen. Gebucht gehoert, was jetzt
+    // wirklich offen an Forderungen dieses Laufs steht. laufZahlenNeu haelt die
+    // Spalte zwar nach -- diese Abfrage macht die Buchung aber auch dann richtig,
+    // wenn ein kuenftiger Weg das Nachziehen vergisst.
+    const sl = await env.VV_DB.prepare(
+      "SELECT COALESCE(SUM(betrag_cent),0) AS summe FROM forderung " +
+      "WHERE beitragslauf_id = ? AND storniert_am IS NULL").bind(quelleId).first();
+    summe = sl ? sl.summe : 0; text = "Beitragsforderungen " + l.bezeichnung;
     sollNr = "1400"; habenNr = "4100";
   } else {
     const d = await env.VV_DB.prepare("SELECT * FROM sepa_datei WHERE id = ?").bind(quelleId).first();
