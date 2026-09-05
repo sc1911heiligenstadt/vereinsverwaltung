@@ -6771,28 +6771,42 @@ async function handleUebernahmeVorschau(env, me, corsHeaders) {
   const rolle = await ladeRolle(env, me);
   if (!rolle.darfBuchen) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
 
+  // ⚠️ Beide Summen kommen aus dem BESTAND, nicht aus den Schnappschuss-Spalten
+  // l.summe_cent / d.summe_cent -- genau die Zahlen, die handleUebernahmeBuchen
+  // bucht. Stuenden hier andere, zeigte die Vorschau etwas anderes an als das,
+  // was der Klick darunter dann tut.
   const laeufe = ((await env.VV_DB.prepare(
-    "SELECT l.id, l.bezeichnung, l.jahr, l.summe_cent, l.anzahl_erzeugt, l.festgeschrieben_am " +
+    "SELECT l.id, l.bezeichnung, l.jahr, l.festgeschrieben_am, " +
+    "  (SELECT COALESCE(SUM(betrag_cent),0) FROM forderung " +
+    "   WHERE beitragslauf_id = l.id AND storniert_am IS NULL) AS summe_cent, " +
+    "  (SELECT COUNT(*) FROM forderung " +
+    "   WHERE beitragslauf_id = l.id AND storniert_am IS NULL) AS anzahl_erzeugt " +
     "FROM beitragslauf l WHERE l.status = 'festgeschrieben' AND NOT EXISTS " +
     "(SELECT 1 FROM buchung b WHERE b.quelle_typ = 'beitragslauf' AND b.quelle_id = l.id) " +
     "ORDER BY l.jahr DESC").all()).results) || [];
 
   const dateien = ((await env.VV_DB.prepare(
-    "SELECT d.id, d.ausfuehrung_am, d.summe_cent, d.anzahl_posten, d.gebucht_am " +
+    "SELECT d.id, d.ausfuehrung_am, d.anzahl_posten, d.gebucht_am, " +
+    "  (SELECT COALESCE(SUM(z.betrag_cent),0) FROM zahlung z " +
+    "   WHERE z.sepa_datei_id = d.id AND z.storniert_am IS NULL) AS summe_cent " +
     "FROM sepa_datei d WHERE d.gebucht_am IS NOT NULL AND NOT EXISTS " +
     "(SELECT 1 FROM buchung b WHERE b.quelle_typ = 'sepa_datei' AND b.quelle_id = d.id) " +
     "ORDER BY d.ausfuehrung_am DESC").all()).results) || [];
 
   return json({
     ok: true,
-    laeufe: laeufe.map((l) => ({
+    // Ein Vorgang ueber 0,00 EUR ist kein Vorgang: alle Forderungen storniert,
+    // oder die Sammelbuchung wurde zurueckgenommen. handleUebernahmeBuchen lehnt
+    // ihn ohnehin mit "Der Vorgang hat keinen Betrag" ab -- ihn erst anzubieten
+    // und dann abzulehnen waere ein Weg, der ins Leere fuehrt.
+    laeufe: laeufe.filter((l) => l.summe_cent > 0).map((l) => ({
       quelle_typ: "beitragslauf", quelle_id: l.id,
       bezeichnung: l.bezeichnung, datum: l.festgeschrieben_am ? l.festgeschrieben_am.slice(0, 10) : null,
       summe_cent: l.summe_cent, anzahl: l.anzahl_erzeugt,
       soll: "1400", haben: "4100",
       text: "Beitragsforderungen " + l.bezeichnung
     })),
-    dateien: dateien.map((d) => ({
+    dateien: dateien.filter((d) => d.summe_cent > 0).map((d) => ({
       quelle_typ: "sepa_datei", quelle_id: d.id,
       bezeichnung: "Lastschrifteinzug vom " + d.ausfuehrung_am,
       datum: d.ausfuehrung_am, summe_cent: d.summe_cent, anzahl: d.anzahl_posten,
@@ -6846,7 +6860,15 @@ async function handleUebernahmeBuchen(body, env, me, corsHeaders) {
                            "eingegangen gebucht" }, 409, corsHeaders);
     }
     datum = d.ausfuehrung_am;
-    summe = d.summe_cent; text = "Lastschrifteinzug " + d.ausfuehrung_am;
+    // ⚠️ NICHT d.summe_cent. Das ist der Betrag, der beim ERZEUGEN in der Datei
+    // stand -- ein Schnappschuss. Gebucht wird spaeter nur, was dann noch offen war:
+    // handleZahlungSammel laesst stornierte Forderungen und alles schon Bezahlte weg.
+    // Bis zum 06.09.2026 wanderte die Behauptung der Datei auf 1200 Bank an 1400
+    // Forderungen; auf der Bank stand danach mehr Geld, als eingegangen war.
+    const sd = await env.VV_DB.prepare(
+      "SELECT COALESCE(SUM(betrag_cent),0) AS summe FROM zahlung " +
+      "WHERE sepa_datei_id = ? AND storniert_am IS NULL").bind(quelleId).first();
+    summe = sd ? sd.summe : 0; text = "Lastschrifteinzug " + d.ausfuehrung_am;
     sollNr = "1200"; habenNr = "1400";
   }
 
