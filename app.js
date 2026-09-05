@@ -230,9 +230,15 @@ async function start() {
 }
 
 // vorabP: ein bereits gestarteter vv-sparten-Aufruf (siehe start).
+// ⚠️ NUR ein Promise wird uebernommen. Frueher stand hier `vorabP ||
+// ladeSparten()`; ein Aufrufer, der versehentlich `true` uebergab, bekam
+// dadurch `await true` === true, `true.sparten` === undefined und damit
+// eine LEERE Spartenliste -- ohne Fehler und ohne Meldung. Genau so lief
+// der Knopf „Sparten anlegen“ (Bugjagd 05.09.2026).
 async function ladeSpartenAuswahl(vorabP) {
   try {
-    const antwort = await (vorabP || ladeSparten());
+    const istPromise = vorabP && typeof vorabP.then === "function";
+    const antwort = await (istPromise ? vorabP : ladeSparten());
     spartenListe = antwort.sparten || [];
   } catch {
     spartenListe = [];
@@ -354,7 +360,7 @@ async function zeigeLeerGrund() {
       anlegen.textContent = "Wird angelegt …";
       try {
         await vvRequest("vv-sparten-init", {});
-        await ladeSpartenAuswahl(true);
+        await ladeSpartenAuswahl();
         await ladeUndZeige();
       } catch (e) {
         anlegen.disabled = false;

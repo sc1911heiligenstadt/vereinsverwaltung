@@ -39,6 +39,17 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "1.2",
+    groups: [
+      {
+        title: "Erste Einrichtung",
+        items: [
+          "Nach „Sparten anlegen“ in der noch leeren Datenbank steht die Abteilungs-Auswahl sofort bereit. Bisher blieb sie leer, bis die Seite neu geladen wurde — es sah aus, als hätte das Anlegen nichts bewirkt."
+        ]
+      }
+    ]
+  },
+  {
     version: "1.1",
     groups: [
       {
