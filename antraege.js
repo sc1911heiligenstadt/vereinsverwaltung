@@ -404,9 +404,19 @@ async function loescheAntrag(id) {
     try {
       await loescheNachweise(p.nachweis_owner);
     } catch (e) {
-      alert("Die Nachweise ließen sich nicht entfernen: " + e.message +
-            "\n\nDer Antrag bleibt deshalb stehen — sonst lägen die Dateien unauffindbar " +
-            "in der Ablage. Bitte noch einmal versuchen.");
+      // ⚠️ Ein 403 ist keine Störung: der Gateway verlangt für das Löschen
+      // der Nachweise das Administrieren-Recht auf der Kachel, während der
+      // Löschknopf schon ab Bearbeiten erscheint. „Bitte noch einmal
+      // versuchen“ wäre dort ein falscher Rat — der Versuch gelingt nie.
+      alert(e.status === 403
+        ? "Die Nachweise ließen sich nicht entfernen: dafür wird das Recht " +
+          "„Administrieren“ auf der Kachel Vereinsverwaltung gebraucht; " +
+          "Bearbeiten allein reicht nicht.\n\nDer Antrag bleibt deshalb stehen — " +
+          "sonst lägen die Dateien unauffindbar in der Ablage. Bitte jemanden mit " +
+          "diesem Recht darum bitten."
+        : "Die Nachweise ließen sich nicht entfernen: " + e.message +
+          "\n\nDer Antrag bleibt deshalb stehen — sonst lägen die Dateien unauffindbar " +
+          "in der Ablage. Bitte noch einmal versuchen.");
       return;
     }
   }

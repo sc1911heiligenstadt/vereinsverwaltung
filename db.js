@@ -207,10 +207,21 @@ async function ladeNachweisListe(owner) {
 // wenn ein Antrag entfernt wird. ⚠️ Die Dateien liegen im Gateway, der
 // Antrag in D1: wer nur die Zeile loescht, laesst Ausweiskopien liegen,
 // deren Schluessel danach niemand mehr kennt.
+//
+// ⚠ Der Gateway verlangt fuer DIESE Aktion globales Administratorrecht
+// (admin-worker.js, handleVvNachweisLoeschen), waehrend Lesen und Anzeigen
+// am Bearbeiten-Haekchen der Kachel haengen. Wer den Loeschknopf sieht,
+// darf die Dateien also nicht zwingend loeschen. Damit der Aufrufer den
+// Unterschied benennen kann, traegt der Fehler den HTTP-Status mit --
+// "Bitte noch einmal versuchen" waere bei einem 403 ein falscher Rat.
 async function loescheNachweise(owner) {
   const res = await gatewayRequest("vv-nachweis-loeschen", { owner });
   const daten = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((daten && daten.error) || ("Fehler " + res.status));
+  if (!res.ok) {
+    const fehler = new Error((daten && daten.error) || ("Fehler " + res.status));
+    fehler.status = res.status;
+    throw fehler;
+  }
   return daten;
 }
 

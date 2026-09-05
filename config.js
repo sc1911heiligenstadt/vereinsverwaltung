@@ -42,6 +42,12 @@ const CHANGELOG = [
     version: "1.2",
     groups: [
       {
+        title: "Eingegangene Anträge löschen",
+        items: [
+          "Scheitert das Entfernen der hochgeladenen Nachweise am fehlenden Recht, sagt die Meldung das jetzt: dafür wird „Administrieren“ auf der Kachel Vereinsverwaltung gebraucht, Bearbeiten allein reicht nicht. Bisher stand dort „Bitte noch einmal versuchen“ — ein Rat, dem nie ein Erfolg folgen konnte."
+        ]
+      },
+      {
         title: "Verbandsformular AO21",
         items: [
           "Umlaute und ß stehen jetzt in jedem Fall richtig auf dem Blatt für den Thüringer Fußball-Verband. Wird ein Name zerlegt getippt oder aus einer anderen Anwendung kopiert — also mit einem eigenständigen Tremazeichen statt dem fertigen „ü“ —, wurde daraus bisher stillschweigend ein Fragezeichen: aus „Müller“ wurde „Mu?ller“.",

@@ -28,6 +28,17 @@ const ANTRAG_VERSION = "1.0";
 
 const ANTRAG_CHANGELOG = [
   {
+    version: "1.1",
+    groups: [
+      {
+        title: "Anträge löschen",
+        items: [
+          "Scheitert das Entfernen der hochgeladenen Nachweise am fehlenden Recht, benennt die Meldung den Grund: dafür wird „Administrieren“ auf der Kachel Vereinsverwaltung gebraucht. Bisher hieß es „Bitte noch einmal versuchen“, obwohl der Versuch nie gelingen konnte."
+        ]
+      }
+    ]
+  },
+  {
     version: "1.0",
     groups: [
       {
@@ -351,6 +362,12 @@ async function loescheNachweiseAntrag(owner) {
   }
 
   const daten = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((daten && daten.error) || ("Fehler " + res.status));
+  if (!res.ok) {
+    // Status mitgeben: nur so kann der Aufrufer den 403 (fehlendes
+    // Administrieren-Recht) von einer Stoerung unterscheiden.
+    const fehler = new Error((daten && daten.error) || ("Fehler " + res.status));
+    fehler.status = res.status;
+    throw fehler;
+  }
   return daten;
 }
