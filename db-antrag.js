@@ -71,6 +71,18 @@ const ANTRAG_CHANGELOG = [
 // betrifft, geht dort zwischen Beitragsart und Familienverbund unter.
 const NACHWUCHS_CHANGELOG = [
   {
+    version: "1.1",
+    groups: [
+      {
+        title: "Der Hinweis „Es fehlen noch Nachweise“ stimmt jetzt",
+        items: [
+          "Übernimmt der Verein die Abmeldung beim bisherigen Verein, gibt es keine Kündigung zum Hochladen. Trotzdem wurde sie als Anlage aufgeführt und die Bestätigungsseite behauptet, es fehlten Nachweise. Beides ist weg: die Zeile verschwindet, sobald „der Verein übernimmt die Abmeldung“ angekreuzt ist.",
+          "Der Hinweis prüfte außerdem nur, ob weniger Anlagen hochgeladen wurden als verlangt. Wer erst „Vereinswechsel“ wählte, beide Anlagen hochlud und dann auf „Erstausstellung“ umstellte, bekam deshalb keinen Hinweis mehr — obwohl die dann einzige verlangte Anlage fehlte. Jetzt wird jede verlangte Anlage einzeln geprüft."
+        ]
+      }
+    ]
+  },
+  {
     version: "1.0",
     groups: [
       {

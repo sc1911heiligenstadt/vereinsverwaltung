@@ -342,7 +342,15 @@ function meldung(text) {
 // erfuellen kann.
 function noetigeNachweise() {
   const art = spielerlaubnisArt();
-  return NACHWEIS_ARTEN.filter((n) => n.arten.includes(art));
+  // Uebernimmt der Verein die Abmeldung, gibt es keine Kuendigung zum
+  // Hochladen -- der Hinweis am Feld sagt das auch ("Nur noetig, wenn die
+  // Abmeldung bereits erfolgt ist"). Ohne diese Ausnahme verlangte die
+  // Bestaetigungsseite bei JEDEM solchen Wechsel eine Anlage, die es gar
+  // nicht geben kann.
+  const abmeldeweg = document.querySelector('input[name="sp-abmeldung"]:checked');
+  const vereinMeldetAb = art === "vereinswechsel" && abmeldeweg && abmeldeweg.value === "2";
+  return NACHWEIS_ARTEN.filter((n) =>
+    n.arten.includes(art) && !(vereinMeldetAb && n.slot === "abmeldung"));
 }
 
 function zeichneNachweise() {
@@ -968,7 +976,11 @@ function zeigeDanke(daten, antwort) {
         esc(daten.unterschrift_gesetzl2) + '"></div>'
       : "") +
     "</div>" +
-    (hochgeladen.length < noetigeNachweise().length
+    // Die MENGE vergleichen, nicht die Anzahl. Ein blosses "weniger hochgeladen
+    // als noetig" ging in beide Richtungen daneben: es warnte, obwohl alles da
+    // war, und es schwieg, wenn jemand nach zwei Uploads die Passart wechselte
+    // und die eine dann verlangte Anlage fehlte (2 < 1 ist falsch).
+    (noetigeNachweise().some((n) => nachweisStand[n.slot] !== "fertig")
       ? '<div class="hinweis warn">Es fehlen noch Nachweise. Die Geschäftsstelle ' +
         "meldet sich dazu — die Anmeldung selbst ist eingegangen.</div>"
       : "");
@@ -987,6 +999,13 @@ function verdrahten() {
 
   document.querySelectorAll('input[name="sp-art"]').forEach((r) => {
     r.addEventListener("change", zeigeSpielerlaubnisArt);
+  });
+
+  // Der Abmeldeweg entscheidet mit darueber, welche Anlagen verlangt werden
+  // (uebernimmt der Verein die Abmeldung, gibt es keine zum Hochladen). Ohne
+  // diesen Horcher bliebe die Zeile stehen, bis jemand die Passart wechselt.
+  document.querySelectorAll('input[name="sp-abmeldung"]').forEach((r) => {
+    r.addEventListener("change", zeichneNachweise);
   });
 
   // Der Ort der Unterschrift ist fast immer der Wohnort. Vorbelegen, aber
