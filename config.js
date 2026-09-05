@@ -42,6 +42,13 @@ const CHANGELOG = [
     version: "1.2",
     groups: [
       {
+        title: "Verworfener Beitragslauf nimmt den SEPA-Mandatsvermerk mit",
+        items: [
+          "Das Erzeugen einer SEPA-Datei vermerkt an jedem Mandat, dass es benutzt wurde — davon hängt ab, ob der nächste Einzug eine Erst- oder eine Folgelastschrift ist. Wurde der Lauf danach verworfen, blieb dieser Vermerk als einziger stehen: der nächste, tatsächlich erste Einzug ging als Folgelastschrift hinaus, und die Warnung vor zu kurzem Vorlauf (fünf Bankarbeitstage) konnte nicht mehr greifen.",
+          "Beim Verwerfen wird der Vermerk jetzt zurückgenommen — aber nur dort, wo keine andere SEPA-Datei mehr auf den Haushalt zeigt. Die Rückfrage vor dem Löschen sagt vorher, wie viele Mandate das betrifft."
+        ]
+      },
+      {
         title: "Kennzahlen: „bezahlt“ und „offen“ stimmen mit den offenen Posten überein",
         items: [
           "Die Kacheln im Reiter „Auswertungen“ rechneten mit ganzen Forderungsbeträgen: eine angezahlte Forderung ging voll in „offen“ ein und gar nicht in „bezahlt“. Der Reiter „Offene Posten“ rechnete für dieselben Daten den echten Rest — zwei Reiter derselben App nannten deshalb verschiedene Zahlen.",

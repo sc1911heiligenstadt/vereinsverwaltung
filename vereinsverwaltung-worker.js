@@ -2778,9 +2778,40 @@ async function handleLaufVerwerfen(body, env, me, corsHeaders) {
                   code: "zahlungen", anzahl: aktivGesamt, summeCent: aktivCent }, 409, corsHeaders);
   }
 
+  // ⚠️ Die Mandate der Dateien dieses Laufs muessen mit zurueck.
+  // handleSepaErzeugen stempelt erste_nutzung_am und letzte_nutzung_am
+  // beim ERZEUGEN der Datei, nicht beim Einreichen. Wird der Lauf danach
+  // verworfen, raeumte der batch unten zahlung, forderung, sepa_datei und
+  // beitragslauf ab -- sepa_mandat stand nicht darin, und es gab im ganzen
+  // Worker keine Stelle, die erste_nutzung_am je wieder auf NULL setzte.
+  // Der naechste, tatsaechlich erste Einzug derselben Haushalte wanderte
+  // dadurch in den RCUR-Block, obwohl die Bank nie eine Erstlastschrift
+  // gesehen hat -- und mit frstAnzahl = 0 fiel auch die
+  // 5-Bankarbeitstage-Warnung aus. Genau der Ablauf vom 10.08.2026
+  // (Download verloren, Datei nie eingereicht); dieselbe Begruendung, mit
+  // der handleLaufVerwerfen seither NICHT mehr an einem Datei-Vermerk
+  // sperrt: "ein Vermerk ist kein Beleg dafuer, dass etwas bei der Bank
+  // liegt". Der Mandats-Stempel ist genau so ein Vermerk.
+  //
+  // Zurueckgenommen wird NUR, wo danach keine andere Datei mehr auf den
+  // Haushalt zeigt -- sonst loeschte ein verworfener Zweitlauf den
+  // Stempel eines wirklich eingereichten ersten. Jede sepa_datei traegt
+  // ihren beitragslauf_id (handleSepaErzeugen bindet ihn unbedingt).
+  const mandateZurueck = ((dateien && dateien.n)
+    ? ((await env.VV_DB.prepare(
+        "SELECT md.id FROM sepa_mandat md " +
+        "WHERE md.erste_nutzung_am IS NOT NULL " +
+        "  AND md.haushalt_id IN (SELECT haushalt_id FROM forderung WHERE beitragslauf_id = ?) " +
+        "  AND NOT EXISTS (SELECT 1 FROM sepa_datei d " +
+        "    JOIN forderung f2 ON f2.beitragslauf_id = d.beitragslauf_id " +
+        "    WHERE d.beitragslauf_id <> ? AND f2.haushalt_id = md.haushalt_id)"
+      ).bind(lauf.id, lauf.id).all()).results) || []
+    : []).map((z) => z.id);
+
   if (body.pruefen) {
     return json({ ok: true, pruefung: true,
                   bezeichnung: lauf.bezeichnung, jahr: lauf.jahr, status: lauf.status,
+                  mandateZurueck: mandateZurueck.length,
                   forderungen: lauf.anzahl_erzeugt || 0, summeCent: lauf.summe_cent || 0,
                   sepaDateien: (dateien && dateien.n) || 0,
                   mitZahlungen: mitZahlungen,
@@ -2799,7 +2830,17 @@ async function handleLaufVerwerfen(body, env, me, corsHeaders) {
   // stornierten Zahlungen fremder Forderungen, die nur ueber die Datei
   // an diesem Lauf haengen -- die bleiben stehen, sie gehoeren woanders
   // hin.
-  await env.VV_DB.batch([
+  // Die Mandats-UPDATEs stehen VORN im batch: sie lesen forderung, und
+  // die wird eine Zeile weiter geloescht. Bloecke zu 50 wegen der
+  // Parametergrenze von D1 -- dieselbe Aufteilung wie beim Stempeln.
+  const anweisungen = [];
+  for (let i = 0; i < mandateZurueck.length; i += 50) {
+    const b = mandateZurueck.slice(i, i + 50);
+    anweisungen.push(env.VV_DB.prepare(
+      "UPDATE sepa_mandat SET erste_nutzung_am = NULL, letzte_nutzung_am = NULL " +
+      "WHERE id IN (" + b.map(() => "?").join(",") + ")").bind(...b));
+  }
+  await env.VV_DB.batch(anweisungen.concat([
     env.VV_DB.prepare("DELETE FROM zahlung WHERE forderung_id IN " +
       "(SELECT id FROM forderung WHERE beitragslauf_id = ?)").bind(lauf.id),
     env.VV_DB.prepare("UPDATE zahlung SET sepa_datei_id = NULL WHERE sepa_datei_id IN " +
@@ -2807,7 +2848,7 @@ async function handleLaufVerwerfen(body, env, me, corsHeaders) {
     env.VV_DB.prepare("DELETE FROM forderung WHERE beitragslauf_id = ?").bind(lauf.id),
     env.VV_DB.prepare("DELETE FROM sepa_datei WHERE beitragslauf_id = ?").bind(lauf.id),
     env.VV_DB.prepare("DELETE FROM beitragslauf WHERE id = ?").bind(lauf.id)
-  ]);
+  ]));
   // ⚠️ Geloescht wird ALLES an eigenen Forderungen, nicht nur das
   // Stornierte -- seit `mit_zahlungen` koennen aktive dabei sein. Stuende
   // hier weiter nur die Zahl der stornierten, wuerde das Protokoll den
@@ -2820,13 +2861,15 @@ async function handleLaufVerwerfen(body, env, me, corsHeaders) {
                         zahlungenGeloescht: (eigen && eigen.n) || 0,
                         zahlungenAktivGeloescht: aktivEigen,
                         zahlungenAktivCent: aktivEigenCent,
-                        zahlungenGeloest: (fremd && fremd.n) || 0 });
+                        zahlungenGeloest: (fremd && fremd.n) || 0,
+                        mandateZurueck: mandateZurueck.length });
   return json({ ok: true, bezeichnung: lauf.bezeichnung,
                 forderungen: lauf.anzahl_erzeugt || 0,
                 sepaDateien: (dateien && dateien.n) || 0,
                 zahlungenGeloescht: (eigen && eigen.n) || 0,
                 zahlungenAktivGeloescht: aktivEigen,
-                zahlungenAktivCent: aktivEigenCent }, 200, corsHeaders);
+                zahlungenAktivCent: aktivEigenCent,
+                mandateZurueck: mandateZurueck.length }, 200, corsHeaders);
 }
 
 // ---------------------------------------------------------------------

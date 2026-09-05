@@ -236,6 +236,16 @@ async function loescheLauf(id) {
     : "";
   // Nicht in dieselbe Zeile: diese Zahlungen gehören zu einem anderen
   // Lauf und bleiben stehen, sie verlieren nur den Verweis auf die Datei.
+  // Der Mandats-Stempel wird mit zurückgenommen — das gehört in die
+  // Rückfrage, weil es der einzige Teil ist, der über diesen Lauf hinaus
+  // wirkt: der nächste Einzug dieser Haushalte ist dann wieder eine
+  // Erstlastschrift.
+  const mandate = p.mandateZurueck
+    ? "\n\nBei " + p.mandateZurueck + " SEPA-Mandat" +
+      (p.mandateZurueck > 1 ? "en wird" : " wird") + " der Vermerk „schon benutzt“ " +
+      "zurückgenommen: der nächste Einzug dieser Haushalte zählt wieder als " +
+      "Erstlastschrift."
+    : "";
   const geloest = p.zahlungenGeloest
     ? "\n\nUnberührt bleiben " + p.zahlungenGeloest + " Zahlungen anderer Läufe; " +
       "sie verlieren nur den Verweis auf die SEPA-Datei."
@@ -244,7 +254,7 @@ async function loescheLauf(id) {
   if (!confirm("Beitragslauf " + p.bezeichnung + " (" + p.jahr + ") endgültig löschen?\n\n" +
                (anhang.length ? "Mitgelöscht wird: " + anhang.join(", ") + ".\n\n" : "") +
                "Das lässt sich nicht rückgängig machen. Der Vorgang steht danach nur noch im " +
-               "Protokoll." + warnung + geloest)) return;
+               "Protokoll." + warnung + geloest + mandate)) return;
 
   try {
     const r = await vvRequest("vv-lauf-verwerfen",
