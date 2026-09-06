@@ -176,8 +176,14 @@ function papierAntragHtml(opt) {
     "abgegeben wurden — mit der jeweils angekreuzten Antwort.</p>" +
     "<table>" +
     pZeile("Satzung und Beitragsordnung anerkannt", ja(i.einwilligung_satzung)) +
-    pZeile("Speicherung zur Mitglieder- und Beitragsverwaltung sowie Meldung an " +
-           "Landessportbund und Fachverbände", ja(i.einwilligung_datenschutz)) +
+    // ⚠️ Kenntnisnahme, keine Einwilligung: die Speicherung folgt aus der
+    // Mitgliedschaft, die Bestandsmeldung aus den Verbandssatzungen
+    // (Art. 6 Abs. 1 lit. b/f). Auf dem Ausdruck darf das nicht als
+    // Einwilligung erscheinen -- sonst behauptet das Papier eine
+    // Rechtsgrundlage, die es nicht gibt.
+    pZeile("Information nach Art. 13 DSGVO zur Kenntnis genommen (Speicherung zur " +
+           "Mitglieder- und Beitragsverwaltung, Meldung an Landessportbund und " +
+           "Fachverbände)", ja(i.einwilligung_datenschutz)) +
     pZeile("Veröffentlichung von Fotos von Vereinsveranstaltungen (freiwillig)",
            ja(i.einwilligung_fotos)) +
     (i.einwilligung_elternkodex

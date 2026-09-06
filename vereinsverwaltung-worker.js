@@ -4018,6 +4018,15 @@ function pruefeAntrag(roh, erlaubteSparten, heute, quelle) {
   if (roh.einwilligung_satzung !== true) {
     return { fehler: "Die Satzung und die Beitragsordnung muessen anerkannt werden" };
   }
+  // ⚠️ einwilligung_datenschutz ist trotz des Feldnamens KEINE Einwilligung,
+  // sondern die Kenntnisnahme der Information nach Art. 13 DSGVO -- nur
+  // deshalb darf sie Pflicht sein. Die Speicherung folgt aus dem
+  // Mitgliedschaftsverhaeltnis, die Bestandsmeldung an Landessportbund und
+  // Fachverbaende aus deren Satzungen (Art. 6 Abs. 1 lit. b/f), nicht aus
+  // lit. a. Wuerde der Formulartext sie wieder als Einwilligung ausgeben,
+  // waere dieser Riegel ein Verstoss gegen das Kopplungsverbot
+  // (Art. 7 Abs. 4). Der Feldname bleibt, weil er in Bestandsdatensaetzen,
+  // im JSON und auf dem Antragsausdruck steht.
   if (roh.einwilligung_datenschutz !== true) {
     return { fehler: "Bitte die Datenschutzhinweise bestaetigen" };
   }

@@ -39,6 +39,18 @@ const SEITENGROESSE = 50;
 
 const CHANGELOG = [
   {
+    version: "1.3",
+    groups: [
+      {
+        title: "Das Datenschutz-Häkchen ist eine Kenntnisnahme, keine Einwilligung",
+        items: [
+          "Der Text nach Art. 13 DSGVO in Aufnahme- und Nachwuchsantrag gab die Meldung an Landessportbund und Fachverbände als Einwilligung aus (Art. 6 Abs. 1 lit. a). Genau dieses Häkchen war zugleich Pflicht — ohne Haken kein Antrag. Eine Einwilligung, die sich nicht verweigern lässt, ist keine (Kopplungsverbot, Art. 7 Abs. 4 DSGVO).",
+          "Die Meldung ist jetzt als das benannt, was sie ist: eine Folge der Mitgliedschaft und der Satzungen von Landessportbund und Fachverbänden (Art. 6 Abs. 1 lit. b, ergänzend lit. f). Das Häkchen bleibt Pflicht, heißt aber nun Kenntnisnahme — auch auf dem Antragsausdruck. Die Foto-Einwilligung daneben bleibt unverändert freiwillig."
+        ]
+      }
+    ]
+  },
+  {
     version: "1.2",
     groups: [
       {
