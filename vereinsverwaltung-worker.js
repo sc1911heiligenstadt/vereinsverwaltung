@@ -7836,8 +7836,27 @@ async function tabelleLesen(env, name, budgetBytes) {
   }
 }
 
+// ⚠️ Formelschutz. Excel und LibreOffice werten eine Zelle, die mit =, +,
+// - oder @ beginnt, als FORMEL aus -- auch aus einer CSV. Ein
+// oeffentlicher Aufnahmeantrag mit nachname = "=HYPERLINK(...)" kommt
+// durch pruefeAntrag (die trimmt und kuerzt nur) und stand nach der
+// Annahme so in der naechtlichen mitglieder.csv. Wer die Notfallliste
+// oeffnet, fuehrt sie dann aus. (Abnahme 06.09.2026, Fund N13.)
+//
+// Vorgesetzt wird ein Apostroph, statt das Zeichen wegzuwerfen: die Liste
+// soll den Namen zeigen, den jemand wirklich eingetragen hat -- gerade
+// weil so ein Nachname auffallen SOLL. (sepaText nimmt das "=" weg, aber
+// dort geht die Datei an die Bank, nicht an einen Menschen.)
+//
+// ⚠️ Echte Zahlen bleiben unangetastet, sonst wuerde aus -5 ein Text.
+const CSV_FORMEL_START = /^[=+\-@\t\r]/;
+const CSV_ZAHL = /^-?\d+([.,]\d+)?$/;
+
 function csvFeld(wert) {
   const s = wert === null || wert === undefined ? "" : String(wert);
+  if (CSV_FORMEL_START.test(s) && !CSV_ZAHL.test(s)) {
+    return '"\'' + s.replace(/"/g, '""') + '"';
+  }
   return /[";\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 

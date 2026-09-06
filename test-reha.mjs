@@ -47,8 +47,16 @@ const R = ladeReha(REHA_QUELLE);
 
 // lsb.js haengt an window-Dingen, die es hier nicht gibt -- gezogen wird
 // deshalb nur die reine Zeichenketten-Funktion samt ihrer Konstanten.
+// ⚠️ lsb.js benutzt seit dem 06.09.2026 csvFeld aus db.js (Formelschutz,
+// Fund N13) -- woertlich von dort geschnitten, nicht hier nachgebaut.
+const DB_QUELLE = readFileSync(REPO + "/db.js", "utf8");
+const CSV_AB = DB_QUELLE.indexOf("const CSV_FORMEL_START");
+if (CSV_AB < 0) throw new Error("csvFeld in db.js NICHT GEFUNDEN");
+const CSV_TEIL = DB_QUELLE.slice(CSV_AB);
+
 const LSB_QUELLE = readFileSync(REPO + "/lsb.js", "utf8");
-const L = new Function(LSB_QUELLE.replace(/document\.addEventListener[\s\S]*$/, "") +
+const L = new Function(CSV_TEIL + "\n" +
+  LSB_QUELLE.replace(/document\.addEventListener[\s\S]*$/, "") +
   "\nreturn {lsbCsvText, LSB_KOPF, LSB_SPALTEN_FUER_NUMMERN};")();
 
 // --- Ein Raster im Aufbau der Verbandsvorlage -------------------------

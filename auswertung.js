@@ -232,10 +232,10 @@ function meldungHerunterladen() {
     zeilen.push([z.sparte, z.altersgruppe, z.w, z.m, z.d, z.ohne, z.gesamt,
                  z.reha ? "Rehasport-Erhebung" : "Vereinsverwaltung"]);
   }
-  const csv = "﻿" + zeilen.map((z) => z.map((w) => {
-    const t = String(w === null || w === undefined ? "" : w);
-    return /[";\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
-  }).join(";")).join("\r\n");
+  // ⚠️ csvFeld aus db.js -- mit Formelschutz. Hier stehen zwar nur Zahlen
+  // und Abteilungsnamen, aber die Namen kommen aus der Datenbank und
+  // nicht aus dem Code (Fund N13).
+  const csv = "﻿" + zeilen.map((z) => z.map((w) => csvFeld(w)).join(";")).join("\r\n");
 
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));

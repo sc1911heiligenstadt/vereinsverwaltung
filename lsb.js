@@ -163,10 +163,10 @@ function lsbCsvText(lauf, rehaZeilen) {
   // Semikolon und BOM wie bei den übrigen Ausgaben der Flotte: das
   // Portal erwartet Semikolon, und mit BOM öffnet Excel die Datei ohne
   // Nachfragen richtig, wenn jemand vorher hineinsehen will.
-  return "﻿" + zeilen.map((z) => z.map((w) => {
-    const t = String(w === null || w === undefined ? "" : w);
-    return /[";\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
-  }).join(";")).join("\r\n");
+  // ⚠️ csvFeld aus db.js, nicht mehr die eigene Kurzfassung: sie kannte
+  // keinen Formelschutz. Die Namen hier stammen aus dem Bestand und damit
+  // teils aus dem oeffentlichen Aufnahmeantrag (Fund N13).
+  return "﻿" + zeilen.map((z) => z.map((w) => csvFeld(w)).join(";")).join("\r\n");
 }
 
 function lsbCsvHerunterladen() {

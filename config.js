@@ -42,6 +42,13 @@ const CHANGELOG = [
     version: "1.3",
     groups: [
       {
+        title: "CSV-Dateien: ein Name kann keine Formel mehr sein",
+        items: [
+          "Excel und LibreOffice werten eine Zelle, die mit =, +, - oder @ beginnt, als Formel aus — auch aus einer CSV. Ein öffentlicher Aufnahmeantrag mit einem Nachnamen wie „=HYPERLINK(…)“ kam durch die Prüfung (die trimmt und kürzt nur) und stand nach der Annahme so in der nächtlichen Notfallliste.",
+          "Alle vier CSV-Ausgaben setzen solchen Werten jetzt einen Apostroph voran: die nächtliche Sicherung, die Meldedatei für den Landessportbund, die Vorabankündigung und die Bestandsmeldung. Der Wert wird nicht weggeworfen — so ein Name soll auffallen. Echte Zahlen bleiben Zahlen."
+        ]
+      },
+      {
         title: "Unterschriften werden an ihren Bytes erkannt",
         items: [
           "Geprüft wurde bisher nur der Vorspann „data:image/png;base64,“ und der Zeichenvorrat dahinter — beides schreibt der Absender selbst hin. Über die öffentliche Nachwuchs-Anmeldung ließen sich damit vier Felder mit beliebigem Inhalt füllen; im Antragsdialog und auf dem Verbandsbogen erschien dann ein kaputtes Bild statt der Unterschrift, und in der Zeile lagen bis zu 600 KB Müll.",

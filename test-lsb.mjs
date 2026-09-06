@@ -276,8 +276,17 @@ console.log("D  Die CSV");
 // ======================================================================
 
 // Der echte Client-Code, aus der Datei gezogen -- nicht nachgebaut.
+// ⚠️ lsb.js benutzt seit dem 06.09.2026 csvFeld aus db.js (Formelschutz,
+// Fund N13). Der Schnitt holt die Funktion samt ihren beiden Konstanten
+// WOERTLICH aus db.js -- eine Kopie hier pruefte die Kopie, nicht den Code.
+const DB_QUELLE = readFileSync(REPO + "/db.js", "utf8");
+const CSV_AB = DB_QUELLE.indexOf("const CSV_FORMEL_START");
+if (CSV_AB < 0) throw new Error("csvFeld in db.js NICHT GEFUNDEN");
+const CSV_TEIL = DB_QUELLE.slice(CSV_AB);
+
 const lsbJs = readFileSync(REPO + "/lsb.js", "utf8");
-const C = new Function(lsbJs + "\nreturn { lsbCsvText, LSB_KOPF, LSB_SPALTEN_FUER_NUMMERN };")();
+const C = new Function(CSV_TEIL + "\n" + lsbJs +
+  "\nreturn { lsbCsvText, LSB_KOPF, LSB_SPALTEN_FUER_NUMMERN, csvFeld };")();
 
 const csv = C.lsbCsvText(c);
 const zeilen = csv.split("\r\n");

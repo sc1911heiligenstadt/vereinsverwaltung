@@ -870,9 +870,12 @@ async function zeigeVorab(id) {
     (e.betrag_cent / 100).toFixed(2).replace(".", ","),
     lDatum(v.faellig), e.mandat, v.glaeubiger_id
   ]);
+  // ⚠️ csvFeld aus db.js mit immerQuoten: das Anfuehrungszeichen um jedes
+  // Feld bleibt wie bisher, dazu kommt der Formelschutz. Die Empfaenger-
+  // und Mitgliedernamen stammen aus dem Bestand und damit teils aus dem
+  // oeffentlichen Aufnahmeantrag (Fund N13).
   const csv = "﻿" + [kopf].concat(zeilen)
-    .map((r) => r.map((f) => '"' + String(f === null || f === undefined ? "" : f)
-      .replace(/"/g, '""') + '"').join(";")).join("\r\n");
+    .map((r) => r.map((f) => csvFeld(f, true)).join(";")).join("\r\n");
   const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
 
   ergebnis("Vorabankündigung",

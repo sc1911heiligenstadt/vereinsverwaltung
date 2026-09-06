@@ -278,3 +278,39 @@ function bytesZuBase64(bytes) {
   }
   return btoa(s);
 }
+
+// ---------------------------------------------------------------------
+// CSV
+// ---------------------------------------------------------------------
+
+// ⚠️ Ein Feld fuer eine CSV, MIT Formelschutz. Excel und LibreOffice
+// werten eine Zelle, die mit =, +, - oder @ beginnt, als Formel aus --
+// auch aus einer Datei. Die Namen in diesen Ausgaben stammen zum Teil aus
+// dem oeffentlichen Aufnahmeantrag, der sie nur trimmt und kuerzt; ein
+// Nachname "=HYPERLINK(...)" wuerde beim Oeffnen der Liste ausgefuehrt.
+// (Abnahme 06.09.2026, Fund N13 -- dort fuer die naechtliche
+// mitglieder.csv des Workers gemeldet, hier fuer die drei Ausgaben, die
+// der Browser baut.)
+//
+// Vorgesetzt wird ein Apostroph, statt das Zeichen wegzuwerfen: die Liste
+// soll zeigen, was jemand wirklich eingetragen hat -- gerade weil so ein
+// Name auffallen SOLL.
+//
+// ⚠️ Echte Zahlen bleiben unangetastet, sonst wuerde aus -5 ein Text.
+// ⚠️ Eine ZWEITE Fassung dieser Funktion steht im Worker (csvFeld dort) --
+// dieselbe bewusste Doppelung wie bei VEREIN_NAME_PAPIER: der Browser
+// kann den Worker-Code nicht lesen. Wer eine aendert, aendert beide.
+//
+// immerQuoten: die Vorabankuendigung setzt jedes Feld in
+// Anfuehrungszeichen. Das bleibt so, damit sich ihre Datei nicht
+// nebenbei aendert.
+const CSV_FORMEL_START = /^[=+\-@\t\r]/;
+const CSV_ZAHL = /^-?\d+([.,]\d+)?$/;
+
+function csvFeld(wert, immerQuoten) {
+  const s = wert === null || wert === undefined ? "" : String(wert);
+  const gefaehrlich = CSV_FORMEL_START.test(s) && !CSV_ZAHL.test(s);
+  if (gefaehrlich) return '"\'' + s.replace(/"/g, '""') + '"';
+  if (immerQuoten || /[";\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
