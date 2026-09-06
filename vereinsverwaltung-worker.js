@@ -5797,10 +5797,26 @@ function istKodexSparte(name) {
 // Schreibweise eingegangen und nirgends sichtbar, und niemand haette
 // davon erfahren.
 //
-// Recht: darfNachwuchs, wie bei den Nachwuchs-Antraegen (Geschaeftsstelle,
-// Schatzmeister, Passstelle, Administrator). Kein Schreibrecht -- die
-// Zuordnung von Hand und das Loeschen haengen unveraendert an
-// darfSchreiben.
+// Recht: darfNachwuchs (Geschaeftsstelle, Schatzmeister, Passstelle,
+// Administrator). Kein Schreibrecht -- die Zuordnung von Hand und das
+// Loeschen haengen unveraendert an darfSchreiben.
+//
+// ⚠️ Das ist NICHT dasselbe Recht wie bei den Nachwuchs-Antraegen, auch
+// wenn es dieselbe Flagge ist. Dort sieht die Passstelle nur, was ihr
+// eine Familie selbst geschickt hat; hier steht die Soll-Liste aus dem
+// BESTAND daneben -- Name und Geburtsdatum jedes minderjaehrigen
+// Fussball-Mitglieds. Michel kennt und will das (ohne den Bestand gibt es
+// keinen Abgleich, und die Jugendspieler kennt die Passstelle ueber die
+// Spielerpaesse ohnehin); es steht so in der CLAUDE.md.
+//
+// ⚠️ Gewollt ist aber genau das und nichts darueber hinaus. Die
+// MITGLIEDSNUMMER geht deshalb nur an darfSchreiben: derselbe Worker
+// verweigert der Passstelle an anderer Stelle ausdruecklich schon die
+// naechste freie Nummer, weil sie "eine Angabe ueber den Bestand" sei
+// (handleAntragDetail). Sie hier mitzuliefern hiesse, dieselbe Grenze
+// einmal zu ziehen und einmal nicht. Sie wird nicht ausgeblendet, sondern
+// gar nicht erst gelesen -- ein NULL in der Spalte statt eines Wertes im
+// Netzwerk-Tab. (Abnahme 06.09.2026, Fund M6.)
 async function handleKodexListe(body, env, me, corsHeaders) {
   const rolle = await ladeRolle(env, me);
   if (!rolle.darfNachwuchs) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
@@ -5848,8 +5864,14 @@ async function handleKodexListe(body, env, me, corsHeaders) {
     "AND ms.sparte_id IN (" + platzhalter + ") " +
     "AND (ms.austritt IS NULL OR ms.austritt >= '" + stichtag + "')) ";
 
+  // ⚠️ Die Mitgliedsnummer steht nur fuer darfSchreiben im SELECT. Siehe
+  // den Block oben: fuer die Passstelle ist sie eine Angabe ueber den
+  // Bestand, die ihr derselbe Worker an anderer Stelle verweigert.
+  const nummerSpalte = rolle.darfSchreiben
+    ? "m.mitgliedsnummer" : "NULL AS mitgliedsnummer";
+
   const kinderR = await env.VV_DB.prepare(
-    "SELECT p.id, p.vorname, p.nachname, p.geburtsdatum, m.mitgliedsnummer " +
+    "SELECT p.id, p.vorname, p.nachname, p.geburtsdatum, " + nummerSpalte + " " +
     "FROM person p JOIN mitgliedschaft m ON m.person_id = p.id " +
     "WHERE " + bestand + " AND " + alter + " IS NOT NULL AND " + alter + " < 18 " +
     "AND " + inSparte +

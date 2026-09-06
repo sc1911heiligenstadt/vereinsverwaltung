@@ -232,6 +232,20 @@ const KO_SPALTEN = [
     wert: (k) => (k.erz_name || "").toLowerCase() }
 ];
 
+// ⚠️ Die Spalte „Nr." erscheint nur mit Schreibrecht. Der Server liefert
+// der Passstelle seit dem 06.09.2026 kein `mitgliedsnummer` mehr (sie ist
+// eine Angabe ueber den Bestand, und derselbe Worker verweigert ihr die
+// naechste freie Nummer schon immer). Eine Spalte mit einer Ueberschrift,
+// unter der nie etwas stehen kann, ist schlechter als keine -- und sie
+// waere sortierbar, ohne dass sich etwas bewegt.
+//
+// ⚠️ Kopf UND Zelle haengen daran. Nur den Kopf zu filtern, verschoebe
+// jede Zelle dahinter um eine Spalte.
+function koSpalten() {
+  return KO_SPALTEN.filter(
+    (sp) => sp.schluessel !== "nummer" || !!koDaten.darf_schreiben);
+}
+
 // Erster Klick auf eine neue Spalte sortiert aufsteigend, ein zweiter
 // dreht um -- wie in der Mitgliederliste.
 function waehleKodexSortierung(schluessel) {
@@ -241,7 +255,12 @@ function waehleKodexSortierung(schluessel) {
 }
 
 function koSortiert(zeilen) {
-  const spalte = KO_SPALTEN.find((s) => s.schluessel === koSort) || KO_SPALTEN[0];
+  // ⚠️ Ueber die SICHTBAREN Spalten suchen. Steht koSort auf „nummer",
+  // waehrend die Spalte fuer diese Rolle gar nicht da ist, faellt die
+  // Sortierung auf den Namen zurueck -- sonst sortierte die Liste nach
+  // einem Wert, den niemand sieht und der fuer alle Zeilen gleich ist.
+  const sichtbar = koSpalten();
+  const spalte = sichtbar.find((s) => s.schluessel === koSort) || sichtbar[0];
   const name = KO_SPALTEN[0];
   // Kopie sortieren, nicht koDaten.kinder -- die Antwort bleibt, wie der
   // Server sie geschickt hat.
@@ -294,7 +313,8 @@ function zeichneKodexListe() {
   // Liste stehen, sonst klickt jemand und wundert sich.
   const zuordnen = !!koZuordnenId;
 
-  const kopf = KO_SPALTEN.map((sp) => {
+  const zeigtNummer = !!koDaten.darf_schreiben;
+  const kopf = koSpalten().map((sp) => {
     const aktiv = koSort === sp.schluessel;
     return '<th class="sortierbar' + (aktiv ? " aktiv" : "") + '"' +
       ' data-kosort="' + sp.schluessel + '" tabindex="0" role="button"' +
@@ -316,7 +336,7 @@ function zeichneKodexListe() {
       '<tr class="ko-kind" data-person="' + esc(k.person_id) + '">' +
         '<td class="name">' + esc(k.vorname + " " + k.nachname) + "</td>" +
         "<td>" + esc(datumDe(k.geburtsdatum)) + "</td>" +
-        "<td>" + esc(k.mitgliedsnummer || "") + "</td>" +
+        (zeigtNummer ? "<td>" + esc(k.mitgliedsnummer || "") + "</td>" : "") +
         // Der Chip sagt nur noch den STAND. Das Datum steht in seiner
         // eigenen Spalte -- sonst liesse es sich nicht danach sortieren,
         // und „Kenntnisnahme: 18.08.2026" beantwortet die Frage „liegt sie

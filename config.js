@@ -42,6 +42,13 @@ const CHANGELOG = [
     version: "1.3",
     groups: [
       {
+        title: "Passstelle: keine Mitgliedsnummern in der Elternkodex-Liste",
+        items: [
+          "Die Kinderliste im Reiter „Elternkodex“ steht der Passstelle weiterhin offen — ohne den Bestand gäbe es keinen Abgleich. Sie lieferte ihr aber auch die Mitgliedsnummer jedes Kindes, und genau die verweigert ihr dieselbe App an anderer Stelle ausdrücklich als Angabe über den Bestand.",
+          "Die Nummer wird für diese Rolle jetzt gar nicht erst gelesen, und die Spalte „Nr.“ erscheint nur noch mit Schreibrecht. Für Geschäftsstelle und Schatzmeister ändert sich nichts."
+        ]
+      },
+      {
         title: "Der Datenschutz-Text nennt jetzt alles, was die Formulare erheben",
         items: [
           "Die Nachwuchs-Anmeldung erhebt ein Passbild des Kindes und lädt es in die abgeschottete Nachweis-Ablage — der Text nach Art. 13 DSGVO zählte die Nachweise aber abschließend als „Geburtsurkunde, Ausweis, Spielerpass, Abmeldung“ auf. Das Passbild steht jetzt mit seinem Zweck darin: die Geschäftsstelle lädt es in das Passwesen des DFB, auf dem Verbandsbogen erscheint es nicht.",
