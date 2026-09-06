@@ -42,6 +42,13 @@ const CHANGELOG = [
     version: "1.3",
     groups: [
       {
+        title: "Die Abteilungsliste verlangt jetzt selbst ein Recht",
+        items: [
+          "Die Aktion hinter den Abteilungs-Auswahllisten prüfte als einzige gar keine Rolle. Weil der Gateway jede Anmeldung durchlässt und die Rechte je Rolle erst hier entstehen, hätte jedes angemeldete Vereinskonto darüber alle Abteilungen mit Zuschlagsbetrag, DOSB-Sportartennummer und Mitgliederzahl abrufen können — mehr, als der Vorstand über die dafür gebaute Auswertung bekommt.",
+          "Sie antwortet jetzt nur noch den Rollen, die den Bestand ohnehin sehen: Geschäftsstelle, Schatzmeister, Abteilungsleiter (weiterhin nur die eigenen) und Administrator. In der Bedienung ändert sich nichts."
+        ]
+      },
+      {
         title: "Passstelle: keine Mitgliedsnummern in der Elternkodex-Liste",
         items: [
           "Die Kinderliste im Reiter „Elternkodex“ steht der Passstelle weiterhin offen — ohne den Bestand gäbe es keinen Abgleich. Sie lieferte ihr aber auch die Mitgliedsnummer jedes Kindes, und genau die verweigert ihr dieselbe App an anderer Stelle ausdrücklich als Angabe über den Bestand.",

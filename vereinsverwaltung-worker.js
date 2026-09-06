@@ -481,6 +481,29 @@ function naechsterAustrittstermin(kuendigungIso) {
 // seine eigenen -- sonst verriete die Filterliste die Vereinsstruktur.
 async function handleSpartenListe(env, me, corsHeaders) {
   const rolle = await ladeRolle(env, me);
+
+  // ⚠️ Diese Zeile hat bis zum 06.09.2026 gefehlt (Abnahme, Fund N9), und
+  // sie ist hier nicht bloss Formsache: verifySession fragt beim Gateway
+  // nur "me" -- das beantwortet der Gateway JEDEM angemeldeten Konto mit
+  // 200, unabhaengig davon, ob es diese Kachel ueberhaupt sieht. Der
+  // Worker hat also kein Tool-Gate; jede Aktion, die ihre Rolle selbst
+  // vergisst, steht der ganzen Flotte offen. Ohne Rolle war "nurEigene"
+  // false, also lief das volle SQL: alle Abteilungen mit zuschlag_cent,
+  // dosb_sportart_nr und der Kopfzahl je Abteilung -- mehr, als der
+  // Vorstand ueber vv-kennzahlen bekommt, das dafuer darfKennzahlenSehen
+  // verlangt.
+  //
+  // darfPersonenSehen ist genau die Menge der Aufrufer: app.js ruft
+  // ladeSparten() erst HINTER dem !darfPersonenSehen-Zweig (der endet mit
+  // return), und ladeAntragSparten in antraege.js sitzt in der Karte
+  // "Das oeffentliche Formular", die der Passstelle verborgen bleibt und
+  // deren Aktionen ohnehin darfSchreiben verlangen. Das oeffentliche
+  // Antragsformular ruft diese Aktion NICHT -- es bekommt seine
+  // Abteilungen ueber vv-antrag-info.
+  if (!rolle.darfPersonenSehen) {
+    return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+  }
+
   const nurEigene = !rolle.istAdmin
     && rolle.rollen.includes("abteilungsleiter")
     && !rolle.rollen.includes("geschaeftsstelle")
