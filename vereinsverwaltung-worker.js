@@ -3888,16 +3888,50 @@ function alterAm(geburtsdatum, stichtag) {
   return a;
 }
 
+// Die ersten 16 Bytes jeder PNG-Datei: acht Bytes Signatur (RFC 2083),
+// vier Bytes Laenge des ersten Chunks, dann sein Name -- und der erste
+// Chunk MUSS "IHDR" sein.
+const PNG_KOPF = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+const PNG_ERSTER_CHUNK = "IHDR";
+
+// ⚠️ Prueft die BYTES, nicht die Behauptung des Clients (Abnahme
+// 06.09.2026, Fund N10). Vorher stand hier nur die Regex auf den
+// "data:image/png;base64,"-Vorspann und den Base64-Zeichenvorrat -- beides
+// schreibt der Absender selbst hin. Ein Unangemeldeter konnte ueber
+// vv-nachwuchs-senden vier Felder mit Base64 von "%PDF", einem SVG oder
+// 149.000 mal "A" schicken; die Geschaeftsstelle sah im Antragsdialog und
+// auf dem AO21-Bogen ein kaputtes Bild statt der Unterschrift, und in der
+// Zeile lagen 600 KB Muell.
+//
+// Entschluesselt werden nur die ersten 24 Base64-Zeichen (= 18 Bytes) --
+// das kostet dasselbe, egal wie gross das Bild ist.
+function istPngKopf(base64) {
+  const kopf = base64.slice(0, 24);
+  if (kopf.length < 24) return false;
+  let roh;
+  try { roh = atob(kopf); } catch { return false; }
+  for (let i = 0; i < PNG_KOPF.length; i++) {
+    if (roh.charCodeAt(i) !== PNG_KOPF[i]) return false;
+  }
+  return roh.slice(12, 16) === PNG_ERSTER_CHUNK;
+}
+
 // Gibt { wert } oder { fehler } zurueck. Ein zu grosses oder falsch
 // gebautes Bild darf nicht als "fehlt" durchgehen -- sonst sucht jemand
 // den Fehler am Zeichenfeld statt an der Dateigroesse.
 function pruefeUnterschrift(roh, was) {
   const s = String(roh || "");
   if (!s) return { fehler: was + " fehlt" };
-  if (!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(s)) {
+  // Das "=" nur noch am Ende und hoechstens zweimal -- Base64-Fuellzeichen
+  // mitten im Strom gibt es nicht.
+  const m = /^data:image\/png;base64,([A-Za-z0-9+/]+={0,2})$/.exec(s);
+  if (!m || m[1].length % 4 !== 0) {
     return { fehler: was + ": unerwartetes Format" };
   }
+  // ⚠️ Die Groesse VOR dem Entschluesseln -- eine Laengenpruefung soll
+  // nicht erst hinter einer Rechnung stehen.
   if (s.length > UNTERSCHRIFT_MAX) return { fehler: was + ": das Bild ist zu gross" };
+  if (!istPngKopf(m[1])) return { fehler: was + ": das Bild ist kein PNG" };
   return { wert: s };
 }
 

@@ -42,6 +42,13 @@ const CHANGELOG = [
     version: "1.3",
     groups: [
       {
+        title: "Unterschriften werden an ihren Bytes erkannt",
+        items: [
+          "Geprüft wurde bisher nur der Vorspann „data:image/png;base64,“ und der Zeichenvorrat dahinter — beides schreibt der Absender selbst hin. Über die öffentliche Nachwuchs-Anmeldung ließen sich damit vier Felder mit beliebigem Inhalt füllen; im Antragsdialog und auf dem Verbandsbogen erschien dann ein kaputtes Bild statt der Unterschrift, und in der Zeile lagen bis zu 600 KB Müll.",
+          "Jetzt wird der Dateikopf entschlüsselt und gegen die PNG-Signatur samt erstem Bildblock gehalten. Für echte Unterschriften ändert sich nichts."
+        ]
+      },
+      {
         title: "Die Abteilungsliste verlangt jetzt selbst ein Recht",
         items: [
           "Die Aktion hinter den Abteilungs-Auswahllisten prüfte als einzige gar keine Rolle. Weil der Gateway jede Anmeldung durchlässt und die Rechte je Rolle erst hier entstehen, hätte jedes angemeldete Vereinskonto darüber alle Abteilungen mit Zuschlagsbetrag, DOSB-Sportartennummer und Mitgliederzahl abrufen können — mehr, als der Vorstand über die dafür gebaute Auswertung bekommt.",

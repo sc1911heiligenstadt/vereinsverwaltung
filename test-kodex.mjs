@@ -105,6 +105,11 @@ const me = { username: "pruefer", isAdmin: true, canEdit: true, canAdmin: true }
 const cors = {};
 const HEUTE = "2026-08-18";
 const SIG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==";
+// Eine ZWEITE, andere Unterschrift. Frueher stand hier SIG + "zwei" --
+// seit dem 06.09.2026 prueft pruefeUnterschrift die Bytes, und ein
+// angehaengtes Wort hinter dem Base64-Fuellzeichen ist keine gueltige
+// Kodierung mehr (Abnahme, Fund N10).
+const SIG_ZWEI = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAendlaQ==";
 
 const tabellen = () => new Set(db.prepare(
   "SELECT name FROM sqlite_master WHERE type = 'table'").all().map((z) => z.name));
@@ -704,7 +709,7 @@ const KIND_WEG = {
 };
 await W.handleKodexSenden(Object.assign({}, KIND_WEG, { unterschrift: SIG }),
                           env, anfrage("9.9.9.1"), cors);
-await W.handleKodexSenden(Object.assign({}, KIND_WEG, { unterschrift: SIG + "zwei" }),
+await W.handleKodexSenden(Object.assign({}, KIND_WEG, { unterschrift: SIG_ZWEI }),
                           env, anfrage("9.9.9.2"), cors);
 const wegId = db.prepare(
   "SELECT id FROM elternkodex_bestaetigung WHERE kind_nachname = 'Beispiel'").get().id;
@@ -1028,8 +1033,16 @@ db.exec("DELETE FROM elternkodex_verlauf");
 db.exec("DELETE FROM elternkodex_bestaetigung");
 db.exec("DELETE FROM protokoll");
 
-const SIG_FAMILIE = "data:image/png;base64,AAAAfamilieAAAA==";
-const SIG_FREMD   = "data:image/png;base64,BBBBfremdBBBB==";
+// ⚠️ Seit dem 06.09.2026 prueft pruefeUnterschrift die BYTES, nicht mehr
+// nur den "data:"-Vorspann (Abnahme, Fund N10). Die beiden frueheren
+// Werte ("AAAAfamilieAAAA==" / "BBBBfremdBBBB==") waren gar keine PNGs
+// und gingen genau deshalb durch -- sie sind der Fund. Beide tragen jetzt
+// einen echten PNG-Kopf (Signatur + Laenge + IHDR, 18 Bytes) und
+// unterscheiden sich dahinter, weil dieser Abschnitt sie voneinander
+// unterscheiden koennen muss.
+const SIG_KOPF = "iVBORw0KGgoAAAANSUhEUgAA";
+const SIG_FAMILIE = "data:image/png;base64," + SIG_KOPF + "ZmFtaWxpZQ==";
+const SIG_FREMD   = "data:image/png;base64," + SIG_KOPF + "ZnJlbWQAAA==";
 const KIND_J = { kind_vorname: "Jonas", kind_nachname: "Beispiel",
                  kind_geburtsdatum: "2014-09-09" };
 
