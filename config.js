@@ -42,6 +42,13 @@ const CHANGELOG = [
     version: "1.3",
     groups: [
       {
+        title: "Der Datenschutz-Text nennt jetzt alles, was die Formulare erheben",
+        items: [
+          "Die Nachwuchs-Anmeldung erhebt ein Passbild des Kindes und lädt es in die abgeschottete Nachweis-Ablage — der Text nach Art. 13 DSGVO zählte die Nachweise aber abschließend als „Geburtsurkunde, Ausweis, Spielerpass, Abmeldung“ auf. Das Passbild steht jetzt mit seinem Zweck darin: die Geschäftsstelle lädt es in das Passwesen des DFB, auf dem Verbandsbogen erscheint es nicht.",
+          "Ebenfalls ergänzt, auf beiden Formularen: das Geschlecht und die Angabe zum alleinigen Sorgerecht. Beides wurde erhoben, ohne im Text vorzukommen."
+        ]
+      },
+      {
         title: "Das Datenschutz-Häkchen ist eine Kenntnisnahme, keine Einwilligung",
         items: [
           "Der Text nach Art. 13 DSGVO in Aufnahme- und Nachwuchsantrag gab die Meldung an Landessportbund und Fachverbände als Einwilligung aus (Art. 6 Abs. 1 lit. a). Genau dieses Häkchen war zugleich Pflicht — ohne Haken kein Antrag. Eine Einwilligung, die sich nicht verweigern lässt, ist keine (Kopplungsverbot, Art. 7 Abs. 4 DSGVO).",
