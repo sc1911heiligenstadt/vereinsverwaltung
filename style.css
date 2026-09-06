@@ -239,7 +239,7 @@ button.btn {
   font-family: inherit;
 }
 button.btn:hover { background: var(--blue-dark); }
-button.btn.grau { background: #6b7280; }
+button.btn.grau { background: #676e7c; }
 button.btn.grau:hover { background: #4b5563; }
 
 /* ---------- Tabelle ---------- */
@@ -1300,7 +1300,7 @@ table.schmal { width: auto; max-width: 100%; }
    Wer button.btn aendert, aendert das hier mit. */
 label.btn {
   display: inline-block;
-  background: #6b7280;
+  background: #676e7c;
   color: #fff;
   border: none;
   padding: 10px 18px;
