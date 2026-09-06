@@ -115,13 +115,22 @@ async function ladeAntragSparten() {
       '" data-name="' + esc(s.name) + '" data-anzahl="' + (s.mitglieder || 0) + '"' +
       (s.aktiv ? " checked" : "") + "><span>" + esc(s.name) +
       ' <span class="fussnote">(' + (s.mitglieder || 0) + ")</span></span></label>" +
+      // ⚠️ Das aria-label nennt die ABTEILUNG mit. Zahlenfeld und
+      // Loeschkreuz stehen je Zeile einmal; ohne den Namen hoerte ein
+      // Vorleseprogramm siebzehnmal "Sportartennummer des LSB" und
+      // siebzehnmal "Abteilung loeschen", ohne je zu sagen, welche.
+      // Der title bleibt daneben stehen -- er ist der Tooltip fuer die
+      // Maus, das aria-label der Name fuer die Vorlesehilfe.
+      // (Abnahme 06.09.2026, Spur D.)
       '<input type="number" class="sparte-nr an-sp-nr" min="1" max="9999" step="1" ' +
       'inputmode="numeric" placeholder="Nr." title="Sportartennummer des LSB" ' +
+      'aria-label="Sportartennummer des LSB für ' + esc(s.name) + '" ' +
       'data-id="' + esc(s.id) + '" data-name="' + esc(s.name) + '" ' +
       'data-wert="' + (s.dosb_sportart_nr || "") + '" ' +
       'value="' + (s.dosb_sportart_nr || "") + '">' +
       '<button type="button" class="sparte-weg an-sp-weg" data-id="' + esc(s.id) +
-      '" data-name="' + esc(s.name) + '" title="Abteilung löschen">×</button>' +
+      '" data-name="' + esc(s.name) + '" title="Abteilung löschen"' +
+      ' aria-label="Abteilung ' + esc(s.name) + ' löschen">×</button>' +
       "</div>").join("") +
     "</div>";
 

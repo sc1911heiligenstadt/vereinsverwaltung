@@ -472,7 +472,13 @@ function impZuordnungZeichnen() {
     html += "<tr>" +
       '<td class="name">' + esc(name || "(ohne Überschrift)") + "</td>" +
       '<td class="sparten">' + esc(beispiele || "—") + "</td>" +
-      "<td><select data-spalte=\"" + i + "\">" +
+      // ⚠️ aria-label, weil es hier keine Beschriftung geben kann: die
+      // Ueberschrift der Spalte steht als <th> ueber ALLEN Auswahlfeldern
+      // und die Zeilenbeschriftung in einer Nachbarzelle. Ein
+      // Vorleseprogramm sagte bisher nur "Auswahl" -- bei zwanzig
+      // Spalten zwanzigmal dasselbe. (Abnahme 06.09.2026, Spur D.)
+      "<td><select aria-label=\"Zielfeld für die Spalte " +
+        esc(name || "ohne Überschrift") + "\" data-spalte=\"" + i + "\">" +
         ZIELFELDER.map((z) =>
           '<option value="' + z.feld + '"' + (impZuordnung[i] === z.feld ? " selected" : "") + ">" +
           esc(z.text) + "</option>").join("") +

@@ -374,7 +374,13 @@ function zeichneNachweise() {
     return '<div class="nachweis-zeile">' +
       "<h3>" + esc(n.titel) + "</h3>" +
       '<p class="fussnote">' + esc(n.hinweis) + "</p>" +
-      '<input type="file" accept="image/*,application/pdf" data-slot="' + esc(n.slot) + '">' +
+      // ⚠️ aria-label: die Ueberschrift daneben ist ein <h3> und damit
+      // KEINE Beschriftung des Feldes. Ein Vorleseprogramm sagte bisher
+      // bei jedem der vier Nachweise nur "Datei auswaehlen" -- und die
+      // Eltern haetten nicht gehoert, welcher gemeint ist.
+      // (Abnahme 06.09.2026, Spur D.)
+      '<input type="file" accept="image/*,application/pdf" aria-label="' +
+      esc(n.titel) + ' als Datei auswählen" data-slot="' + esc(n.slot) + '">' +
       '<div class="nachweis-stand">' + zustand + "</div>" +
       "</div>";
   }).join("");

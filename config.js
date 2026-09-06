@@ -42,6 +42,13 @@ const CHANGELOG = [
     version: "1.3",
     groups: [
       {
+        title: "Vorleseprogramme: drei Stellen sagen jetzt, worum es geht",
+        items: [
+          "Bei der Spaltenzuordnung des Imports hieß jedes Auswahlfeld nur „Auswahl“, bei den Nachweisen der Nachwuchs-Anmeldung jeder Knopf nur „Datei auswählen“, und in der Abteilungsliste hörte man siebzehnmal „Sportartennummer“ und siebzehnmal „Abteilung löschen“ — ohne je zu erfahren, welche Spalte, welcher Nachweis, welche Abteilung gemeint war.",
+          "Jedes dieser Bedienelemente trägt jetzt einen eigenen Namen, der die Zeile mitnennt. Sichtbar ändert sich nichts."
+        ]
+      },
+      {
         title: "CSV-Dateien: ein Name kann keine Formel mehr sein",
         items: [
           "Excel und LibreOffice werten eine Zelle, die mit =, +, - oder @ beginnt, als Formel aus — auch aus einer CSV. Ein öffentlicher Aufnahmeantrag mit einem Nachnamen wie „=HYPERLINK(…)“ kam durch die Prüfung (die trimmt und kürzt nur) und stand nach der Annahme so in der nächtlichen Notfallliste.",
