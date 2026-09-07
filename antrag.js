@@ -137,12 +137,26 @@ async function pruefeAnmeldung() {
     .catch(() => { eingangStammdaten = null; });
 }
 
-// Gleiche Struktur wie der Changelog der Verwaltung (app.js), damit die
-// vorhandenen Klassen greifen -- .changelog-block erwartet h3 und
-// .changelog-datum. Nachgebaut sähe es hier anders aus als dort.
+// Der Info-Reiter zeigt seit dem 07.09.2026 die Karte "Funktionen" statt
+// der Aenderungsliste, und die Versionspille ist weg. ANTRAG_CHANGELOG
+// bleibt in db-antrag.js gepflegt und wird weitergeschrieben -- es ist die
+// Quelle fuer die grosse Anleitung und fuer die Neuigkeiten der
+// Tools-Uebersicht. Beide Renderer steigen deshalb still aus, wenn ihr Ziel
+// fehlt, statt den Seitenstart an einem null abbrechen zu lassen.
 function zeigeInfo() {
-  $("info-version").textContent = ANTRAG_VERSION;
-  $("info-changelog").innerHTML = ANTRAG_CHANGELOG.map((block) =>
+  const funktionen = $("funktionen-list");
+  if (funktionen) {
+    funktionen.innerHTML = ANTRAG_FUNKTIONEN.map((g) =>
+      '<div class="changelog-group">' +
+        '<div class="cg-title">' + esc(g.title) + "</div>" +
+        '<ul class="cg-items">' + g.items.map((i) => "<li>" + esc(i) + "</li>").join("") + "</ul>" +
+      "</div>"
+    ).join("");
+  }
+
+  const verlauf = $("info-changelog");
+  if (!verlauf) return;
+  verlauf.innerHTML = ANTRAG_CHANGELOG.map((block) =>
     block.groups.map((g) =>
       '<div class="changelog-block">' +
         "<h3>" + esc(g.title) + "</h3>" +

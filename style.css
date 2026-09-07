@@ -1323,3 +1323,14 @@ label.btn:hover { background: #4b5563; }
    Ohne eigene Faerbung liest sich die Meldung so, als kaeme alles aus
    der Datenbank -- die Zahlen sind aber aus einer fremden Datei. */
 tr.reha-zeile td { background: #f4f6fb; font-style: italic; }
+
+/* Die Karte "Funktionen" im Info-Reiter -- sie steht seit dem 07.09.2026 an
+   der Stelle, an der die Aenderungsliste stand. Die Klassen kamen aus
+   ToolsUebersicht/style.css: diese App kannte bisher nur .changelog-block
+   mit h3, und das ergaebe flottenweit zwei verschiedene Funktionskarten.
+   font-size gehoert dazu -- ohne sie erbt die Liste die 15 px des Bodys und
+   steht eine Stufe groesser als in jeder anderen App. */
+#funktionen-list { display: flex; flex-direction: column; gap: 18px; font-size: 15px; }
+.changelog-group { display: flex; flex-direction: column; gap: 4px; }
+.changelog-group .cg-title { font-weight: 700; font-size: 14px; color: var(--blue); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 2px; }
+.changelog-group .cg-items { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; color: var(--text); }

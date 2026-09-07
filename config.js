@@ -37,7 +37,153 @@ const STIMMRECHT_AB_ALTER = 16;
 
 const SEITENGROESSE = 50;
 
+// Was die beiden angemeldeten Seiten dieser App koennen -- steht im
+// Info-Reiter als Karte "Funktionen". Zwei Listen, weil es zwei Seiten mit
+// zwei Aufgaben sind: index.html fuehrt Mitglieder und Beitraege,
+// buchhaltung.html bucht.
+// WICHTIG: Das ist NICHT der Changelog. Hier steht der ZUSTAND ("der Beitrag
+// faellt einmal je Mitglied an"), dort die Aenderung ("faellt JETZT einmal
+// an"). Wer eine Funktion umbaut oder abschaltet, zieht diesen Text mit --
+// und ebenso E:\SC1911-Tools-Anleitung.txt, Abschnitt VEREINSVERWALTUNG.
+const APP_FUNKTIONEN = [
+  {
+    title: "Mitglieder führen",
+    items: [
+      "Der Reiter „Mitglieder“ zeigt den Bestand mit Suche nach Name und Mitgliedsnummer und mit Filtern nach Sparte und Status. Geblättert wird in Seiten zu fünfzig Einträgen.",
+      "Ein Klick auf eine Zeile öffnet die Person: Stammdaten, Anschrift, Mitgliedschaft, Sparten, Beitragsklasse und Bankverbindung.",
+      "Der Austritt folgt § 5 der Satzung und ist nur zum 30. Juni oder zum 31. Dezember möglich — ein freies Datum bietet die App deshalb nicht an."
+    ]
+  },
+  {
+    title: "Abteilungen und Beitragsordnung",
+    items: [
+      "Der Beitrag fällt einmal je Mitglied an, nicht je Sparte: wer in zwei Abteilungen aktiv ist, zahlt einmal.",
+      "Beitragssätze gelten ab einem Stichtag. Ein Beschluss der Mitgliederversammlung ändert den Satz, ohne Vergangenes umzurechnen.",
+      "Die Beitragsklasse steht je Mitglied und wird bewusst nicht aus dem Alter berechnet — der übernommene Bestand hält sich nicht daran.",
+      "Zwei Prüflisten zeigen, wessen Klasse nicht zum Alter passt und wessen Sparten verschiedene Beitragsarten nennen."
+    ]
+  },
+  {
+    title: "Beitragslauf und SEPA-Einzug",
+    items: [
+      "Vor jedem Lauf steht eine Vorschau: was entstehen würde und vor allem, wer nicht dabei ist und warum. Geschrieben wird erst danach.",
+      "Bricht ein Lauf ab, macht ein erneuter Start dort weiter und legt nichts doppelt an.",
+      "Der Einzug entsteht als SEPA-Datei im Format pain.008. Ein Haushalt wird einmal belastet, auch wenn drei Kinder dazugehören; die Mitgliedsnummern stehen im Verwendungszweck.",
+      "Die Vorabankündigung gibt es als Liste zum Herunterladen, mit Betrag, Fälligkeit, Mandatsreferenz und Gläubiger-Identifikationsnummer."
+    ]
+  },
+  {
+    title: "Zahlungen und offene Posten",
+    items: [
+      "Eine eingereichte SEPA-Datei wird mit einem Klick als eingegangen gebucht; die wenigen Rückläufer erfasst man danach einzeln.",
+      "Eine Rücklastschrift storniert die Zahlung, statt sie zu löschen: die Forderung lebt wieder auf, das Entgelt der Bank wird als eigene Forderung angelegt und nicht auf den Beitrag geschlagen.",
+      "Eine Forderung wird nie gelöscht, nur storniert — mit Grund und Zeitstempel. Der Kontoauszug je Haushalt zeigt alles, auch Zurückgegangenes."
+    ]
+  },
+  {
+    title: "Aufnahmeanträge",
+    items: [
+      "Im Reiter „Anträge“ stehen die Eingänge aus den öffentlichen Formularen, getrennt nach allgemeinem Aufnahmeantrag und Nachwuchs-Anmeldung.",
+      "Ein Antrag wird nie von selbst zur Mitgliedschaft. Sie entsteht erst mit dem eingetragenen Datum des Vorstandsbeschlusses — § 4 der Satzung verlangt ihn.",
+      "Beim Öffnen wird gesucht, ob die Person schon im Bestand steht oder Familie unter derselben Anschrift wohnt. Beim Zuordnen zu deren Haushalt gilt der Familienbeitrag, ein vorhandenes Mandat wird weiterverwendet.",
+      "Ein Schalter dreht das öffentliche Formular zu; Häkchen bestimmen, welche Abteilungen darin zur Wahl stehen."
+    ]
+  },
+  {
+    title: "Elternkodex",
+    items: [
+      "Der Reiter zeigt, welche minderjährigen Mitglieder der Abteilung Fußball die Kenntnisnahme abgegeben haben und welche fehlen. Für andere Abteilungen gilt der Kodex nicht.",
+      "Der Link für die Eltern lässt sich kopieren und weitergeben — er führt auf eine Seite, die ohne Vereinskonto funktioniert.",
+      "Erklärungen, die zu keinem Kind der Liste passen, sammelt die Karte „Nicht zuzuordnen“. Sie werden von Hand zugeordnet; die Familie hält ihre Erklärung längst für erledigt."
+    ]
+  },
+  {
+    title: "Auswertungen und Meldungen",
+    items: [
+      "Die Auswertungen liegen auf einer eigenen Seite: Bestand, Altersaufbau, Entwicklung über zehn Jahre, Beitragsklassen und Stimmberechtigte nach § 8 Abs. 2.",
+      "Die Bestandsmeldung an den Landessportbund entsteht als Tabelle zum Herunterladen.",
+      "Ihre Summe ist nicht die Mitgliederzahl, sondern die der Abteilungsmitgliedschaften — wer in zwei Abteilungen aktiv ist, steht in beiden."
+    ]
+  },
+  {
+    title: "Übernahme, Rollen und Sicherung",
+    items: [
+      "Im Reiter „Einstellungen“ liegen der Import einer Mitgliederliste, die Rollenvergabe und die Sicherung — alles seltene Vorgänge, die den täglichen Ablauf nicht betreffen.",
+      "Der Import lässt die Spalten der Datei von Hand zuordnen und zeigt vorher einen Bericht, was entstehen würde.",
+      "Jede Nacht wird die Datenbank samt ihrem Aufbau gesichert; daneben liegt eine Mitgliederliste ohne Bankdaten. Sieben Wochentagsdateien überschreiben sich der Reihe nach, vom Monatsersten bleibt eine Kopie stehen.",
+      "Angezeigt wird, wann zuletzt gesichert wurde und wie lange es gedauert hat. Eine Sicherung von Hand geht auf Knopfdruck."
+    ]
+  },
+  {
+    title: "Wer was sieht",
+    items: [
+      "Geschäftsstelle und Schatzmeister sehen und bearbeiten alle Mitglieder.",
+      "Abteilungsleitungen sehen ausschließlich Mitglieder ihrer eigenen Sparte, ohne Bankdaten und ohne Einblick, in welchen weiteren Sparten eine Person aktiv ist. Diese Grenze setzt der Server durch, nicht die Anzeige.",
+      "Der Vorstand sieht Kennzahlen, aber keine Personendaten. Rollen vergibt allein ein Administrator.",
+      "Die Buchhaltung ist dem Schatzmeister vorbehalten und steht im Reiter „Einstellungen“."
+    ]
+  }
+];
+
+// Eigene Liste fuer buchhaltung.html -- die Seite hat eine andere Aufgabe und
+// eine andere Rechtestufe als die Verwaltung. Dieselbe Liste zweimal zu
+// zeigen waere auf beiden Seiten zur Haelfte falsch.
+const BUCHHALTUNG_FUNKTIONEN = [
+  {
+    title: "Buchen",
+    items: [
+      "Doppelte Buchführung mit Klartext-Vorlagen für die üblichen Vorgänge. Jede Vorlage sagt, in welche Sphäre der Vorgang gehört und warum — daran hängt die Steuerpflicht.",
+      "Die Sphäre hängt am Konto, nicht an der einzelnen Buchung. So gibt es nur eine Wahrheit darüber, ob eine Einnahme steuerpflichtig ist.",
+      "Beträge lassen sich mit Komma oder mit Punkt eingeben. Ein Komma ist immer das Dezimaltrennzeichen."
+    ]
+  },
+  {
+    title: "Journal und Storno",
+    items: [
+      "Gelöscht wird nie: eine falsche Buchung wird storniert, und beide bleiben im Journal stehen.",
+      "Belegnummern sind je Geschäftsjahr lückenlos."
+    ]
+  },
+  {
+    title: "Übernahme aus der Beitragsverwaltung",
+    items: [
+      "Der Reiter „Übernahme“ findet festgeschriebene Beitragsläufe und gebuchte SEPA-Dateien, zu denen noch keine Buchung steht, und bucht sie.",
+      "Das Geschäftsjahr kommt aus der Fälligkeit, nicht aus dem Tag des Festschreibens — ein Lauf für das kommende Jahr wird oft schon im Dezember vorbereitet.",
+      "Zweimal übernommen werden kann nichts: das verhindert die Datenbank, nicht die Oberfläche."
+    ]
+  },
+  {
+    title: "Auswertung und Jahresabschluss",
+    items: [
+      "Saldenliste, Bilanz und Ergebnisrechnung je Geschäftsjahr.",
+      "Der Abschluss stellt die Erfolgskonten glatt, bucht das Ergebnis ins Vereinsvermögen und schreibt die Eröffnungsbilanz des Folgejahres.",
+      "Vor dem Abschluss klafft die Bilanz um genau das Jahresergebnis — es steht bis dahin auf den Erfolgskonten und wird als Differenz ausgewiesen."
+    ]
+  },
+  {
+    title: "Kontenrahmen und Rechte",
+    items: [
+      "Die angelegten Konten sind an den SKR49 angelehnt, aber ausdrücklich ein Startbestand: ein Kontenrahmen ist eine Absprache mit dem Steuerberater und lässt sich ohne Programmänderung anpassen.",
+      "Die Seite ist dem Schatzmeister vorbehalten und über den Reiter „Einstellungen“ der Vereinsverwaltung erreichbar.",
+      "Gebucht wird bis auf Weiteres in der bisherigen Software. Der Bereich ist vollständig gebaut, aber nichts daran ist abgeschaltet oder gelöscht."
+    ]
+  }
+];
+
 const CHANGELOG = [
+  {
+    version: "1.4",
+    groups: [
+      {
+        title: "Im Info-Reiter steht jetzt, was die App kann",
+        items: [
+          "Die Liste der Änderungen und die Versionsnummer sind aus dem Info-Reiter verschwunden — in der Verwaltung wie in der Buchhaltung.",
+          "Stattdessen steht dort die Karte „Funktionen“: was die Seite kann, nach Themen geordnet. Jede der fünf Seiten hat ihre eigene Liste.",
+          "Was sich geändert hat, steht weiterhin in den Neuigkeiten auf der Startseite der Tools-Übersicht."
+        ]
+      }
+    ]
+  },
   {
     version: "1.3",
     groups: [

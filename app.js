@@ -816,11 +816,33 @@ async function eintragenAustritt() {
 // Info
 // ---------------------------------------------------------------------
 
+// Was die App kann, aus APP_FUNKTIONEN in config.js. Steht im Info-Reiter
+// als Karte "Funktionen" an der Stelle, an der bis zum 07.09.2026 die
+// Aenderungsliste stand.
+function zeichneFunktionen() {
+  const ziel = $("funktionen-list");
+  if (!ziel) return;
+  ziel.innerHTML = APP_FUNKTIONEN.map((g) =>
+    '<div class="changelog-group">' +
+      '<div class="cg-title">' + esc(g.title) + "</div>" +
+      '<ul class="cg-items">' + g.items.map((i) => "<li>" + esc(i) + "</li>").join("") + "</ul>" +
+    "</div>"
+  ).join("");
+}
+
 // Ein Block je Version, darin thematische Gruppen. Wer das Format hier
 // aendert, aendert es in buchhaltung.js mit -- die Seite zeigt denselben
 // Changelog aus config.js.
+//
+// ⚠️ Die Aenderungsliste steht seit dem 07.09.2026 NICHT mehr im
+// Info-Reiter: dort steht nur noch, was die App kann. CHANGELOG bleibt in
+// config.js gepflegt und wird weitergeschrieben -- es ist die Quelle fuer
+// die grosse Anleitung und fuer die Neuigkeiten der Tools-Uebersicht.
+// Deshalb steigt diese Funktion still aus, wenn es das Ziel nicht gibt,
+// statt den Seitenstart an einem null abbrechen zu lassen.
 function zeichneChangelog() {
   const ziel = $("changelog-liste");
+  if (!ziel) return;
   ziel.innerHTML = CHANGELOG.map((block) =>
     '<div class="changelog-datum">Version ' + esc(block.version) + "</div>" +
     block.groups.map((g) =>
@@ -837,7 +859,7 @@ function zeichneChangelog() {
 // ---------------------------------------------------------------------
 
 function init() {
-  $("version-badge-2").textContent = APP_VERSION;
+  zeichneFunktionen();
   zeichneChangelog();
 
   document.querySelectorAll("#haupt-nav button").forEach((b) => {

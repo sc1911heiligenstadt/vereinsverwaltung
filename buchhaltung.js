@@ -666,10 +666,28 @@ function waehleTab(id) {
   if (id === "tab-konten") zeigeKonten();
 }
 
+// Eigene Liste, nicht APP_FUNKTIONEN mitbenutzen: die Verwaltung führt
+// Mitglieder und Beiträge, diese Seite bucht. BUCHHALTUNG_FUNKTIONEN steht
+// wie jene in config.js, das beide Seiten laden.
+function zeichneFunktionen() {
+  const ziel = $("funktionen-list");
+  if (!ziel || typeof BUCHHALTUNG_FUNKTIONEN === "undefined") return;
+  ziel.innerHTML = BUCHHALTUNG_FUNKTIONEN.map((g) =>
+    '<div class="changelog-group">' +
+      '<div class="cg-title">' + esc(g.title) + "</div>" +
+      '<ul class="cg-items">' + g.items.map((i) => "<li>" + esc(i) + "</li>").join("") + "</ul>" +
+    "</div>"
+  ).join("");
+}
+
 // Kopie aus app.js -- der Info-Reiter dieser Seite zeigt denselben Changelog
 // aus config.js. Die Seite liegt hinter der Anmeldung und ist dem Schatzmeister
 // vorbehalten; anders als antrag.html braucht sie deshalb keinen eigenen,
 // gekürzten Block. Wer das Format in app.js ändert, ändert es hier mit.
+//
+// ⚠️ Angezeigt wird der Changelog seit dem 07.09.2026 nicht mehr — im
+// Info-Reiter steht nur noch die Karte „Funktionen“. CHANGELOG bleibt in
+// config.js gepflegt; die Abfrage auf das Ziel gab es hier schon.
 function zeichneChangelog() {
   const ziel = $("changelog-liste");
   if (!ziel || typeof CHANGELOG === "undefined") return;
@@ -685,7 +703,7 @@ function zeichneChangelog() {
 }
 
 function verdrahten() {
-  $("version-badge-2").textContent = APP_VERSION;
+  zeichneFunktionen();
   zeichneChangelog();
 
   document.querySelectorAll("#haupt-nav button").forEach((b) => {

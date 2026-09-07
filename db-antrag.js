@@ -26,7 +26,67 @@ const GATEWAY_URL = "https://landingpage.michel-brunner.workers.dev";
 // sich geaendert hat, steht in ANTRAG_CHANGELOG.
 const ANTRAG_VERSION = "1.0";
 
+// Was antrag.html kann -- steht im Info-Reiter als Karte "Funktionen".
+// NICHT der Changelog: hier steht der Zustand, dort die Aenderung. Jede der
+// drei oeffentlichen Seiten hat eine EIGENE Liste; eine gemeinsame waere auf
+// jeder Seite zur Haelfte falsch. Quelle: Abschnitt MITGLIEDSANTRAG in
+// E:\SC1911-Tools-Anleitung.txt.
+const ANTRAG_FUNKTIONEN = [
+  {
+    title: "Mitglied werden — ohne Ausdruck",
+    items: [
+      "Der Aufnahmeantrag nach § 4 der Satzung wird am Handy ausgefüllt und mit dem Finger unterschrieben. Ein Vereinskonto ist dafür nicht nötig.",
+      "Gefragt wird dasselbe wie auf dem gedruckten Antrag: Person, Geburtsort, Anschrift, gewünschte Abteilung, Kreditinstitut und der Ort der Unterschrift.",
+      "Der Antrag ist noch keine Mitgliedschaft — über die Aufnahme entscheidet der Gesamtvorstand."
+    ]
+  },
+  {
+    title: "Beitrag per SEPA-Lastschrift",
+    items: [
+      "Der Beitrag wird ausschließlich per Lastschrift eingezogen; das Mandat wird mit dem Antrag erteilt. Eine Zahlung per Überweisung gibt es für neue Mitglieder nicht.",
+      "Die IBAN wird schon beim Tippen geprüft. Weicht die Anschrift des Kontoinhabers ab, lässt sie sich getrennt angeben.",
+      "Die Gläubiger-Identifikationsnummer erscheint nur, wenn sie gültig ist. Steht keine brauchbare Nummer bereit, bleibt die Zeile weg statt eine falsche zu nennen."
+    ]
+  },
+  {
+    title: "Bei Minderjährigen",
+    items: [
+      "Ist der Antragsteller minderjährig, unterschreiben die Erziehungsberechtigten; ihre Unterschrift trägt dann auch das Lastschriftmandat.",
+      "Wer allein sorgeberechtigt ist, kreuzt das an — dann genügt eine Unterschrift.",
+      "Für neue Jugendspieler im Fußball gibt es die eigene Nachwuchs-Anmeldung: daraus entstehen in einem Durchgang die Aufnahme und der Antrag auf Spielerlaubnis."
+    ]
+  },
+  {
+    title: "Nach dem Absenden",
+    items: [
+      "Es erscheint eine Bestätigungsseite mit allen Angaben und der Unterschrift. Sie ist die eigene Kopie der Erklärung und lässt sich drucken oder als PDF sichern.",
+      "Die Einwilligung in Foto- und Videoaufnahmen ist freiwillig und von der Aufnahme getrennt."
+    ]
+  },
+  {
+    title: "Für die Geschäftsstelle",
+    items: [
+      "Wer angemeldet ist, sieht den Reiter „Eingegangene Anträge“ und kann jeden Eingang als vierseitigen Papierantrag mit allen Unterschriften ausdrucken.",
+      "Je Zeile steht ein Löschknopf — gedacht für zurückgezogene Anträge und Testeinträge. Hochgeladene Nachweise und Unterschriften werden mitgelöscht.",
+      "Ein bereits angenommener Antrag bleibt stehen: an ihm hängen die Mitgliedschaft und das SEPA-Mandat. Die Mitgliedschaft endet über den Austritt, nicht über dieses Formular."
+    ]
+  }
+];
+
 const ANTRAG_CHANGELOG = [
+  {
+    version: "1.2",
+    groups: [
+      {
+        title: "Im Info-Reiter steht jetzt, was die Seite kann",
+        items: [
+          "Die Liste der Änderungen und die Versionsnummer sind aus dem Info-Reiter verschwunden.",
+          "Stattdessen steht dort die Karte „Funktionen“: was der Aufnahmeantrag kann, nach Themen geordnet.",
+          "Was sich geändert hat, steht weiterhin in den Neuigkeiten auf der Startseite der Tools-Übersicht."
+        ]
+      }
+    ]
+  },
   {
     version: "1.1",
     groups: [
@@ -83,10 +143,69 @@ const ANTRAG_CHANGELOG = [
   }
 ];
 
+// Was nachwuchs.html kann. Eigene Liste, nicht ANTRAG_FUNKTIONEN
+// mitbenutzen: Spielerlaubnis, Nachweise, Passbild und Elternkodex kommen
+// im allgemeinen Aufnahmeantrag gar nicht vor.
+const NACHWUCHS_FUNKTIONEN = [
+  {
+    title: "Zwei Anträge in einem Durchgang",
+    items: [
+      "Das Formular nimmt zugleich den Aufnahmeantrag nach § 4 der Satzung und die Angaben für den Antrag auf Spielerlaubnis beim Thüringer Fußball-Verband entgegen.",
+      "Zur Wahl stehen Erstausstellung, Vereinswechsel, Rückkehrer und Namensänderung.",
+      "Wer bereits Mitglied ist und nur eine Spielerlaubnis braucht, wendet sich an die Geschäftsstelle. Für eine Mitgliedschaft ohne Fußball gibt es den allgemeinen Aufnahmeantrag."
+    ]
+  },
+  {
+    title: "Nachweise und Passbild",
+    items: [
+      "Die Nachweise, die der Verband verlangt, lassen sich als Foto mit dem Handy mitschicken.",
+      "Bei Erstausstellung und Vereinswechsel nimmt die Familie gleich ein Passbild auf — die Hilfslinie steht schon beim Fotografieren im Bild.",
+      "Ein fehlender Nachweis hält den Antrag nicht auf: er geht trotzdem ein, und die Geschäftsstelle fragt nach."
+    ]
+  },
+  {
+    title: "Elternkodex",
+    items: [
+      "Ist das Kind minderjährig, gehört die Kenntnisnahme des Elternkodex zur Anmeldung. Er lässt sich herunterladen, bestätigen und am Bildschirm unterschreiben.",
+      "Die Fassung des Textes wird mitgespeichert, damit später belegbar ist, was unterschrieben wurde.",
+      "Der Kodex gilt nur der Abteilung Fußball. Wurde er versäumt, lässt er sich später über einen Eltern-Link nachreichen."
+    ]
+  },
+  {
+    title: "Unterschreiben",
+    items: [
+      "Bei Minderjährigen unterschreiben die Erziehungsberechtigten; wer allein sorgeberechtigt ist, kreuzt das an.",
+      "Die Unterschrift des Kindes ist freiwillig — bleibt sie leer, bleiben die Felder auf beiden Anträgen frei.",
+      "Nach dem Absenden erscheint eine Bestätigungsseite mit allen Angaben und der Unterschrift, zum Drucken oder als PDF."
+    ]
+  },
+  {
+    title: "Was danach geschieht",
+    items: [
+      "Der Antrag ist noch keine Mitgliedschaft: über die Aufnahme entscheidet der Gesamtvorstand.",
+      "Die Geschäftsstelle bearbeitet den Eingang in der Vereinsverwaltung und druckt den Verbandsbogen aus. Vereinsstempel und Vereinsunterschrift setzt sie nach dem Druck.",
+      "Das Passbild kommt nicht auf den Verbandsbogen — der hat kein Bildfeld. Es wird gesammelt, damit die Geschäftsstelle es beim Verband hochladen kann."
+    ]
+  }
+];
+
 // Eigener Block fuer nachwuchs.html. Nicht ANTRAG_CHANGELOG mitbenutzen:
 // der beschreibt den allgemeinen Aufnahmeantrag, und was den Nachwuchs
 // betrifft, geht dort zwischen Beitragsart und Familienverbund unter.
 const NACHWUCHS_CHANGELOG = [
+  {
+    version: "1.3",
+    groups: [
+      {
+        title: "Im Info-Reiter steht jetzt, was die Seite kann",
+        items: [
+          "Die Liste der Änderungen und die Versionsnummer sind aus dem Info-Reiter verschwunden.",
+          "Stattdessen steht dort die Karte „Funktionen“: was die Nachwuchs-Anmeldung kann, nach Themen geordnet.",
+          "Was sich geändert hat, steht weiterhin in den Neuigkeiten auf der Startseite der Tools-Übersicht."
+        ]
+      }
+    ]
+  },
   {
     version: "1.2",
     groups: [
@@ -148,11 +267,60 @@ const NACHWUCHS_CHANGELOG = [
   }
 ];
 
+// Was kodex.html kann. Die kuerzeste der drei Listen -- die Seite hat genau
+// eine Aufgabe, und alles, was daran haengt, steht in vier Themen.
+const KODEX_FUNKTIONEN = [
+  {
+    title: "Wofür diese Seite ist",
+    items: [
+      "Eltern, deren Kind schon in der Abteilung Fußball spielt, reichen hier die Kenntnisnahme des Elternkodex nach — ohne Vereinskonto und ohne die Anmeldung zu wiederholen.",
+      "Wer ein Kind neu anmeldet, braucht die Seite nicht: dort wird der Kodex im Formular mitbestätigt.",
+      "Für andere Abteilungen gilt der Kodex nicht."
+    ]
+  },
+  {
+    title: "Bestätigen und unterschreiben",
+    items: [
+      "Der Kodex wird auf der Seite heruntergeladen, angekreuzt und am Bildschirm unterschrieben.",
+      "Angegeben werden Name und Geburtsdatum des Kindes, die Mannschaft, der Name der unterschreibenden Person und der Ort der Unterschrift. Eine E-Mail-Adresse ist freiwillig.",
+      "Die Fassung des Textes wird mitgespeichert, damit später belegbar ist, was unterschrieben wurde."
+    ]
+  },
+  {
+    title: "Mehrere Kinder",
+    items: [
+      "Nach dem Absenden erscheint eine Bestätigungsseite mit allen Angaben und der Unterschrift. Sie lässt sich drucken oder als PDF sichern.",
+      "Ein Knopf führt direkt zur nächsten Erklärung — Name und Ort bleiben stehen, unterschrieben wird erneut."
+    ]
+  },
+  {
+    title: "Was der Verein damit macht",
+    items: [
+      "Die Erklärung wird dem Kind auch dann zugeordnet, wenn der Name anders geschrieben ist als im Bestand: verglichen werden die sortierten Namensteile zusammen mit dem Geburtsdatum.",
+      "Passt sie zu keinem Kind, landet sie in der Verwaltung in der Liste „Nicht zuzuordnen“ und wird von Hand zugeordnet.",
+      "Wird eine vorhandene Erklärung ersetzt, bleibt die alte samt Unterschrift im Verlauf stehen. Ein zweiter, gleicher Klick bleibt folgenlos."
+    ]
+  }
+];
+
 // Eigener Block fuer kodex.html. Der Weg richtet sich an eine andere
 // Gruppe (Familien, deren Kind schon Mitglied ist) und wird zu anderen
 // Zeiten gebraucht als eine Anmeldung -- in NACHWUCHS_CHANGELOG ginge er
 // zwischen Spielerlaubnis und Passbild unter.
 const KODEX_CHANGELOG = [
+  {
+    version: "1.1",
+    groups: [
+      {
+        title: "Im Info-Reiter steht jetzt, was die Seite kann",
+        items: [
+          "Die Liste der Änderungen und die Versionsnummer sind aus dem Info-Reiter verschwunden.",
+          "Stattdessen steht dort die Karte „Funktionen“: was diese Seite kann, nach Themen geordnet.",
+          "Was sich geändert hat, steht weiterhin in den Neuigkeiten auf der Startseite der Tools-Übersicht."
+        ]
+      }
+    ]
+  },
   {
     version: "1.0",
     groups: [
