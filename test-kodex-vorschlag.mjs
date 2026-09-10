@@ -418,12 +418,25 @@ pruefe("Z8 Der Knopf erscheint nur fuer ein Kind der Liste",
 
 // Die Spaltenzahl der Vorschlagszeile muss zur Kopfzeile passen -- sonst
 // steht die Zeile schmaler als die Tabelle.
-const kopf = (kv.match(/<th>Eingang<\/th>[\s\S]*?<\/tr>/) || [""])[0];
+//
+// ⚠️ Gezaehlt wird der Kopf-String selbst, nicht "alles bis zum naechsten
+// </tr>": diese aeltere Fassung lief ueber die Konstante hinaus und zaehlte
+// das `<th` aus `<thead>` und aus der Zaehl-Regex mit -- 9 statt 7.
+// Und `<th[\s>]` statt `<th`, sonst faengt `<thead>` wieder mit.
+const kopf = (kv.match(/const KO_OFFEN_KOPF =([\s\S]*?);/) || ["", ""])[1];
 pruefe("Z9 Die Kopfzeile hat sieben Spalten",
-       (kopf.match(/<th/g) || []).length === 7,
-       "" + (kopf.match(/<th/g) || []).length);
-pruefe("Z10 KO_OFFEN_SPALTEN steht auf 7",
-       /KO_OFFEN_SPALTEN = 7/.test(kv));
+       (kopf.match(/<th[\s>]/g) || []).length === 7,
+       "" + (kopf.match(/<th[\s>]/g) || []).length);
+// ⚠️ Nicht "steht auf 7" pruefen. Genau das stand hier bis zum 10.09.2026,
+// und die Zahl war von Hand eingetragen -- eine neue Spalte in der Kopfzeile
+// haette die Vorschlagszeile darunter aufbrechen lassen, ohne dass eine
+// einzige Zusage rot geworden waere. Geprueft wird jetzt der Rechenweg, und
+// die Probe zaehlt selbst nach.
+pruefe("Z10 KO_OFFEN_SPALTEN wird aus der Kopfzeile gezaehlt",
+       /KO_OFFEN_SPALTEN = \(KO_OFFEN_KOPF\.match\(/.test(kv));
+// Und der Kopf-String wird auch wirklich eingesetzt, statt daneben zu liegen.
+pruefe("Z10b Die Tabelle benutzt genau diesen Kopf",
+       /<thead><tr>' \+\s*\n?\s*KO_OFFEN_KOPF \+/.test(kv));
 
 pruefe("Z11 Die Karte erklaert die Vorschlaege", /Vorschläge aus der/.test(idx));
 pruefe("Z12 Der Info-Reiter nennt sie", /Vorschläge aus dem Mitgliederbestand/.test(cfg));
@@ -444,16 +457,48 @@ pruefe("Z14c Der Inhalt klebt am linken Rand und bleibt im Bild",
 
 // ⚠️ Cache-Bust: ohne ihn zieht der Browser das alte Skript und die
 // Vorschlaege kommen an, ohne dass jemand sie sieht.
-pruefe("Z15 kodex-verwaltung.js ist frisch gebustet",
-       /kodex-verwaltung\.js\?v=1\.3/.test(idx));
-pruefe("Z16 style.css ist frisch gebustet", /style\.css\?v=1\.3/.test(idx));
-pruefe("Z17 config.js ist frisch gebustet", /config\.js\?v=2\.7/.test(idx));
-// Und in ALLEN Seiten, nicht nur in dieser einen.
-for (const datei of ["antrag.html", "buchhaltung.html", "kodex.html",
-                     "nachwuchs.html", "vorstand.html"]) {
-  pruefe("Z18 style.css?v=1.3 auch in " + datei,
-         /style\.css\?v=1\.3/.test(readFileSync(REPO + "/" + datei, "utf8")));
+// kodex-verwaltung.js steht nur in einer einzigen Seite -- ein Quervergleich
+// wie unten geht hier nicht. Statisch pruefbar ist nur, DASS eine Fassung
+// dranhaengt; ob sie zur letzten Aenderung passt, sieht keine Regex.
+pruefe("Z15 kodex-verwaltung.js traegt eine Fassung",
+       /kodex-verwaltung\.js\?v=[0-9]+\.[0-9]+/.test(idx));
+// style.css haengt in sechs Seiten -- da zaehlt wieder die Uebereinstimmung.
+{
+  const seiten = ["index.html", "antrag.html", "buchhaltung.html",
+                  "kodex.html", "nachwuchs.html", "vorstand.html"];
+  const staende = new Map();
+  for (const datei of seiten) {
+    const m = readFileSync(REPO + "/" + datei, "utf8").match(/style\.css\?v=([0-9.]+)/);
+    if (m) staende.set(datei, m[1]);
+  }
+  const zeige = [...staende].map(([d, v]) => d + "=" + v).join(" ");
+  pruefe("Z16 Jede Seite nennt eine style.css-Fassung",
+         staende.size === seiten.length, zeige);
+  pruefe("Z16b Alle Seiten ziehen dieselbe style.css",
+         new Set(staende.values()).size === 1, zeige);
 }
+// ⚠️ Hier stand eine feste Zahl (2.7). Beim naechsten Bump wurde die Zusage
+// rot, obwohl der Cache-Bust stimmte -- und ein Pruefstand, der immer rot
+// ist, wird beim naechsten Mal ueberlesen. Geprueft wird deshalb, worauf es
+// wirklich ankommt: dass ALLE Seiten dieselbe Fassung ziehen. Zieht eine
+// Seite eine alte, sieht genau deren Besucher die Aenderung nicht.
+{
+  const seiten = ["index.html", "buchhaltung.html", "vorstand.html"];
+  const staende = new Map();
+  for (const datei of seiten) {
+    const t = readFileSync(REPO + "/" + datei, "utf8");
+    const m = t.match(/config\.js\?v=([0-9.]+)/);
+    if (m) staende.set(datei, m[1]);
+  }
+  pruefe("Z17 Jede Seite mit config.js nennt eine Fassung",
+         staende.size === seiten.length,
+         [...staende].map(([d, v]) => d + "=" + v).join(" "));
+  pruefe("Z17b Alle Seiten ziehen dieselbe config.js",
+         new Set(staende.values()).size === 1,
+         [...staende].map(([d, v]) => d + "=" + v).join(" "));
+}
+// (Der Quervergleich ueber alle sechs Seiten steht oben bei Z16b -- die
+// frueheren Z18-Zusagen gegen die feste 1.3 sind darin aufgegangen.)
 
 // ----------------------------------------------------------------------
 // Und jetzt die Zeile wirklich zeichnen.

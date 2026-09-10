@@ -491,15 +491,21 @@ function zeichneKodexOffene() {
   karte.hidden = false;
   $("ko-offen-zahl").textContent = liste.length;
 
-  // Die Kopfzeile hat sieben Spalten; die Vorschlagszeile darunter muss
-  // genau so viele ueberspannen. Eine Zahl von Hand hier stuende beim
-  // naechsten neuen Feld daneben, deshalb aus der Kopfzeile gezaehlt.
-  const KO_OFFEN_SPALTEN = 7;
+  // Die Vorschlagszeile darunter muss genau so viele Spalten ueberspannen,
+  // wie die Kopfzeile hat.
+  //
+  // ⚠️ Wirklich GEZAEHLT, nicht von Hand eingetragen: eine Zahl hier stuende
+  // beim naechsten neuen Feld daneben, und dann bricht die Tabelle unter
+  // jeder Erklaerung auf. Bis 10.09.2026 stand hier eine 7 -- mit einem
+  // Kommentar darueber, der behauptete, sie sei gezaehlt.
+  const KO_OFFEN_KOPF =
+    "<th>Eingang</th><th>Kind (Angabe der Eltern)</th><th>Geboren</th>" +
+    "<th>Mannschaft</th><th>Unterschrieben von</th><th>E-Mail</th><th></th>";
+  const KO_OFFEN_SPALTEN = (KO_OFFEN_KOPF.match(/<th[\s>]/g) || []).length;
 
   $("ko-offen-liste").innerHTML =
     '<div class="tabelle-scroll"><table><thead><tr>' +
-    "<th>Eingang</th><th>Kind (Angabe der Eltern)</th><th>Geboren</th>" +
-    "<th>Mannschaft</th><th>Unterschrieben von</th><th>E-Mail</th><th></th>" +
+    KO_OFFEN_KOPF +
     "</tr></thead><tbody>" +
     liste.map((b) =>
       "<tr>" +
