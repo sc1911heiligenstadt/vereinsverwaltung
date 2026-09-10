@@ -5574,8 +5574,8 @@ function kodexTeileListe(vorname, nachname) {
 //
 // ⚠️ kodexNamensteil macht aus "ü" ein "ue". Das ist richtig, solange
 // BEIDE Seiten den Umlaut tragen. Eltern schreiben ihn aber oft gar
-// nicht: "Ludemann" gegen "Lüdemann" wird zu "ludemann" gegen
-// "luedemann", und der Schluessel geht daneben -- genau der Fall, um den
+// nicht: "Grunbaum" gegen "Grünbaum" wird zu "grunbaum" gegen
+// "gruenbaum", und der Schluessel geht daneben -- genau der Fall, um den
 // es auf dieser Karte geht. Hier faellt die Erweiterung wieder weg,
 // damit beide Schreibweisen dieselbe Form haben.
 //
@@ -5588,8 +5588,8 @@ function kodexHart(teil) {
 }
 
 // Levenshtein-Abstand, zwei Zeilen statt einer Matrix. Deckt den
-// Tippfehler ab, den kodexHart nicht kennt: "Griethe" gegen "Griether",
-// "Krebs" gegen "Kreps".
+// Tippfehler ab, den kodexHart nicht kennt: "Bornholm" gegen "Bornholme",
+// "Waldeck" gegen "Waldek".
 function kodexLev(a, b) {
   if (a === b) return 0;
   const m = a.length, n = b.length;

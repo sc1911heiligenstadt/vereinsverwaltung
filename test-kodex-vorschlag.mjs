@@ -12,6 +12,13 @@
 //   X  Der Lauf gegen die echte Datenbank
 //   Y  Die Rechtegrenze: nur darfSchreiben bekommt Vorschlaege
 //   Z  Die Oberflaeche zeigt sie auch
+//
+// ⚠️ ALLE Namen und Geburtsdaten hier sind ERFUNDEN und muessen es
+// bleiben. Dieses Repo ist oeffentlich, und es geht um minderjaehrige
+// Mitglieder. Beim Bauen am 10.09.2026 standen hier zuerst die echten
+// Namen aus Michels Screenshot -- gefunden erst beim Abgleich gegen die
+// Regeln, nach dem Push. Ein Testwert, der wie ein echter aussieht, ist
+// meistens einer.
 
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
@@ -96,18 +103,18 @@ pruefe("V3 Bindestrich, Komma und Schraegstrich trennen",
        '["anna","lena","mueller","schmidt"]');
 
 // Der eigentliche Zweck: die weggelassene Umlaut-Schreibweise.
-pruefe("V4 Luedemann und Ludemann sind hart gleich",
-       W.kodexHart(W.kodexNamensteil("Lüdemann")) ===
-       W.kodexHart(W.kodexNamensteil("Ludemann")),
-       W.kodexHart(W.kodexNamensteil("Lüdemann")) + " / " +
-       W.kodexHart(W.kodexNamensteil("Ludemann")));
+pruefe("V4 Gruenbaum und Grunbaum sind hart gleich",
+       W.kodexHart(W.kodexNamensteil("Grünbaum")) ===
+       W.kodexHart(W.kodexNamensteil("Grunbaum")),
+       W.kodexHart(W.kodexNamensteil("Grünbaum")) + " / " +
+       W.kodexHart(W.kodexNamensteil("Grunbaum")));
 
 // ⚠️ Gegenprobe: der STRENGE Schluessel darf sie weiterhin auseinander
 // halten. Faende er sie gleich, waere die Toleranz nach oben gewandert
 // und ein zweites Absenden ersetzte die Erklaerung eines fremden Kindes.
 pruefe("V5 Der strenge Schluessel trennt sie weiterhin",
-       W.kodexSchluessel("Anne", "Lüdemann", "2012-09-30") !==
-       W.kodexSchluessel("Anne", "Ludemann", "2012-09-30"));
+       W.kodexSchluessel("Mira", "Grünbaum", "2012-03-04") !==
+       W.kodexSchluessel("Mira", "Grunbaum", "2012-03-04"));
 
 pruefe("V6 Mueller, Müller und Muller fallen hart zusammen",
        W.kodexHart(W.kodexNamensteil("Müller")) === "muller" &&
@@ -118,14 +125,14 @@ pruefe("V7 Doppel-s und scharfes s fallen hart zusammen",
        W.kodexHart(W.kodexNamensteil("Strauß")) ===
        W.kodexHart(W.kodexNamensteil("Strauss")));
 
-pruefe("V8 Levenshtein: gleich ist 0", W.kodexLev("krebs", "krebs") === 0);
-pruefe("V9 Levenshtein: ein Buchstabe ist 1", W.kodexLev("krebs", "kreps") === 1);
+pruefe("V8 Levenshtein: gleich ist 0", W.kodexLev("waldeck", "waldeck") === 0);
+pruefe("V9 Levenshtein: ein Buchstabe ist 1", W.kodexLev("waldeck", "waldek") === 1);
 pruefe("V10 Levenshtein: leer gegen Wort ist die Laenge",
-       W.kodexLev("", "krebs") === 5);
+       W.kodexLev("", "waldeck") === 7);
 pruefe("V11 Levenshtein zaehlt auch das Einfuegen",
-       W.kodexLev("griethe", "griether") === 1);
+       W.kodexLev("bornholm", "bornholme") === 1);
 
-pruefe("V12 Tag und Monat drehen", W.kodexDatumGedreht("2013-01-29") === "2013-29-01");
+pruefe("V12 Tag und Monat drehen", W.kodexDatumGedreht("2013-03-27") === "2013-27-03");
 pruefe("V13 Ein unvollstaendiges Datum dreht nicht", W.kodexDatumGedreht("") === "");
 
 // ======================================================================
@@ -136,15 +143,15 @@ const A = (va, na, ga, vb, nb, gb) =>
   W.kodexAehnlichkeit(T(va, na), ga, T(vb, nb), gb);
 
 // Der Regelfall der Karte: ein Zweitvorname zuviel.
-const w1 = A("Johannes Tobias", "Brodmann", "2015-10-15",
-             "Johannes", "Brodmann", "2015-10-15");
+const w1 = A("Jonas Tobias", "Feldbach", "2015-01-07",
+             "Jonas", "Feldbach", "2015-01-07");
 pruefe("W1 Zweitvorname zuviel: erkannt", w1.punkte >= W.KODEX_VORSCHLAG_PUNKTE,
        "" + w1.punkte);
 pruefe("W2 Zweitvorname zuviel: Geburtstag wird genannt",
        w1.gruende.includes("Geburtstag gleich"), w1.gruende.join(" · "));
 
 // Der Fall, um den es Michel geht: der weggelassene Umlaut.
-const w2 = A("Anne", "Ludemann", "2012-09-30", "Anne", "Lüdemann", "2012-09-30");
+const w2 = A("Mira", "Grunbaum", "2012-03-04", "Mira", "Grünbaum", "2012-03-04");
 pruefe("W3 Weggelassener Umlaut: erkannt", w2.punkte >= W.KODEX_VORSCHLAG_PUNKTE,
        "" + w2.punkte);
 pruefe("W4 Weggelassener Umlaut: als Schreibweise benannt",
@@ -153,17 +160,17 @@ pruefe("W4 Weggelassener Umlaut: als Schreibweise benannt",
 // ⚠️ Und derselbe Fall OHNE passendes Geburtsdatum muss ebenfalls reichen
 // -- sonst haengt die ganze Umlaut-Toleranz still am Geburtstag, und
 // genau der ist im Bestand oefter falsch erfasst.
-const w3 = A("Anne", "Ludemann", "", "Anne", "Lüdemann", "");
+const w3 = A("Mira", "Grunbaum", "", "Mira", "Grünbaum", "");
 pruefe("W5 Umlaut allein reicht auch ohne Geburtsdatum",
        w3.punkte >= W.KODEX_VORSCHLAG_PUNKTE, "" + w3.punkte);
 
 // Tippfehler von einem Buchstaben.
-const w4 = A("Julian", "Griether", "2012-02-18", "Julian", "Griethe", "2012-02-18");
+const w4 = A("Elias", "Bornholme", "2012-06-05", "Elias", "Bornholm", "2012-06-05");
 pruefe("W6 Tippfehler im Nachnamen: erkannt",
        w4.punkte >= W.KODEX_VORSCHLAG_PUNKTE, "" + w4.punkte);
 
 // Tag und Monat vertauscht.
-const w5 = A("Pius", "Erbendruth", "2013-01-29", "Pius", "Erbendruth", "2013-29-01");
+const w5 = A("Fabian", "Ostermund", "2013-03-27", "Fabian", "Ostermund", "2013-27-03");
 pruefe("W7 Gedrehtes Geburtsdatum wird benannt",
        w5.gruende.some((g) => /vertauscht/.test(g)), w5.gruende.join(" · "));
 
@@ -171,21 +178,21 @@ pruefe("W7 Gedrehtes Geburtsdatum wird benannt",
 // Namen: bei 540 Mitgliedern passiert das mehrfach und ist Zufall. Die
 // Punktzahl allein reicht dafuer (100 > 50) -- der Aufrufer wirft es
 // ueber `signale` heraus, und genau das wird hier festgehalten.
-const w6 = A("Carla", "Rode", "2019-09-12", "Ferdinand", "Zaubermann", "2019-09-12");
+const w6 = A("Carla", "Nebelhorn", "2019-04-19", "Ferdinand", "Zaubermann", "2019-04-19");
 pruefe("W8 Nur Geburtstag gleich: KEIN Namenssignal", w6.signale === 0,
        "signale " + w6.signale);
 pruefe("W9 Nur Geburtstag gleich: Punktzahl allein wuerde reichen",
        w6.punkte >= W.KODEX_VORSCHLAG_PUNKTE, "" + w6.punkte);
 
 // Zwei fremde Kinder duerfen sich nicht aehneln.
-const w7 = A("Carla", "Rode", "2019-09-12", "Sebastian", "Winterberg", "2004-03-03");
+const w7 = A("Carla", "Nebelhorn", "2019-04-19", "Sebastian", "Winterberg", "2004-03-03");
 pruefe("W10 Zwei fremde Kinder: kein Signal", w7.signale === 0 && w7.punkte === 0,
        w7.punkte + " / " + w7.signale);
 
 // ⚠️ Kurze Namen duerfen NICHT ueber Levenshtein zusammenfallen: "Tim"
 // und "Tom" sind zwei Kinder. Die Laengenschranke (>= 4) haelt sie
 // auseinander.
-const w8 = A("Tim", "Krebs", "2018-07-15", "Tom", "Krebs", "2018-07-15");
+const w8 = A("Tim", "Waldeck", "2018-10-09", "Tom", "Waldeck", "2018-10-09");
 pruefe("W11 Tim und Tom sind nicht derselbe Vorname",
        !w8.gruende.some((g) => /2 Namensteile (gleich|fast gleich)/.test(g)),
        w8.gruende.join(" · "));
@@ -234,15 +241,15 @@ function legeAn(id, vorname, nachname, geburt, nr, sparteId, status) {
 }
 
 // Der Bestand: zwei Fussballkinder, ein Turnkind, ein Volljaehriger.
-legeAn("p-lue", "Anne", "Lüdemann", "2012-09-30", "201", "sp-fu");
-legeAn("p-bro", "Johannes", "Brodmann", "2015-10-15", "202", "sp-fu");
-legeAn("p-tur", "Frieder", "Zirpel", "2018-06-12", "203", "sp-tu");
-legeAn("p-alt", "Barbara", "Leineweber", "1984-02-02", "204", "sp-fu");
+legeAn("p-lue", "Mira", "Grünbaum", "2012-03-04", "201", "sp-fu");
+legeAn("p-bro", "Jonas", "Feldbach", "2015-01-07", "202", "sp-fu");
+legeAn("p-tur", "Nele", "Steinweg", "2018-08-22", "203", "sp-tu");
+legeAn("p-alt", "Barbara", "Sonnleitner", "1984-02-02", "204", "sp-fu");
 
 // Ein offener Aufnahmeantrag -- die Familie wartet auf den Beschluss.
 db.exec("INSERT INTO aufnahmeantrag (id, eingang_am, status, antrag_json, sparten_json) " +
         "VALUES ('a-neu', '2026-09-01', 'neu', " +
-        "'{\"vorname\":\"Luca\",\"nachname\":\"Sagorski\",\"geburtsdatum\":\"2019-05-04\"}', " +
+        "'{\"vorname\":\"Piet\",\"nachname\":\"Harkort\",\"geburtsdatum\":\"2019-02-11\"}', " +
         "'[]')");
 
 const STEMPEL = "2026-09-07T10:00:00.000Z";
@@ -255,13 +262,13 @@ function erklaerung(id, vorname, nachname, geburt, mannschaft) {
           "'1.0', '" + W.kodexSchluessel(vorname, nachname, geburt) + "', 'x')");
 }
 // 1) Umlaut weggelassen -> Fussballkind, zuordenbar
-erklaerung("e-lue", "Anne", "Ludemann", "2012-09-30", "C1-Junioren");
+erklaerung("e-lue", "Mira", "Grunbaum", "2012-03-04", "C1-Junioren");
 // 2) Zweitvorname zuviel -> Fussballkind, zuordenbar
-erklaerung("e-bro", "Johannes Tobias", "Brodmann", "2015-10-15", "D3");
+erklaerung("e-bro", "Jonas Tobias", "Feldbach", "2015-01-07", "D3");
 // 3) Turnkind -> Vorschlag, aber nichts zu tun
-erklaerung("e-tur", "Frieder Ruben", "Zirpel", "2018-06-12", "F1-Junioren");
+erklaerung("e-tur", "Nele Marie", "Steinweg", "2018-08-22", "F1-Junioren");
 // 4) offener Antrag -> Vorschlag aus dem Antrag
-erklaerung("e-sag", "Luca", "Sagorski", "2019-05-04", "F2-Junioren");
+erklaerung("e-sag", "Piet", "Harkort", "2019-02-11", "F2-Junioren");
 // 5) niemand im Verein -> ausdruecklich kein Treffer
 erklaerung("e-nix", "Ferdinand", "Zaubermann", "2011-11-11", "B2");
 
@@ -276,8 +283,8 @@ pruefe("X2 Fuenf Erklaerungen sind nicht zuzuordnen",
 // --- Der Umlaut-Fall --------------------------------------------------
 const vLue = V["e-lue"] || [];
 pruefe("X3 Umlaut-Fall hat einen Vorschlag", vLue.length >= 1, "" + vLue.length);
-pruefe("X4 Umlaut-Fall schlaegt Anne Lüdemann vor",
-       vLue[0] && vLue[0].name === "Anne Lüdemann", vLue[0] && vLue[0].name);
+pruefe("X4 Umlaut-Fall schlaegt Mira Grünbaum vor",
+       vLue[0] && vLue[0].name === "Mira Grünbaum", vLue[0] && vLue[0].name);
 pruefe("X5 Umlaut-Fall ist zuordenbar (steht in der Liste)",
        vLue[0] && vLue[0].in_liste === true);
 pruefe("X6 Umlaut-Fall traegt eine Person-Id",
@@ -287,13 +294,13 @@ pruefe("X7 Umlaut-Fall nennt seinen Grund",
 
 // --- Der Zweitvorname -------------------------------------------------
 const vBro = V["e-bro"] || [];
-pruefe("X8 Zweitvorname schlaegt Johannes Brodmann vor",
-       vBro[0] && vBro[0].name === "Johannes Brodmann", vBro[0] && vBro[0].name);
+pruefe("X8 Zweitvorname schlaegt Jonas Feldbach vor",
+       vBro[0] && vBro[0].name === "Jonas Feldbach", vBro[0] && vBro[0].name);
 
 // --- Das Turnkind -----------------------------------------------------
 const vTur = V["e-tur"] || [];
 pruefe("X9 Turnkind wird gefunden",
-       vTur[0] && vTur[0].name === "Frieder Zirpel", vTur[0] && vTur[0].name);
+       vTur[0] && vTur[0].name === "Nele Steinweg", vTur[0] && vTur[0].name);
 // ⚠️ Der Unterschied, auf den es ankommt: gefunden ja, zuordenbar nein.
 pruefe("X10 Turnkind ist NICHT zuordenbar", vTur[0] && vTur[0].in_liste === false);
 pruefe("X11 Turnkind nennt seine Abteilung",
@@ -302,7 +309,7 @@ pruefe("X11 Turnkind nennt seine Abteilung",
 // --- Der offene Antrag ------------------------------------------------
 const vSag = V["e-sag"] || [];
 pruefe("X12 Offener Antrag wird gefunden",
-       vSag[0] && vSag[0].name === "Luca Sagorski", vSag[0] && vSag[0].name);
+       vSag[0] && vSag[0].name === "Piet Harkort", vSag[0] && vSag[0].name);
 pruefe("X13 Offener Antrag ist als solcher gekennzeichnet",
        vSag[0] && vSag[0].antrag === true);
 pruefe("X14 Offener Antrag traegt KEINE Person-Id",
@@ -349,7 +356,7 @@ pruefe("X20 Fuer sie gibt es auch keinen Vorschlag mehr",
 
 // ⚠️ Und das Kind ist jetzt belegt: ein Vorschlag darauf darf keinen
 // Zuordnen-Knopf mehr anbieten, sonst antwortet der Server 409.
-erklaerung("e-lue2", "Anne", "Luedemann", "2012-09-30", "C1-Junioren");
+erklaerung("e-lue2", "Mira", "Gruenbaum", "2012-03-04", "C1-Junioren");
 const antwort4 = await (await W.handleKodexListe({}, env, ADMIN, cors)).json();
 const vLue2 = ((antwort4.vorschlaege || {})["e-lue2"] || [])
   .find((v) => v.person_id === "p-lue");
@@ -471,7 +478,7 @@ function zeichne(darfSchreiben, eintrag, treffer) {
 }
 const EIN = { id: "e-1", zugeordnet: false, andere_abteilung: false };
 const KAND = {
-  person_id: "p-lue", name: "Anne Lüdemann", geburtsdatum: "2012-09-30",
+  person_id: "p-lue", name: "Mira Grünbaum", geburtsdatum: "2012-03-04",
   herkunft: "Fußball, steht in der Liste", in_liste: true, belegt: false,
   antrag: false, punkte: 156,
   gruende: ["Geburtstag gleich", "1 Namensteil nur anders geschrieben"]
@@ -482,8 +489,8 @@ pruefe("Z20 Die gezeichnete Zeile spannt sieben Spalten",
        /colspan="7"/.test(h1), h1.slice(0, 80));
 pruefe("Z20b Der Inhalt steckt in der klebenden Huelle",
        /<td colspan="7"><div class="ko-vorschlag-inhalt">/.test(h1), h1.slice(0, 120));
-pruefe("Z21 Der Name steht drin", /Anne Lüdemann/.test(h1));
-pruefe("Z22 Das Geburtsdatum steht deutsch drin", /30\.09\.2012/.test(h1), h1);
+pruefe("Z21 Der Name steht drin", /Mira Grünbaum/.test(h1));
+pruefe("Z22 Das Geburtsdatum steht deutsch drin", /04\.03\.2012/.test(h1), h1);
 pruefe("Z23 Der Grund steht drin", /Geburtstag gleich · 1 Namensteil/.test(h1));
 pruefe("Z24 Es gibt einen Zuordnen-Knopf",
        /data-ko-person="p-lue"[\s\S]*?zuordnen<\/button>/.test(h1), h1);
