@@ -5545,6 +5545,268 @@ function kodexSchluessel(vorname, nachname, geburtsdatum) {
   return teile.join("|") + "|" + String(geburtsdatum || "").slice(0, 10);
 }
 
+// ---------------------------------------------------------------------
+// Vorschlaege fuer die Karte "Nicht zuzuordnen"
+// ---------------------------------------------------------------------
+//
+// ⚠️ Der Abgleichsschluessel oben ist ABSICHTLICH streng: an ihm haengt,
+// ob eine Kenntnisnahme als abgegeben GILT. Ein Fast-Treffer darf das
+// niemals entscheiden. Alles ab hier ist reiner Vorschlag an die
+// Geschaeftsstelle -- er zaehlt nirgends mit, faerbt keinen Stand und
+// ordnet nichts zu. Zugeordnet wird weiter von Hand, jetzt mit einem
+// Klick statt mit einem Suchlauf durch dreihundert Namen.
+//
+// ⚠️ Deshalb darf die Toleranz von hier NIE nach oben in den Schluessel
+// wandern. Dort machte sie aus "Manuel" und "Manul" dasselbe Kind -- und
+// ein zweites Absenden ersetzte die Erklaerung eines fremden Kindes.
+
+// Namensteile in Vergleichsform, in der Reihenfolge der Eingabe.
+// kodexSchluessel sortiert sie zusaetzlich; fuer den Vergleich Teil gegen
+// Teil ist die Reihenfolge egal, jeder wird gegen jeden geprueft.
+function kodexTeileListe(vorname, nachname) {
+  return (String(vorname || "") + " " + String(nachname || ""))
+    .split(/[\s,.\-–_/]+/)
+    .map(kodexNamensteil)
+    .filter((t) => t.length > 0);
+}
+
+// Zweite, groebere Vergleichsform: umlautblind.
+//
+// ⚠️ kodexNamensteil macht aus "ü" ein "ue". Das ist richtig, solange
+// BEIDE Seiten den Umlaut tragen. Eltern schreiben ihn aber oft gar
+// nicht: "Ludemann" gegen "Lüdemann" wird zu "ludemann" gegen
+// "luedemann", und der Schluessel geht daneben -- genau der Fall, um den
+// es auf dieser Karte geht. Hier faellt die Erweiterung wieder weg,
+// damit beide Schreibweisen dieselbe Form haben.
+//
+// ⚠️ Preis: "Manuel"/"Manul" und "Joel"/"Jol" fallen zusammen. Tragbar,
+// weil daraus ein Vorschlag wird und keine Zuordnung.
+function kodexHart(teil) {
+  return String(teil || "")
+    .replace(/ae/g, "a").replace(/oe/g, "o").replace(/ue/g, "u")
+    .replace(/ss/g, "s");
+}
+
+// Levenshtein-Abstand, zwei Zeilen statt einer Matrix. Deckt den
+// Tippfehler ab, den kodexHart nicht kennt: "Griethe" gegen "Griether",
+// "Krebs" gegen "Kreps".
+function kodexLev(a, b) {
+  if (a === b) return 0;
+  const m = a.length, n = b.length;
+  if (!m || !n) return m || n;
+  let vor = Array.from({ length: n + 1 }, (_, i) => i);
+  for (let i = 1; i <= m; i++) {
+    const akt = [i];
+    for (let j = 1; j <= n; j++) {
+      akt[j] = Math.min(vor[j] + 1, akt[j - 1] + 1,
+        vor[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    vor = akt;
+  }
+  return vor[n];
+}
+
+// Tag und Monat vertauscht -- der haeufigste Fehler beim Abtippen eines
+// Geburtsdatums.
+function kodexDatumGedreht(iso) {
+  const t = String(iso || "").slice(0, 10).split("-");
+  return t.length === 3 ? t[0] + "-" + t[2] + "-" + t[1] : "";
+}
+
+// Ab wie vielen Punkten ein Vorschlag gezeigt wird und wie viele je
+// Erklaerung. Drei reichen: eine laengere Liste liest niemand durch, und
+// der vierte Platz war im Probelauf jedes Mal Zufall.
+const KODEX_VORSCHLAG_PUNKTE = 50;
+const KODEX_VORSCHLAG_ANZAHL = 3;
+
+// Wie aehnlich sind sich zwei Kinder?
+//
+// ⚠️ Das Geburtsdatum allein reicht NIE. Bei 540 Mitgliedern teilen sich
+// mehrere denselben Geburtstag; ein Treffer ohne jede Namensaehnlichkeit
+// ist Zufall und wurde beim Abgleich vom 07.09.2026 mehrfach angeboten.
+// Deshalb zaehlt diese Funktion `signale` mit -- ohne wenigstens ein
+// Namenssignal faellt der Vorschlag raus, so hoch die Punktzahl auch ist.
+function kodexAehnlichkeit(teileA, gebA, teileB, gebB) {
+  const gruende = [];
+  let punkte = 0;
+
+  const ga = String(gebA || "").slice(0, 10);
+  const gb = String(gebB || "").slice(0, 10);
+  if (ga && gb && ga === gb) {
+    punkte += 100;
+    gruende.push("Geburtstag gleich");
+  } else if (ga && gb && kodexDatumGedreht(ga) === gb) {
+    punkte += 60;
+    gruende.push("Geburtstag mit vertauschtem Tag und Monat");
+  }
+
+  let gleich = 0, schreib = 0, nah = 0;
+  for (const a of teileA) {
+    // 3 = wortgleich, 2 = nur andere Schreibweise, 1 = fast gleich.
+    let stufe = 0;
+    for (const b of teileB) {
+      if (a === b) { stufe = 3; break; }
+      if (kodexHart(a) === kodexHart(b)) { if (stufe < 2) stufe = 2; continue; }
+      // Laengenschranke zuerst: sie spart den teuren Vergleich und haelt
+      // zugleich kurze Namen auseinander ("Tim" gegen "Tom").
+      if (a.length >= 4 && Math.abs(a.length - b.length) <= 2
+          && stufe < 1 && kodexLev(a, b) <= 2) {
+        stufe = 1;
+      }
+    }
+    if (stufe === 3) gleich++;
+    else if (stufe === 2) schreib++;
+    else if (stufe === 1) nah++;
+  }
+
+  punkte += gleich * 30 + schreib * 26 + nah * 12;
+  if (gleich) {
+    gruende.push(gleich === 1 ? "1 Namensteil gleich" : gleich + " Namensteile gleich");
+  }
+  if (schreib) {
+    gruende.push((schreib === 1 ? "1 Namensteil" : schreib + " Namensteile") +
+                 " nur anders geschrieben");
+  }
+  if (nah) {
+    gruende.push((nah === 1 ? "1 Namensteil" : nah + " Namensteile") + " fast gleich");
+  }
+
+  return { punkte, gruende, signale: gleich + schreib + nah };
+}
+
+// Der Vorschlagslauf. Liefert je Erklaerung hoechstens drei Kandidaten.
+//
+// ⚠️ Der Pool ist ABSICHTLICH breiter als die Kinderliste. Die Karte
+// entsteht ja gerade dadurch, dass das Kind dort NICHT steht -- ein
+// Abgleich allein gegen dieselbe Liste beantwortete die Frage nie. Drei
+// Herkuenfte, und die Unterscheidung ist die eigentliche Auskunft:
+//   1. Kind der Fussball-Liste -> Schreibweise, mit einem Klick zuzuordnen
+//   2. sonstiges Mitglied      -> andere Abteilung, ausgetreten oder
+//                                 volljaehrig: meist nichts zu tun
+//   3. offener Aufnahmeantrag  -> die Familie wartet auf den
+//                                 Vorstandsbeschluss, nicht auf uns
+// Findet sich in keiner der drei etwas, hat sich die Familie sehr
+// wahrscheinlich nie angemeldet -- am 07.09.2026 traf das auf 13 von 18
+// Erklaerungen zu. Die Oberflaeche sagt das ausdruecklich, statt eine
+// leere Zeile zu zeigen.
+async function kodexVorschlaege(env, offene, kinder) {
+  // Von Hand zugeordnete Zeilen brauchen keinen Vorschlag -- dort ist die
+  // Frage bereits beantwortet.
+  const zuTun = offene.filter((o) => !o.zugeordnet);
+  if (!zuTun.length) return {};
+
+  const pool = [];
+  const gesehen = new Set();
+
+  for (const k of kinder) {
+    gesehen.add(k.person_id);
+    pool.push({
+      person_id: k.person_id,
+      name: ((k.vorname || "") + " " + (k.nachname || "")).trim(),
+      geburtsdatum: k.geburtsdatum,
+      herkunft: "Fußball, steht in der Liste",
+      in_liste: true,
+      // Diesem Kind ist schon eine Erklaerung zugeordnet. Der Vorschlag
+      // bleibt stehen -- er erklaert, WARUM hier nichts passt --, aber
+      // der Knopf faellt weg: der Server wiese die zweite Zuordnung
+      // ohnehin mit 409 ab.
+      belegt: !!k.bestaetigung_id,
+      teile: kodexTeileListe(k.vorname, k.nachname)
+    });
+  }
+
+  // ⚠️ Ohne Bestandsfilter und ohne Altersgrenze. Wer ausgetreten oder
+  // volljaehrig ist, faellt aus der Kinderliste -- und steht genau
+  // deshalb hier. Ein zweiter Filter naehme dem Vorschlag die Faelle weg,
+  // fuer die er gebaut ist.
+  //
+  // ⚠️ Anschrift, E-Mail und Bankdaten kommen im SELECT nicht vor. Was
+  // nicht abgefragt wird, kann auch nicht hinausgehen.
+  const mitglR = await env.VV_DB.prepare(
+    "SELECT p.id, p.vorname, p.nachname, p.geburtsdatum, m.status, " +
+    "       GROUP_CONCAT(s.name, ', ') AS sparten " +
+    "FROM mitgliedschaft m JOIN person p ON p.id = m.person_id " +
+    "LEFT JOIN mitgliedschaft_sparte ms ON ms.mitgliedschaft_id = m.id " +
+    "  AND ms.austritt IS NULL " +
+    "LEFT JOIN sparte s ON s.id = ms.sparte_id " +
+    "GROUP BY m.id"
+  ).all();
+  for (const m of mitglR.results || []) {
+    if (gesehen.has(m.id)) continue;
+    gesehen.add(m.id);
+    pool.push({
+      person_id: m.id,
+      name: ((m.vorname || "") + " " + (m.nachname || "")).trim(),
+      geburtsdatum: m.geburtsdatum,
+      herkunft: (m.sparten || "ohne Abteilung") +
+                (m.status && m.status !== "aktiv" ? " · " + m.status : ""),
+      in_liste: false,
+      belegt: false,
+      teile: kodexTeileListe(m.vorname, m.nachname)
+    });
+  }
+
+  // Offene Aufnahmeantraege. person_id ist NULL, solange der Vorstand
+  // nicht beschlossen hat; angenommene Antraege stehen laengst als
+  // Mitglied im Pool und kaemen sonst doppelt.
+  try {
+    const antrR = await env.VV_DB.prepare(
+      "SELECT id, eingang_am, status, antrag_json FROM aufnahmeantrag " +
+      "WHERE person_id IS NULL AND status IN ('neu','geprueft')"
+    ).all();
+    for (const a of antrR.results || []) {
+      // ⚠️ Das JSON wird NUR hier im Server ausgewertet: daneben stehen
+      // IBAN und Anschrift. Hinaus gehen Name und Geburtsdatum.
+      let inhalt = {};
+      try { inhalt = JSON.parse(a.antrag_json || "{}"); } catch { inhalt = {}; }
+      const teile = kodexTeileListe(inhalt.vorname, inhalt.nachname);
+      if (!teile.length) continue;
+      pool.push({
+        person_id: null,
+        name: ((inhalt.vorname || "") + " " + (inhalt.nachname || "")).trim(),
+        geburtsdatum: String(inhalt.geburtsdatum || "").slice(0, 10),
+        herkunft: "Aufnahmeantrag vom " + String(a.eingang_am || "").slice(0, 10) +
+                  ", noch nicht angenommen",
+        in_liste: false,
+        belegt: false,
+        antrag: true,
+        teile
+      });
+    }
+  } catch {
+    // Die Tabelle kann in einer frisch aufgesetzten Datenbank fehlen.
+    // Dann gibt es eben keine Antrags-Vorschlaege -- die ganze Karte
+    // deswegen scheitern zu lassen, waere der schlechtere Tausch.
+  }
+
+  const ergebnis = {};
+  for (const o of zuTun) {
+    const teile = kodexTeileListe(o.kind_vorname, o.kind_nachname);
+    if (!teile.length) continue;
+    const bewertet = [];
+    for (const p of pool) {
+      if (!p.teile.length) continue;
+      const a = kodexAehnlichkeit(teile, o.kind_geburtsdatum, p.teile, p.geburtsdatum);
+      if (a.signale < 1 || a.punkte < KODEX_VORSCHLAG_PUNKTE) continue;
+      bewertet.push({
+        person_id: p.person_id,
+        name: p.name,
+        geburtsdatum: p.geburtsdatum,
+        herkunft: p.herkunft,
+        in_liste: !!p.in_liste,
+        belegt: !!p.belegt,
+        antrag: !!p.antrag,
+        punkte: a.punkte,
+        gruende: a.gruende
+      });
+    }
+    bewertet.sort((x, y) => y.punkte - x.punkte ||
+      (x.name < y.name ? -1 : x.name > y.name ? 1 : 0));
+    ergebnis[o.id] = bewertet.slice(0, KODEX_VORSCHLAG_ANZAHL);
+  }
+  return ergebnis;
+}
+
 // Wie bei den Antragsspalten: die Tabelle entsteht in handleMigration,
 // und der oeffentliche Endpunkt kann die nicht anstossen. Faende er die
 // Tabelle nicht, scheiterte jede Erklaerung mit einem nackten SQL-Fehler.
@@ -6131,6 +6393,23 @@ async function handleKodexListe(body, env, me, corsHeaders) {
       ersetzt: ersetztZahl.get(b.id) || 0
     }));
 
+  // Namensvorschlaege zu den herrenlosen Erklaerungen.
+  //
+  // ⚠️ NUR fuer darfSchreiben. Der Vorschlag greift in den ganzen
+  // Mitgliederbestand -- Erwachsene, andere Abteilungen, Ausgetretene,
+  // offene Antraege. Die Passstelle sieht in dieser Antwort sonst nur
+  // Kinder des Fussballs und nicht einmal deren Mitgliedsnummer; ein
+  // Vorschlag aus dem Gesamtbestand risse genau diese Grenze auf. Und
+  // zuordnen darf ohnehin nur, wer schreiben darf.
+  //
+  // ⚠️ Zwei zusaetzliche Abfragen, aber nur wenn es etwas zu tun gibt:
+  // kodexVorschlaege steigt bei einer leeren Liste sofort aus, und im
+  // Regelfall ist die Karte leer.
+  let vorschlaege = {};
+  if (rolle.darfSchreiben) {
+    vorschlaege = await kodexVorschlaege(env, offeneEingaenge, kinder);
+  }
+
   return json({
     stichtag,
     // Welche Abteilung der Abgleich zugrunde legt -- die Oberflaeche nennt
@@ -6139,6 +6418,9 @@ async function handleKodexListe(body, env, me, corsHeaders) {
     kodex_version: ELTERNKODEX_VERSION,
     kinder,
     offene_eingaenge: offeneEingaenge,
+    // Je Erklaerung hoechstens drei Kandidaten. Leeres Objekt fuer alle,
+    // die nicht zuordnen duerfen -- die Oberflaeche zeigt dann nichts.
+    vorschlaege,
     darf_schreiben: !!rolle.darfSchreiben
   }, 200, corsHeaders);
 }

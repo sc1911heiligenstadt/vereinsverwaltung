@@ -1334,3 +1334,42 @@ tr.reha-zeile td { background: #f4f6fb; font-style: italic; }
 .changelog-group { display: flex; flex-direction: column; gap: 4px; }
 .changelog-group .cg-title { font-weight: 700; font-size: 14px; color: var(--blue); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 2px; }
 .changelog-group .cg-items { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; color: var(--text); }
+
+/* Elternkodex: die Vorschlagszeile unter einer nicht zuzuordnenden
+   Erklaerung. Sie gehoert optisch zur Zeile darueber, nicht daneben --
+   deshalb kein eigener Rahmen, sondern ein eingerueckter Block auf
+   hellem Grund. */
+tr.ko-vorschlag > td {
+  background: #f7f9fc;
+  border-top: 0;
+  padding-top: 2px;
+  padding-bottom: 10px;
+  /* ⚠️ `th, td` tragen flottenweit `white-space: nowrap`. Hier steht
+     Fliesstext -- ohne diese Zeile bestimmt der laengste Satz die
+     min-content-Breite der ganzen Tabelle, und die Karte bekommt eine
+     Laufleiste, hinter der der Zuordnen-Knopf verschwindet. Im Browser
+     gemessen: 1216 px statt 736. Gleiche Falle wie `td.umbruch`. */
+  white-space: normal;
+}
+/* Die Zelle spannt alle sieben Spalten und ist damit so breit wie die
+   Tabelle. Am Handy ist die Tabelle breiter als das Bild -- deshalb
+   klebt der Inhalt am linken Rand und wird auf die sichtbare Breite
+   begrenzt, statt rechts aus dem Bild zu laufen.
+   ⚠️ `calc(100vw - 72px)` ist die Karte samt Polsterung; auf dem Schreib-
+   tisch ist der Wert groesser als die Tabelle und greift nicht. */
+.ko-vorschlag-inhalt {
+  position: sticky;
+  left: 0;
+  max-width: calc(100vw - 72px);
+}
+.ko-vorschlagsliste {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+/* Der Knopf sitzt unter der Begruendung, nicht dahinter: am Handy
+   schoebe er sie sonst aus dem Bild. */
+.ko-vorschlagsliste .btn { margin-top: 4px; }

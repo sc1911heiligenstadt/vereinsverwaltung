@@ -1,0 +1,527 @@
+// Pruefstand fuer die Vorschlaege in der Karte "Nicht zuzuordnen"
+// (10.09.2026).
+//
+// Faehrt den ECHTEN Worker-Code gegen das ECHTE Schema (node:sqlite mit
+// duennem D1-Aufsatz, schema-kompakt.sql eingespielt).
+//
+//   node test-kodex-vorschlag.mjs
+//
+// Abschnitte:
+//   V  Die Vergleichsformen (kodexHart, kodexLev, kodexTeileListe)
+//   W  Die Bewertung (kodexAehnlichkeit) samt Gegenproben
+//   X  Der Lauf gegen die echte Datenbank
+//   Y  Die Rechtegrenze: nur darfSchreiben bekommt Vorschlaege
+//   Z  Die Oberflaeche zeigt sie auch
+
+import { DatabaseSync } from "node:sqlite";
+import { readFileSync } from "node:fs";
+
+const REPO = new URL(".", import.meta.url).pathname.replace(/^\//, "");
+
+let ok = 0, fehler = 0;
+const fehlerListe = [];
+function pruefe(name, bedingung, zusatz) {
+  if (bedingung) { ok++; return; }
+  fehler++;
+  fehlerListe.push(name + (zusatz ? "  → " + zusatz : ""));
+}
+
+// --- D1-Aufsatz -------------------------------------------------------
+
+function d1(db) {
+  const lauf = { abfragen: 0 };
+  return {
+    lauf,
+    prepare(sql) {
+      const self = {
+        _sql: sql, _werte: [],
+        bind(...w) { const k = Object.create(self); k._werte = w; return k; },
+        first() {
+          lauf.abfragen++;
+          const r = db.prepare(this._sql).get(...this._werte);
+          return r === undefined ? null : r;
+        },
+        all() {
+          lauf.abfragen++;
+          return { results: db.prepare(this._sql).all(...this._werte) };
+        },
+        run() {
+          lauf.abfragen++;
+          db.prepare(this._sql).run(...this._werte);
+          return { success: true };
+        }
+      };
+      return self;
+    },
+    async batch(liste) {
+      lauf.abfragen++;
+      const out = [];
+      for (const a of liste) out.push(a.run());
+      return out;
+    }
+  };
+}
+
+// --- Worker-Code laden ------------------------------------------------
+
+const roh = readFileSync(REPO + "/vereinsverwaltung-worker.js", "utf8");
+const schnitt = roh.indexOf("export default");
+if (schnitt < 0) throw new Error("export default nicht gefunden");
+const quelle = roh.slice(0, schnitt);
+
+const NAMEN = ["kodexHart", "kodexLev", "kodexTeileListe", "kodexAehnlichkeit",
+               "kodexVorschlaege", "kodexDatumGedreht", "kodexSchluessel",
+               "kodexNamensteil", "KODEX_VORSCHLAG_PUNKTE", "KODEX_VORSCHLAG_ANZAHL",
+               "handleKodexListe", "handleMigration", "ladeRolle"];
+const W = new Function(quelle + "\nreturn {" + NAMEN.join(",") + "};")();
+
+// ======================================================================
+console.log("V  Die Vergleichsformen");
+// ======================================================================
+
+const T = (v, n) => W.kodexTeileListe(v, n);
+
+pruefe("V1 Namensteile kommen unsortiert, in Eingabereihenfolge",
+       JSON.stringify(T("Anna Lena", "Mueller")) === '["anna","lena","mueller"]',
+       JSON.stringify(T("Anna Lena", "Mueller")));
+
+// ⚠️ Die Gegenprobe zum Schluessel: der SORTIERT zusaetzlich. Waeren
+// beide gleich, haette das Herausloesen die Sortierung verschluckt.
+pruefe("V2 kodexSchluessel sortiert weiterhin",
+       W.kodexSchluessel("Zoe", "Aal", "2015-01-01") === "aal|zoe|2015-01-01",
+       W.kodexSchluessel("Zoe", "Aal", "2015-01-01"));
+
+pruefe("V3 Bindestrich, Komma und Schraegstrich trennen",
+       JSON.stringify(T("Anna-Lena", "Mueller/Schmidt")) ===
+       '["anna","lena","mueller","schmidt"]');
+
+// Der eigentliche Zweck: die weggelassene Umlaut-Schreibweise.
+pruefe("V4 Luedemann und Ludemann sind hart gleich",
+       W.kodexHart(W.kodexNamensteil("Lüdemann")) ===
+       W.kodexHart(W.kodexNamensteil("Ludemann")),
+       W.kodexHart(W.kodexNamensteil("Lüdemann")) + " / " +
+       W.kodexHart(W.kodexNamensteil("Ludemann")));
+
+// ⚠️ Gegenprobe: der STRENGE Schluessel darf sie weiterhin auseinander
+// halten. Faende er sie gleich, waere die Toleranz nach oben gewandert
+// und ein zweites Absenden ersetzte die Erklaerung eines fremden Kindes.
+pruefe("V5 Der strenge Schluessel trennt sie weiterhin",
+       W.kodexSchluessel("Anne", "Lüdemann", "2012-09-30") !==
+       W.kodexSchluessel("Anne", "Ludemann", "2012-09-30"));
+
+pruefe("V6 Mueller, Müller und Muller fallen hart zusammen",
+       W.kodexHart(W.kodexNamensteil("Müller")) === "muller" &&
+       W.kodexHart(W.kodexNamensteil("Mueller")) === "muller" &&
+       W.kodexHart(W.kodexNamensteil("Muller")) === "muller");
+
+pruefe("V7 Doppel-s und scharfes s fallen hart zusammen",
+       W.kodexHart(W.kodexNamensteil("Strauß")) ===
+       W.kodexHart(W.kodexNamensteil("Strauss")));
+
+pruefe("V8 Levenshtein: gleich ist 0", W.kodexLev("krebs", "krebs") === 0);
+pruefe("V9 Levenshtein: ein Buchstabe ist 1", W.kodexLev("krebs", "kreps") === 1);
+pruefe("V10 Levenshtein: leer gegen Wort ist die Laenge",
+       W.kodexLev("", "krebs") === 5);
+pruefe("V11 Levenshtein zaehlt auch das Einfuegen",
+       W.kodexLev("griethe", "griether") === 1);
+
+pruefe("V12 Tag und Monat drehen", W.kodexDatumGedreht("2013-01-29") === "2013-29-01");
+pruefe("V13 Ein unvollstaendiges Datum dreht nicht", W.kodexDatumGedreht("") === "");
+
+// ======================================================================
+console.log("W  Die Bewertung");
+// ======================================================================
+
+const A = (va, na, ga, vb, nb, gb) =>
+  W.kodexAehnlichkeit(T(va, na), ga, T(vb, nb), gb);
+
+// Der Regelfall der Karte: ein Zweitvorname zuviel.
+const w1 = A("Johannes Tobias", "Brodmann", "2015-10-15",
+             "Johannes", "Brodmann", "2015-10-15");
+pruefe("W1 Zweitvorname zuviel: erkannt", w1.punkte >= W.KODEX_VORSCHLAG_PUNKTE,
+       "" + w1.punkte);
+pruefe("W2 Zweitvorname zuviel: Geburtstag wird genannt",
+       w1.gruende.includes("Geburtstag gleich"), w1.gruende.join(" · "));
+
+// Der Fall, um den es Michel geht: der weggelassene Umlaut.
+const w2 = A("Anne", "Ludemann", "2012-09-30", "Anne", "Lüdemann", "2012-09-30");
+pruefe("W3 Weggelassener Umlaut: erkannt", w2.punkte >= W.KODEX_VORSCHLAG_PUNKTE,
+       "" + w2.punkte);
+pruefe("W4 Weggelassener Umlaut: als Schreibweise benannt",
+       w2.gruende.some((g) => /anders geschrieben/.test(g)), w2.gruende.join(" · "));
+
+// ⚠️ Und derselbe Fall OHNE passendes Geburtsdatum muss ebenfalls reichen
+// -- sonst haengt die ganze Umlaut-Toleranz still am Geburtstag, und
+// genau der ist im Bestand oefter falsch erfasst.
+const w3 = A("Anne", "Ludemann", "", "Anne", "Lüdemann", "");
+pruefe("W5 Umlaut allein reicht auch ohne Geburtsdatum",
+       w3.punkte >= W.KODEX_VORSCHLAG_PUNKTE, "" + w3.punkte);
+
+// Tippfehler von einem Buchstaben.
+const w4 = A("Julian", "Griether", "2012-02-18", "Julian", "Griethe", "2012-02-18");
+pruefe("W6 Tippfehler im Nachnamen: erkannt",
+       w4.punkte >= W.KODEX_VORSCHLAG_PUNKTE, "" + w4.punkte);
+
+// Tag und Monat vertauscht.
+const w5 = A("Pius", "Erbendruth", "2013-01-29", "Pius", "Erbendruth", "2013-29-01");
+pruefe("W7 Gedrehtes Geburtsdatum wird benannt",
+       w5.gruende.some((g) => /vertauscht/.test(g)), w5.gruende.join(" · "));
+
+// ⚠️ DIE wichtigste Gegenprobe. Gleicher Geburtstag, voellig andere
+// Namen: bei 540 Mitgliedern passiert das mehrfach und ist Zufall. Die
+// Punktzahl allein reicht dafuer (100 > 50) -- der Aufrufer wirft es
+// ueber `signale` heraus, und genau das wird hier festgehalten.
+const w6 = A("Carla", "Rode", "2019-09-12", "Ferdinand", "Zaubermann", "2019-09-12");
+pruefe("W8 Nur Geburtstag gleich: KEIN Namenssignal", w6.signale === 0,
+       "signale " + w6.signale);
+pruefe("W9 Nur Geburtstag gleich: Punktzahl allein wuerde reichen",
+       w6.punkte >= W.KODEX_VORSCHLAG_PUNKTE, "" + w6.punkte);
+
+// Zwei fremde Kinder duerfen sich nicht aehneln.
+const w7 = A("Carla", "Rode", "2019-09-12", "Sebastian", "Winterberg", "2004-03-03");
+pruefe("W10 Zwei fremde Kinder: kein Signal", w7.signale === 0 && w7.punkte === 0,
+       w7.punkte + " / " + w7.signale);
+
+// ⚠️ Kurze Namen duerfen NICHT ueber Levenshtein zusammenfallen: "Tim"
+// und "Tom" sind zwei Kinder. Die Laengenschranke (>= 4) haelt sie
+// auseinander.
+const w8 = A("Tim", "Krebs", "2018-07-15", "Tom", "Krebs", "2018-07-15");
+pruefe("W11 Tim und Tom sind nicht derselbe Vorname",
+       !w8.gruende.some((g) => /2 Namensteile (gleich|fast gleich)/.test(g)),
+       w8.gruende.join(" · "));
+
+// ======================================================================
+console.log("X  Der Lauf gegen die echte Datenbank");
+// ======================================================================
+
+const db = new DatabaseSync(":memory:");
+for (const anw of readFileSync(REPO + "/schema-kompakt.sql", "utf8")
+                    .split(";").map((s) => s.trim()).filter(Boolean)) {
+  db.exec(anw + ";");
+}
+const env = { VV_DB: d1(db) };
+const cors = {};
+const WER = "'2020-01-01', 'pruefer'";
+
+const ADMIN = { username: "admin", isAdmin: true, canEdit: true, canAdmin: true };
+const PASS = { username: "pass.stelle", isAdmin: false, canEdit: true, canAdmin: false };
+
+db.exec("INSERT INTO benutzer_rolle (id, username, rolle, sparte_id, erstellt_am, " +
+        "erstellt_von) VALUES ('r-pass', 'pass.stelle', 'passstelle', NULL, " + WER + ")");
+
+await W.handleMigration(env, ADMIN, cors);
+
+function sparte(id, name) {
+  db.exec("INSERT INTO sparte (id, name, aktiv, erstellt_am, erstellt_von) VALUES ('" +
+          id + "', '" + name + "', 1, " + WER + ") ON CONFLICT(id) DO NOTHING");
+}
+sparte("sp-fu", "Fussball");
+sparte("sp-tu", "Turnen");
+
+function legeAn(id, vorname, nachname, geburt, nr, sparteId, status) {
+  db.exec("INSERT INTO person (id, vorname, nachname, geburtsdatum, erstellt_am, " +
+          "erstellt_von) VALUES ('" + id + "', '" + vorname + "', '" + nachname +
+          "', '" + geburt + "', " + WER + ")");
+  db.exec("INSERT INTO mitgliedschaft (id, person_id, mitgliedsnummer, art, eintritt, " +
+          "status, erstellt_am, erstellt_von) VALUES ('m-" + id + "', '" + id + "', '" +
+          nr + "', 'ordentlich', '2020-01-01', '" + (status || "aktiv") + "', " +
+          WER + ")");
+  if (sparteId) {
+    db.exec("INSERT INTO mitgliedschaft_sparte (id, mitgliedschaft_id, sparte_id, " +
+            "eintritt, erstellt_am, erstellt_von) VALUES ('ms-" + id + "', 'm-" + id +
+            "', '" + sparteId + "', '2020-01-01', " + WER + ")");
+  }
+}
+
+// Der Bestand: zwei Fussballkinder, ein Turnkind, ein Volljaehriger.
+legeAn("p-lue", "Anne", "Lüdemann", "2012-09-30", "201", "sp-fu");
+legeAn("p-bro", "Johannes", "Brodmann", "2015-10-15", "202", "sp-fu");
+legeAn("p-tur", "Frieder", "Zirpel", "2018-06-12", "203", "sp-tu");
+legeAn("p-alt", "Barbara", "Leineweber", "1984-02-02", "204", "sp-fu");
+
+// Ein offener Aufnahmeantrag -- die Familie wartet auf den Beschluss.
+db.exec("INSERT INTO aufnahmeantrag (id, eingang_am, status, antrag_json, sparten_json) " +
+        "VALUES ('a-neu', '2026-09-01', 'neu', " +
+        "'{\"vorname\":\"Luca\",\"nachname\":\"Sagorski\",\"geburtsdatum\":\"2019-05-04\"}', " +
+        "'[]')");
+
+const STEMPEL = "2026-09-07T10:00:00.000Z";
+function erklaerung(id, vorname, nachname, geburt, mannschaft) {
+  db.exec("INSERT INTO elternkodex_bestaetigung (id, eingang_am, kind_vorname, " +
+          "kind_nachname, kind_geburtsdatum, mannschaft, erz_name, erz_email, ort, " +
+          "kodex_version, abgleich_schluessel, unterschrift_datei) VALUES ('" + id + "', '" +
+          STEMPEL + "', '" + vorname + "', '" + nachname + "', '" + geburt + "', '" +
+          mannschaft + "', 'Ein Elternteil', 'eltern@example.invalid', 'Heiligenstadt', " +
+          "'1.0', '" + W.kodexSchluessel(vorname, nachname, geburt) + "', 'x')");
+}
+// 1) Umlaut weggelassen -> Fussballkind, zuordenbar
+erklaerung("e-lue", "Anne", "Ludemann", "2012-09-30", "C1-Junioren");
+// 2) Zweitvorname zuviel -> Fussballkind, zuordenbar
+erklaerung("e-bro", "Johannes Tobias", "Brodmann", "2015-10-15", "D3");
+// 3) Turnkind -> Vorschlag, aber nichts zu tun
+erklaerung("e-tur", "Frieder Ruben", "Zirpel", "2018-06-12", "F1-Junioren");
+// 4) offener Antrag -> Vorschlag aus dem Antrag
+erklaerung("e-sag", "Luca", "Sagorski", "2019-05-04", "F2-Junioren");
+// 5) niemand im Verein -> ausdruecklich kein Treffer
+erklaerung("e-nix", "Ferdinand", "Zaubermann", "2011-11-11", "B2");
+
+const antwort = await (await W.handleKodexListe({}, env, ADMIN, cors)).json();
+const V = antwort.vorschlaege || {};
+
+pruefe("X1 Die Antwort fuehrt ein Feld vorschlaege", !!antwort.vorschlaege);
+pruefe("X2 Fuenf Erklaerungen sind nicht zuzuordnen",
+       (antwort.offene_eingaenge || []).length === 5,
+       "" + (antwort.offene_eingaenge || []).length);
+
+// --- Der Umlaut-Fall --------------------------------------------------
+const vLue = V["e-lue"] || [];
+pruefe("X3 Umlaut-Fall hat einen Vorschlag", vLue.length >= 1, "" + vLue.length);
+pruefe("X4 Umlaut-Fall schlaegt Anne Lüdemann vor",
+       vLue[0] && vLue[0].name === "Anne Lüdemann", vLue[0] && vLue[0].name);
+pruefe("X5 Umlaut-Fall ist zuordenbar (steht in der Liste)",
+       vLue[0] && vLue[0].in_liste === true);
+pruefe("X6 Umlaut-Fall traegt eine Person-Id",
+       vLue[0] && vLue[0].person_id === "p-lue", vLue[0] && vLue[0].person_id);
+pruefe("X7 Umlaut-Fall nennt seinen Grund",
+       vLue[0] && vLue[0].gruende.length >= 2, vLue[0] && vLue[0].gruende.join(" · "));
+
+// --- Der Zweitvorname -------------------------------------------------
+const vBro = V["e-bro"] || [];
+pruefe("X8 Zweitvorname schlaegt Johannes Brodmann vor",
+       vBro[0] && vBro[0].name === "Johannes Brodmann", vBro[0] && vBro[0].name);
+
+// --- Das Turnkind -----------------------------------------------------
+const vTur = V["e-tur"] || [];
+pruefe("X9 Turnkind wird gefunden",
+       vTur[0] && vTur[0].name === "Frieder Zirpel", vTur[0] && vTur[0].name);
+// ⚠️ Der Unterschied, auf den es ankommt: gefunden ja, zuordenbar nein.
+pruefe("X10 Turnkind ist NICHT zuordenbar", vTur[0] && vTur[0].in_liste === false);
+pruefe("X11 Turnkind nennt seine Abteilung",
+       vTur[0] && /Turnen/.test(vTur[0].herkunft), vTur[0] && vTur[0].herkunft);
+
+// --- Der offene Antrag ------------------------------------------------
+const vSag = V["e-sag"] || [];
+pruefe("X12 Offener Antrag wird gefunden",
+       vSag[0] && vSag[0].name === "Luca Sagorski", vSag[0] && vSag[0].name);
+pruefe("X13 Offener Antrag ist als solcher gekennzeichnet",
+       vSag[0] && vSag[0].antrag === true);
+pruefe("X14 Offener Antrag traegt KEINE Person-Id",
+       vSag[0] && vSag[0].person_id === null);
+pruefe("X15 Offener Antrag nennt sein Eingangsdatum",
+       vSag[0] && /2026-09-01/.test(vSag[0].herkunft), vSag[0] && vSag[0].herkunft);
+
+// --- Kein Treffer -----------------------------------------------------
+// ⚠️ Der haeufigste echte Fall (07.09.2026: 13 von 18). Ein leeres
+// Ergebnis ist hier die richtige Antwort und darf nicht durch einen
+// Zufallstreffer ueber das Geburtsdatum verdeckt werden.
+pruefe("X16 Ohne Mitgliedschaft gibt es keinen Vorschlag",
+       (V["e-nix"] || []).length === 0, JSON.stringify(V["e-nix"]));
+
+// --- Gegenprobe: der Zufallstreffer ----------------------------------
+// Ein Turnkind mit exakt demselben Geburtstag wie die herrenlose
+// Erklaerung, aber voellig anderem Namen. Ohne die Signal-Schranke
+// stuende es als Vorschlag da. ⚠️ Turnen, nicht Fussball -- sonst stuende
+// es ohnehin in der Kinderliste und der Vorschlagsweg bliebe ungeprueft.
+legeAn("p-zuf", "Gertrud", "Wetterstein", "2011-11-11", "205", "sp-tu");
+const antwort2 = await (await W.handleKodexListe({}, env, ADMIN, cors)).json();
+pruefe("X17 Gleicher Geburtstag allein erzeugt KEINEN Vorschlag",
+       ((antwort2.vorschlaege || {})["e-nix"] || []).length === 0,
+       JSON.stringify((antwort2.vorschlaege || {})["e-nix"]));
+
+// --- Hoechstens drei --------------------------------------------------
+for (const id of Object.keys(antwort2.vorschlaege || {})) {
+  pruefe("X18 Hoechstens " + W.KODEX_VORSCHLAG_ANZAHL + " Vorschlaege je Erklaerung (" +
+         id + ")", antwort2.vorschlaege[id].length <= W.KODEX_VORSCHLAG_ANZAHL,
+         "" + antwort2.vorschlaege[id].length);
+}
+
+// --- Eine belegte Person ---------------------------------------------
+// Wird die Erklaerung von Hand zugeordnet, verschwindet die Zeile aus
+// "Nicht zuzuordnen" -- und mit ihr der Vorschlag.
+db.exec("UPDATE elternkodex_bestaetigung SET person_id = 'p-lue', " +
+        "zugeordnet_am = '" + STEMPEL + "', zugeordnet_von = 'pruefer' " +
+        "WHERE id = 'e-lue'");
+const antwort3 = await (await W.handleKodexListe({}, env, ADMIN, cors)).json();
+pruefe("X19 Zugeordnete Erklaerung faellt aus der Karte",
+       !(antwort3.offene_eingaenge || []).some((o) => o.id === "e-lue"));
+pruefe("X20 Fuer sie gibt es auch keinen Vorschlag mehr",
+       !(antwort3.vorschlaege || {})["e-lue"]);
+
+// ⚠️ Und das Kind ist jetzt belegt: ein Vorschlag darauf darf keinen
+// Zuordnen-Knopf mehr anbieten, sonst antwortet der Server 409.
+erklaerung("e-lue2", "Anne", "Luedemann", "2012-09-30", "C1-Junioren");
+const antwort4 = await (await W.handleKodexListe({}, env, ADMIN, cors)).json();
+const vLue2 = ((antwort4.vorschlaege || {})["e-lue2"] || [])
+  .find((v) => v.person_id === "p-lue");
+pruefe("X21 Belegtes Kind wird weiter vorgeschlagen", !!vLue2);
+pruefe("X22 Belegtes Kind ist als belegt gekennzeichnet", vLue2 && vLue2.belegt === true);
+
+// ======================================================================
+console.log("Y  Die Rechtegrenze");
+// ======================================================================
+
+const rPass = await W.ladeRolle(env, PASS);
+pruefe("Y1 Passstelle darf lesen", rPass.darfNachwuchs === true);
+pruefe("Y2 Passstelle darf NICHT schreiben", rPass.darfSchreiben === false);
+
+const antwortPass = await (await W.handleKodexListe({}, env, PASS, cors)).json();
+// ⚠️ Der Vorschlag greift in den GESAMTEN Bestand -- Erwachsene, andere
+// Abteilungen, offene Antraege. Dieselbe Antwort verweigert der
+// Passstelle an anderer Stelle sogar die Mitgliedsnummer.
+pruefe("Y3 Passstelle bekommt die Liste", Array.isArray(antwortPass.kinder));
+pruefe("Y4 Passstelle bekommt KEINE Vorschlaege",
+       Object.keys(antwortPass.vorschlaege || {}).length === 0,
+       JSON.stringify(antwortPass.vorschlaege));
+// Gegenprobe: es gaebe welche zu holen -- ohne sie waere Y4 auch dann
+// gruen, wenn gar keine Erklaerung offen waere.
+pruefe("Y5 Gegenprobe: fuer die Geschaeftsstelle gibt es welche",
+       Object.keys(antwort4.vorschlaege || {}).length > 0);
+// Und die Namen duerfen auch sonst nirgends in ihrer Antwort stehen.
+pruefe("Y6 Der Volljaehrige taucht in ihrer Antwort nirgends auf",
+       !JSON.stringify(antwortPass).includes("Wetterstein"));
+
+// ======================================================================
+console.log("Z  Die Oberflaeche");
+// ======================================================================
+
+// ⚠️ Eine gruene Zusage auf ein Feld der Antwort belegt nicht, dass es
+// jemand zu sehen bekommt -- genau dieser Fehler ist am 18.08.2026 mit
+// dem Chip in "Nicht zuzuordnen" passiert.
+const kv = readFileSync(REPO + "/kodex-verwaltung.js", "utf8");
+const idx = readFileSync(REPO + "/index.html", "utf8");
+const cfg = readFileSync(REPO + "/config.js", "utf8");
+const css = readFileSync(REPO + "/style.css", "utf8");
+
+pruefe("Z1 Die Oberflaeche zeichnet eine Vorschlagszeile",
+       /function koVorschlagZeile\(/.test(kv));
+pruefe("Z2 Sie liest koDaten.vorschlaege",
+       /koDaten\.vorschlaege/.test(kv));
+pruefe("Z3 Sie haengt an der Karte 'Nicht zuzuordnen'",
+       /koVorschlagZeile\(b, KO_OFFEN_SPALTEN\)/.test(kv));
+pruefe("Z4 Der Zuordnen-Knopf ist verdrahtet",
+       /data-ko-uebernehmen/.test(kv) && /uebernimmVorschlag\(/.test(kv));
+pruefe("Z5 Der Knopf fragt vor dem Zuordnen zurueck",
+       /async function uebernimmVorschlag[\s\S]{0,400}confirm\(/.test(kv));
+pruefe("Z6 Ohne Schreibrecht wird nichts gezeichnet",
+       /if \(!koDaten\.darf_schreiben\) return "";/.test(kv));
+pruefe("Z7 Der leere Fall wird ausdruecklich benannt",
+       /Wahrscheinlich ist das Kind gar nicht angemeldet/.test(kv));
+pruefe("Z8 Der Knopf erscheint nur fuer ein Kind der Liste",
+       /v\.in_liste && !v\.belegt && v\.person_id/.test(kv));
+
+// Die Spaltenzahl der Vorschlagszeile muss zur Kopfzeile passen -- sonst
+// steht die Zeile schmaler als die Tabelle.
+const kopf = (kv.match(/<th>Eingang<\/th>[\s\S]*?<\/tr>/) || [""])[0];
+pruefe("Z9 Die Kopfzeile hat sieben Spalten",
+       (kopf.match(/<th/g) || []).length === 7,
+       "" + (kopf.match(/<th/g) || []).length);
+pruefe("Z10 KO_OFFEN_SPALTEN steht auf 7",
+       /KO_OFFEN_SPALTEN = 7/.test(kv));
+
+pruefe("Z11 Die Karte erklaert die Vorschlaege", /Vorschläge aus der/.test(idx));
+pruefe("Z12 Der Info-Reiter nennt sie", /Vorschläge aus dem Mitgliederbestand/.test(cfg));
+pruefe("Z13 Der Changelog nennt sie", /schlägt jetzt Kinder vor/.test(cfg));
+pruefe("Z14 Die Vorschlagszeile hat eine eigene Regel",
+       /tr\.ko-vorschlag > td/.test(css));
+// ⚠️ `th, td` tragen flottenweit `white-space: nowrap`. Ohne die Aufhebung
+// bestimmt der laengste Satz die Breite der ganzen Tabelle -- im Browser
+// gemessen 1216 px statt 736, und der Zuordnen-Knopf lag hinter der
+// Laufleiste.
+pruefe("Z14b Der Fliesstext darf umbrechen",
+       /tr\.ko-vorschlag > td \{[\s\S]*?white-space: normal;[\s\S]*?\}/.test(css));
+// Am Handy ist die Tabelle breiter als das Bild. Gemessen bei 375 px:
+// Huelle 318 px, Inhalt 303 px, zwei Pixel Luft.
+pruefe("Z14c Der Inhalt klebt am linken Rand und bleibt im Bild",
+       /\.ko-vorschlag-inhalt \{[\s\S]*?position: sticky;[\s\S]*?left: 0;[\s\S]*?max-width:[\s\S]*?\}/
+         .test(css));
+
+// ⚠️ Cache-Bust: ohne ihn zieht der Browser das alte Skript und die
+// Vorschlaege kommen an, ohne dass jemand sie sieht.
+pruefe("Z15 kodex-verwaltung.js ist frisch gebustet",
+       /kodex-verwaltung\.js\?v=1\.3/.test(idx));
+pruefe("Z16 style.css ist frisch gebustet", /style\.css\?v=1\.3/.test(idx));
+pruefe("Z17 config.js ist frisch gebustet", /config\.js\?v=2\.7/.test(idx));
+// Und in ALLEN Seiten, nicht nur in dieser einen.
+for (const datei of ["antrag.html", "buchhaltung.html", "kodex.html",
+                     "nachwuchs.html", "vorstand.html"]) {
+  pruefe("Z18 style.css?v=1.3 auch in " + datei,
+         /style\.css\?v=1\.3/.test(readFileSync(REPO + "/" + datei, "utf8")));
+}
+
+// ----------------------------------------------------------------------
+// Und jetzt die Zeile wirklich zeichnen.
+//
+// ⚠️ Ein Grep auf den Dateitext belegt nur, dass Code DASTEHT. Ob dabei
+// ein Knopf herauskommt, sagt er nicht -- deshalb wird koVorschlagZeile
+// hier mit den ECHTEN Helfern aus app.js aufgerufen und das Ergebnis
+// gelesen. (Die Datei enthaelt nur Deklarationen, kein Aufruf beim Laden.)
+const appQuelle = readFileSync(REPO + "/app.js", "utf8");
+const escQuelle = (appQuelle.match(/function esc\(wert\)[\s\S]*?\n\}/) || [""])[0];
+const datQuelle = (appQuelle.match(/function datumDe\(iso\)[\s\S]*?\n\}/) || [""])[0];
+pruefe("Z19 Die echten Helfer sind aus app.js geholt",
+       !!escQuelle && !!datQuelle);
+
+const R = new Function(
+  escQuelle + "\n" + datQuelle + "\n" + kv +
+  ";\nreturn { koVorschlagZeile, setze: (d) => { koDaten = d; } };")();
+
+function zeichne(darfSchreiben, eintrag, treffer) {
+  R.setze({ darf_schreiben: darfSchreiben, vorschlaege: { [eintrag.id]: treffer } });
+  return R.koVorschlagZeile(eintrag, 7);
+}
+const EIN = { id: "e-1", zugeordnet: false, andere_abteilung: false };
+const KAND = {
+  person_id: "p-lue", name: "Anne Lüdemann", geburtsdatum: "2012-09-30",
+  herkunft: "Fußball, steht in der Liste", in_liste: true, belegt: false,
+  antrag: false, punkte: 156,
+  gruende: ["Geburtstag gleich", "1 Namensteil nur anders geschrieben"]
+};
+
+const h1 = zeichne(true, EIN, [KAND]);
+pruefe("Z20 Die gezeichnete Zeile spannt sieben Spalten",
+       /colspan="7"/.test(h1), h1.slice(0, 80));
+pruefe("Z20b Der Inhalt steckt in der klebenden Huelle",
+       /<td colspan="7"><div class="ko-vorschlag-inhalt">/.test(h1), h1.slice(0, 120));
+pruefe("Z21 Der Name steht drin", /Anne Lüdemann/.test(h1));
+pruefe("Z22 Das Geburtsdatum steht deutsch drin", /30\.09\.2012/.test(h1), h1);
+pruefe("Z23 Der Grund steht drin", /Geburtstag gleich · 1 Namensteil/.test(h1));
+pruefe("Z24 Es gibt einen Zuordnen-Knopf",
+       /data-ko-person="p-lue"[\s\S]*?zuordnen<\/button>/.test(h1), h1);
+
+// ⚠️ Die drei Faelle, in denen KEIN Knopf erscheinen darf.
+const h2 = zeichne(true, EIN, [{ ...KAND, belegt: true }]);
+pruefe("Z25 Belegtes Kind: kein Knopf, sondern ein Hinweis",
+       !/data-ko-person/.test(h2) && /hat schon eine eigene Erklärung/.test(h2), h2);
+
+const h3 = zeichne(true, EIN, [{ ...KAND, in_liste: false, herkunft: "Turnen" }]);
+pruefe("Z26 Anderes Kind: kein Knopf",
+       !/data-ko-person/.test(h3) && /andere Abteilung/.test(h3), h3);
+
+const h4 = zeichne(true, EIN, [{ ...KAND, in_liste: false, person_id: null,
+                                 antrag: true, herkunft: "Aufnahmeantrag vom 2026-09-01" }]);
+pruefe("Z27 Offener Antrag: kein Knopf, Verweis auf den Beschluss",
+       !/data-ko-person/.test(h4) && /Vorstandsbeschluss/.test(h4), h4);
+
+pruefe("Z28 Ohne Treffer kommt der Satz zur fehlenden Anmeldung",
+       /nicht angemeldet/.test(zeichne(true, EIN, [])));
+pruefe("Z29 Beim Vermerk 'andere Abteilung' bleibt die Zeile leer",
+       zeichne(true, { ...EIN, andere_abteilung: true }, []) === "");
+pruefe("Z30 Eine zugeordnete Erklaerung bekommt keine Zeile",
+       zeichne(true, { ...EIN, zugeordnet: true }, [KAND]) === "");
+pruefe("Z31 Ohne Schreibrecht bleibt die Zeile leer",
+       zeichne(false, EIN, [KAND]) === "");
+
+// ⚠️ Gegenprobe zum Escaping: ein Name mit spitzer Klammer darf als TEXT
+// dastehen, nicht als Markup. Der Vorschlag zeigt Namen aus der
+// Datenbank, und dort steht, was der Import geliefert hat.
+const h5 = zeichne(true, EIN, [{ ...KAND, name: '<img src=x onerror=1>' }]);
+pruefe("Z32 Der Name wird escaped", /&lt;img/.test(h5) && !/<img/.test(h5), h5);
+
+// ======================================================================
+console.log("");
+console.log("Zusagen: " + ok + " gruen, " + fehler + " rot");
+if (fehler) {
+  console.log("");
+  for (const f of fehlerListe) console.log("  ROT  " + f);
+  process.exit(1);
+}

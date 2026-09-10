@@ -413,6 +413,76 @@ function zeichneKodexListe() {
 // Nicht zuzuordnende Erklaerungen
 // ---------------------------------------------------------------------
 
+// Die Vorschlagszeile unter einer Erklaerung.
+//
+// ⚠️ Sie steht als EIGENE Zeile unter der Erklaerung, nicht als weitere
+// Spalte. Drei Kandidaten mit Begruendung sprengen jede Spaltenbreite,
+// und am Handy waere die Tabelle danach nur noch seitlich scrollbar.
+//
+// ⚠️ Der Vorschlag ordnet NICHTS zu. Er sagt, wer gemeint sein koennte,
+// und warum -- entscheiden muss die Geschaeftsstelle. Deshalb steht der
+// Grund an jedem Kandidaten und nicht bloss eine Punktzahl: „Geburtstag
+// gleich, 1 Namensteil nur anders geschrieben" ist pruefbar, „142 Punkte"
+// ist es nicht.
+function koVorschlagZeile(b, spalten) {
+  // Ohne Schreibrecht schickt der Server gar nichts -- dann auch keine
+  // Zeile, statt einer leeren Ueberschrift.
+  if (!koDaten.darf_schreiben) return "";
+  // Eine von Hand zugeordnete Zeile hat ihre Antwort schon.
+  if (b.zugeordnet) return "";
+
+  const treffer = (koDaten.vorschlaege || {})[b.id] || [];
+  // ⚠️ Der Inhalt steckt in einer eigenen Huelle, und die klebt am linken
+  // Rand (`position: sticky`). Die Zelle ist so breit wie die ganze
+  // Tabelle -- am Handy ist das mehr als das Bild -- und ohne die Huelle
+  // stuende die Begruendung rechts ausserhalb, waehrend der Knopf links
+  // sichtbar bliebe. Man saehe dann einen Knopf ohne den Grund, aus dem
+  // man ihn druecken soll.
+  const zelle = (inhalt) =>
+    '<tr class="ko-vorschlag"><td colspan="' + spalten + '">' +
+    '<div class="ko-vorschlag-inhalt">' + inhalt + "</div></td></tr>";
+
+  if (!treffer.length) {
+    // ⚠️ Das ist KEIN Fehler und auch keine leere Antwort, sondern die
+    // haeufigste: die Familie hat den Kodex unterschrieben und das Kind
+    // nie angemeldet. Ohne diesen Satz sucht die Geschaeftsstelle einen
+    // Tippfehler, den es nicht gibt (07.09.2026: 13 von 18 Faellen).
+    if (b.andere_abteilung) return "";
+    return zelle('<span class="fussnote">Kein ähnlicher Name im ' +
+      "Mitgliederbestand und in keinem offenen Aufnahmeantrag. " +
+      "Wahrscheinlich ist das Kind gar nicht angemeldet — dann fehlt hier " +
+      "nicht die Zuordnung, sondern die Anmeldung.</span>");
+  }
+
+  return zelle(
+    '<span class="fussnote">Könnte gemeint sein:</span>' +
+    '<ul class="ko-vorschlagsliste">' +
+    treffer.map((v) =>
+      "<li>" +
+        '<strong>' + esc(v.name) + "</strong>" +
+        (v.geburtsdatum ? " <span class=\"fussnote\">(" +
+          esc(datumDe(v.geburtsdatum)) + ")</span>" : "") +
+        ' <span class="chip ruhend">' + esc(v.herkunft) + "</span>" +
+        '<div class="fussnote">' + esc(v.gruende.join(" · ")) + "</div>" +
+        // Zuordnen geht nur bei einem Kind, das in der Liste steht. Bei
+        // einem Erwachsenen, einem Kind einer anderen Abteilung oder
+        // einem offenen Antrag waere der Knopf eine falsche Auskunft: es
+        // gibt dort nichts zuzuordnen.
+        (v.in_liste && !v.belegt && v.person_id
+          ? ' <button class="btn klein" data-ko-uebernehmen="' + esc(b.id) +
+            '" data-ko-person="' + esc(v.person_id) + '" data-ko-name="' +
+            esc(v.name) + '">Dieser Erklärung zuordnen</button>'
+          : v.belegt
+            ? ' <span class="chip gekuendigt">hat schon eine eigene Erklärung</span>'
+            : v.antrag
+              ? ' <span class="fussnote">Erst nach dem Vorstandsbeschluss ' +
+                "wird daraus ein Mitglied — bis dahin ist hier nichts zu tun.</span>"
+              : ' <span class="fussnote">Steht nicht in der Kodex-Liste — ' +
+                "andere Abteilung, ausgetreten oder volljährig.</span>") +
+      "</li>").join("") +
+    "</ul>");
+}
+
 function zeichneKodexOffene() {
   const liste = koDaten.offene_eingaenge || [];
   const karte = $("ko-offen-karte");
@@ -420,6 +490,11 @@ function zeichneKodexOffene() {
   if (!liste.length) { karte.hidden = true; return; }
   karte.hidden = false;
   $("ko-offen-zahl").textContent = liste.length;
+
+  // Die Kopfzeile hat sieben Spalten; die Vorschlagszeile darunter muss
+  // genau so viele ueberspannen. Eine Zahl von Hand hier stuende beim
+  // naechsten neuen Feld daneben, deshalb aus der Kopfzeile gezaehlt.
+  const KO_OFFEN_SPALTEN = 7;
 
   $("ko-offen-liste").innerHTML =
     '<div class="tabelle-scroll"><table><thead><tr>' +
@@ -456,12 +531,42 @@ function zeichneKodexOffene() {
           "</td>" +
         '<td><button class="btn grau klein" data-ko-detail2="' + esc(b.id) +
           '">Ansehen</button></td>' +
-      "</tr>").join("") +
+      "</tr>" +
+      koVorschlagZeile(b, KO_OFFEN_SPALTEN)).join("") +
     "</tbody></table></div>";
 
   $("ko-offen-liste").querySelectorAll("[data-ko-detail2]").forEach((b) => {
     b.addEventListener("click", () => zeigeKodexDetail(b.dataset.koDetail2));
   });
+
+  $("ko-offen-liste").querySelectorAll("[data-ko-uebernehmen]").forEach((knopf) => {
+    knopf.addEventListener("click", () =>
+      uebernimmVorschlag(knopf.dataset.koUebernehmen, knopf.dataset.koPerson,
+                         knopf.dataset.koName));
+  });
+}
+
+// Einen Vorschlag annehmen: ein Klick statt Ansehen → Vormerken →
+// Kinderliste durchsuchen → anklicken.
+//
+// ⚠️ Die Rueckfrage bleibt. Der Vorschlag ist eine Vermutung des
+// Rechners, und was hier entsteht, ist der Beleg einer unterschriebenen
+// Erklaerung -- ein Fehlgriff haengt am falschen Kind, und das richtige
+// steht weiter auf „offen". Der Text nennt beide Namen, damit die
+// Rueckfrage etwas zu pruefen gibt.
+async function uebernimmVorschlag(id, personId, name) {
+  if (!id || !personId) return;
+  if (!confirm("Diese Erklärung " + (name ? name : "diesem Kind") + " zuordnen?\n\n" +
+               "Der Vorschlag stammt aus einem Namensabgleich und kann danebenliegen. " +
+               "Die Zuordnung lässt sich im Detail wieder aufheben.")) return;
+  try {
+    const antwort = await ordneKodexZu(id, personId);
+    koMeldung("Die Erklärung ist " + (antwort.person_name || name || "dem Kind") +
+              " zugeordnet.");
+  } catch (e) {
+    koMeldung(e.message, "fehler");
+  }
+  ladeKodex();
 }
 
 // ---------------------------------------------------------------------

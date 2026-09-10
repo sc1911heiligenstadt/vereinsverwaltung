@@ -94,7 +94,8 @@ const APP_FUNKTIONEN = [
     items: [
       "Der Reiter zeigt, welche minderjährigen Mitglieder der Abteilung Fußball die Kenntnisnahme abgegeben haben und welche fehlen. Für andere Abteilungen gilt der Kodex nicht.",
       "Der Link für die Eltern lässt sich kopieren und weitergeben — er führt auf eine Seite, die ohne Vereinskonto funktioniert.",
-      "Erklärungen, die zu keinem Kind der Liste passen, sammelt die Karte „Nicht zuzuordnen“. Sie werden von Hand zugeordnet; die Familie hält ihre Erklärung längst für erledigt."
+      "Erklärungen, die zu keinem Kind der Liste passen, sammelt die Karte „Nicht zuzuordnen“. Sie werden von Hand zugeordnet; die Familie hält ihre Erklärung längst für erledigt.",
+      "Unter jeder dieser Zeilen stehen bis zu drei Vorschläge aus dem Mitgliederbestand — abgeglichen über Vor- und Nachnamen mit anderer Schreibweise (Lüdemann/Ludemann), über Tippfehler und über das Geburtsdatum. Jeder Vorschlag nennt seinen Grund, und ein Kind der Kodex-Liste lässt sich mit einem Klick zuordnen."
     ]
   },
   {
@@ -171,6 +172,22 @@ const BUCHHALTUNG_FUNKTIONEN = [
 ];
 
 const CHANGELOG = [
+  {
+    version: "1.5",
+    groups: [
+      {
+        title: "Elternkodex: „Nicht zuzuordnen“ schlägt jetzt Kinder vor",
+        items: [
+          "Unter jeder Erklärung, die zu keinem Kind der Liste passt, stehen bis zu drei Vorschläge aus dem Mitgliederbestand. Bisher musste jede Zeile von Hand mit dreihundert Namen verglichen werden.",
+          "Verglichen wird nachsichtiger als beim automatischen Abgleich: „Lüdemann“ und „Ludemann“ gelten als derselbe Name, ebenso ein Tippfehler von ein bis zwei Buchstaben. Dazu zählt das Geburtsdatum — auch mit vertauschtem Tag und Monat.",
+          "Jeder Vorschlag nennt seinen Grund („Geburtstag gleich · 1 Namensteil nur anders geschrieben“), damit die Vermutung des Rechners nachprüfbar bleibt. Ein gleiches Geburtsdatum allein reicht nie für einen Vorschlag — bei 540 Mitgliedern ist das Zufall.",
+          "Gesucht wird im ganzen Bestand, nicht nur in der Kodex-Liste: Kinder anderer Abteilungen, Ausgetretene, Volljährige und noch nicht angenommene Aufnahmeanträge stehen mit dabei und sind als solche gekennzeichnet. Zuordnen lässt sich mit einem Klick nur ein Kind, das in der Kodex-Liste steht — bei allen anderen ist nichts zu tun, und der Vorschlag sagt auch das.",
+          "Findet sich nirgends ein ähnlicher Name, steht das ausdrücklich da. Dann fehlt meist nicht die Zuordnung, sondern die Anmeldung des Kindes.",
+          "Die Vorschläge sieht nur, wer bearbeiten darf. Die Passstelle bekommt sie nicht: sie greifen in den Gesamtbestand, den ihr dieselbe Liste an anderer Stelle verwehrt."
+        ]
+      }
+    ]
+  },
   {
     version: "1.4",
     groups: [
