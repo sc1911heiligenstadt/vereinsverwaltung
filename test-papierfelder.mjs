@@ -138,14 +138,22 @@ function antrag(mehr) {
   }, mehr || {});
 }
 
+// ⚠️ ALLE Werte hier sind ERFUNDEN und muessen es bleiben. Am 10.08.2026
+// ist in genau dieser Datei die Vereins-IBAN durch die neutrale Test-IBAN
+// ersetzt worden -- die Glaeubiger-ID, die BIC der Regionalbank und ein
+// abgeschnittenes IBAN-Bruchstueck blieben dabei stehen und sind erst bei
+// der Abnahme am 11.09.2026 aufgefallen. Die Glaeubiger-ID hatte eine
+// GUELTIGE Pruefziffer; ein getippter Fantasiewert faellt da durch.
+// Merksatz: ein Aufraeumlauf, der nach EINEM Muster sucht, laesst die
+// Nachbarwerte stehen -- beim naechsten Mal das ganze Objekt ansehen.
 const b1 = W.pruefeAntrag(antrag({
-  geburtsort: "Erfurt", bank_name: "VR-Bank Mitte", bic: "GENODEF1ESW",
+  geburtsort: "Erfurt", bank_name: "Musterbank eG", bic: "ABCDDEFFXXX",
   kontoinhaber_anschrift: "Anderer Weg 9, 37308 Heilbad Heiligenstadt",
   unterschrift_ort: "Erfurt"
 }), sparten, HEUTE);
 pruefe("B1 Antrag mit neuen Feldern geht durch", !b1.fehler, b1.fehler);
 pruefe("B2 Geburtsort uebernommen", b1.satz && b1.satz.inhalt.geburtsort === "Erfurt");
-pruefe("B3 Kreditinstitut uebernommen", b1.satz && b1.satz.inhalt.bank_name === "VR-Bank Mitte");
+pruefe("B3 Kreditinstitut uebernommen", b1.satz && b1.satz.inhalt.bank_name === "Musterbank eG");
 pruefe("B4 Abweichende Anschrift uebernommen",
        b1.satz && /Anderer Weg 9/.test(b1.satz.inhalt.kontoinhaber_anschrift));
 pruefe("B5 Ort der Unterschrift uebernommen",
@@ -420,8 +428,12 @@ const gAntrag = {
   }
 };
 const gSparten = [{ id: "s1", name: "Fussball" }, { id: "s2", name: "Wandern" }];
-const gCfg = { verein_name: "1. SC 1911 Heiligenstadt e.V.", verein_iban: "DE62 5226",
-               verein_bic: "GENODEF1ESW", glaeubiger_id: "DE71ZZZ00000406867" };
+// ⚠️ Erfundene Vereinsstammdaten. DE77ZZZ00000000038 ist der oeffentliche
+// Beispielwert des EPC (Pruefziffer stimmt, deshalb taugt er als Testwert),
+// die IBAN ist das neutrale Standard-Testkonto.
+const gCfg = { verein_name: "1. SC 1911 Heiligenstadt e.V.",
+               verein_iban: "DE02100500000054540402",
+               verein_bic: "ABCDDEFFXXX", glaeubiger_id: "DE77ZZZ00000000038" };
 
 const gVerwaltung = D.papierAntragHtml({ antrag: gAntrag, sparten: gSparten,
                                          einstellungen: gCfg, mitgliedsnummer: "9001" });
@@ -439,7 +451,7 @@ pruefe("G6 Nur die gewaehlte Abteilung, nicht alle",
 pruefe("G7 Foto-Einwilligung als 'nein' wiedergegeben",
        /freiwillig\)<\/th><td>nein<\/td>/.test(gVerwaltung));
 pruefe("G8 Satzung als 'ja' wiedergegeben", /anerkannt<\/th><td>ja<\/td>/.test(gVerwaltung));
-pruefe("G9 Glaeubiger-ID in der Fusszeile", /DE71ZZZ00000406867/.test(gVerwaltung));
+pruefe("G9 Glaeubiger-ID in der Fusszeile", /DE77ZZZ00000000038/.test(gVerwaltung));
 
 // Der einzige zulaessige Unterschied zwischen beiden Aufrufern.
 pruefe("G10 Verwaltung druckt die Mitgliedsnummer",
