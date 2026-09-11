@@ -819,14 +819,63 @@ CREATE INDEX idx_kodex_verlauf_zeile ON elternkodex_verlauf(bestaetigung_id);
 
 
 -- ---------------------------------------------------------------------
--- 11. DFBnet-Abgleich: die Handzuordnung
+-- 11. DFBnet-Abgleich: die drei Tabellen
 -- ---------------------------------------------------------------------
 --
--- Der Abgleich der Spielberechtigungen mit dem Bestand speichert NICHTS.
--- Diese eine Tabelle ist die Ausnahme, und sie haelt keine Verbandsdaten
--- fest, sondern eine ENTSCHEIDUNG der Geschaeftsstelle: "dieser gemeldete
--- Spieler ist dieses Mitglied, auch wenn der Name anders geschrieben ist".
--- Dasselbe Muster wie elternkodex_bestaetigung.person_id.
+-- Die eingelesene Meldeliste. Es gibt immer genau EINE gueltige: ein neuer
+-- Export ersetzt den alten vollstaendig. Gespeichert wird sie, weil die
+-- Passstelle die Datei gar nicht hat und den Abgleich trotzdem sehen soll
+-- -- gerechnet wird bei jedem Oeffnen neu.
+--
+-- Entsteht zur Laufzeit in handleMigration (DFBNET_SCHEMA). Bei
+-- Aenderungen schema-kompakt.sql mitziehen.
+CREATE TABLE dfbnet_import (
+  id                       TEXT PRIMARY KEY,
+  dateiname                TEXT,
+  eingang_am               TEXT NOT NULL,
+  erstellt_von             TEXT NOT NULL,
+  anzahl                   INTEGER NOT NULL,
+  doppelt                  INTEGER NOT NULL DEFAULT 0,
+
+  -- Zeilen, die nicht verglichen werden konnten. Sie werden gezaehlt und
+  -- benannt, nicht still uebergangen: eine Luecke in der Datei ist eine
+  -- Nachfassliste, kein Nichts.
+  ohne_geburtsdatum        INTEGER NOT NULL DEFAULT 0,
+  ohne_geburtsdatum_namen  TEXT,
+  ohne_schluessel          INTEGER NOT NULL DEFAULT 0,
+  ohne_schluessel_namen    TEXT,
+
+  blaetter                 TEXT
+);
+
+-- Die gemeldeten Spieler der aktuellen Liste, alle Blaetter des Exports
+-- zusammengefasst.
+--
+-- Der Abgleichsschluessel ist der PRIMARY KEY: dieselbe Person kann damit
+-- nicht zweimal darin stehen, und das Zusammenfassen der neun Blaetter ist
+-- nicht nur eine Rechnung im Code, sondern eine Zusage der Datenbank.
+-- Zeilen ohne Geburtsdatum und Zeilen, aus deren Namen sich kein
+-- Schluessel bilden laesst, kommen gar nicht erst herein -- sie stehen als
+-- Zahl und Namensliste in dfbnet_import.
+--
+-- Entsteht zur Laufzeit in handleMigration (DFBNET_SCHEMA). Bei
+-- Aenderungen schema-kompakt.sql mitziehen.
+CREATE TABLE dfbnet_spieler (
+  abgleich_schluessel  TEXT PRIMARY KEY,
+  import_id            TEXT NOT NULL,
+  vorname              TEXT,
+  nachname             TEXT,
+  geburtsdatum         TEXT NOT NULL,
+  mannschaft           TEXT,
+  aktiv                TEXT NOT NULL DEFAULT 'ja'
+);
+
+-- Der Abgleich selbst schreibt NICHTS -- er nimmt die gespeicherte Liste
+-- und stellt sie dem Bestand gegenueber. Diese Tabelle haelt deshalb keine
+-- Verbandsdaten fest, sondern eine ENTSCHEIDUNG der Geschaeftsstelle:
+-- "dieser gemeldete Spieler ist dieses Mitglied, auch wenn der Name anders
+-- geschrieben ist". Dasselbe Muster wie elternkodex_bestaetigung.person_id
+-- -- und sie ueberlebt als einzige der drei einen neuen Export.
 --
 -- Der Schluessel ist der der DATEI-Seite (Name + Geburtsdatum, wie das
 -- DFBnet sie fuehrt). Schreibt der Verband den Namen spaeter anders,
