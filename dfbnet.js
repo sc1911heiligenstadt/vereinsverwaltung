@@ -188,6 +188,21 @@ function dfbLageChip(lage) {
   return '<span class="chip gekuendigt">nicht im Bestand</span>';
 }
 
+// Eine Luecke im Bestand oder in der Datei, in einem Satz. Die Namen
+// stehen nur dabei, wenn der Server sie mitgeschickt hat -- ohne
+// Schreibrecht tut er das nicht, und dann bleibt die blosse Zahl.
+// ⚠️ Kein Satz, wenn die Zahl 0 ist: „0 Kinder ohne Geburtsdatum" ist
+// eine Zeile, die man jeden Tag liest und irgendwann nicht mehr sieht.
+// ⚠️ Einzahl und Mehrzahl getrennt. Bei genau einem Fall stand hier
+// zuerst „1 Zeilen ohne Geburtsdatum" und „1 Kinder stehen doppelt" --
+// und ein Satz, der falsch klingt, wird gelesen wie eine Angabe, der man
+// nicht traut. Der Zustand mit genau EINEM Fall ist hier der Normalfall.
+function dfbLuecke(anzahl, namen, eins, viele) {
+  if (!anzahl) return "";
+  return "<strong>" + anzahl + " " + (anzahl === 1 ? eins : viele) + "</strong>" +
+    (namen && namen.length ? " (" + esc(namen.join(", ")) + ")" : "") + ". ";
+}
+
 // Die Rohfelder eines gemeldeten Spielers als data-Attribute. Sie gehen
 // unveraendert an den Server zurueck, der daraus den Schluessel bildet.
 function dfbRohAttr(z) {
@@ -332,11 +347,27 @@ function dfbZeichne() {
     " gegen die Abteilung " + esc(e.abteilung) + ". " +
     (e.doppelt ? e.doppelt + " doppelte Zeilen aus der Datei wurden zusammengefasst. " : "") +
     (e.von_hand ? "<strong>" + e.von_hand + " davon sind von Hand zugeordnet.</strong> " : "") +
-    (e.ohne_geburtsdatum
-      ? "<strong>" + e.ohne_geburtsdatum + " Zeilen ohne Geburtsdatum</strong> blieben außen vor" +
-        (e.ohne_geburtsdatum_namen && e.ohne_geburtsdatum_namen.length
-          ? " (" + esc(e.ohne_geburtsdatum_namen.join(", ")) + ")" : "") + ". "
-      : "") +
+    dfbLuecke(e.ohne_geburtsdatum, e.ohne_geburtsdatum_namen,
+              "Zeile der Datei ohne Geburtsdatum blieb außen vor",
+              "Zeilen der Datei ohne Geburtsdatum blieben außen vor") +
+    // ⚠️ Zeilen, aus deren Namen sich kein Schlüssel bilden lässt. Sie
+    // wurden früher gespeichert und standen dann für immer unter
+    // „gemeldet, aber nicht im Bestand", ohne dass man sie hätte
+    // zuordnen können.
+    dfbLuecke(e.ohne_schluessel, e.ohne_schluessel_namen,
+              "Zeile der Datei mit einem Namen, aus dem sich kein Abgleich bilden lässt, " +
+              "blieb außen vor",
+              "Zeilen der Datei mit einem Namen, aus dem sich kein Abgleich bilden lässt, " +
+              "blieben außen vor") +
+    // ⚠️ Die GEGENSEITE: Fußball-Mitglieder ohne Geburtsdatum. Sie fielen
+    // bis zum 11.09.2026 spurlos aus dem Abgleich — weder in einer Liste
+    // noch in einer Zahl. Eine Lücke im Datensatz ist kein „gibt es nicht".
+    dfbLuecke(e.ohne_geburtsdatum_bestand, e.ohne_geburtsdatum_bestand_namen,
+              "Fußball-Mitglied ohne Geburtsdatum konnte nicht verglichen werden",
+              "Fußball-Mitglieder ohne Geburtsdatum konnten nicht verglichen werden") +
+    dfbLuecke(e.doppelt_erfasst, e.doppelt_erfasst_namen,
+              "Kind steht doppelt im Bestand und wurde zusammengefasst",
+              "Kinder stehen doppelt im Bestand und wurden zusammengefasst") +
     (e.volljaehrig_verborgen
       ? e.volljaehrig_verborgen + " volljährige Fußball-Mitglieder dieser Jahrgänge sind " +
         "ebenfalls nicht gemeldet; ihre Namen sieht nur die Geschäftsstelle. "
@@ -611,16 +642,22 @@ async function dfbZuordnen(roh, personId) {
 }
 
 // Sucht ueber die bestehende Mitgliederliste. ⚠️ Bewusst keine eigene
-// Aktion: `vv-mitglieder-liste` kann das laengst, haengt an
-// darfPersonenSehen und filtert einen Abteilungsleiter serverseitig auf
-// seine Sparte. Eine zweite Suche waere eine zweite Rechtegrenze.
+// Aktion: `vv-mitglieder` kann das laengst, haengt an darfPersonenSehen
+// und filtert einen Abteilungsleiter serverseitig auf seine Sparte. Eine
+// zweite Suche waere eine zweite Rechtegrenze.
+//
+// ⚠️ Hier stand bis zur Bugjagd am 11.09.2026 `vv-mitglieder-liste` --
+// ein Name, den es im Worker nie gab. Der Server antwortete mit
+// "Unbekannte Aktion", und ausgerechnet der Weg, der greifen soll, wenn
+// kein Vorschlag passt, ging nie. Deshalb jetzt ueber `ladeMitglieder`
+// aus db.js: dann steht der Aktionsname nur EINMAL im Repo.
 async function dfbMitgliedSuchen() {
   const feld = $("dfb-mitgliedsuche");
   const suche = feld ? feld.value.trim() : "";
   if (!suche) return;
   dfbMeldung("dfb-fehler", "", "fehler");
   try {
-    const antwort = await vvRequest("vv-mitglieder-liste", { suche, limit: 8 });
+    const antwort = await ladeMitglieder({ suche, limit: 8 });
     dfbMitgliedTreffer = antwort.zeilen || [];
     dfbZeichne();
     const neu = $("dfb-mitgliedsuche");

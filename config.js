@@ -185,6 +185,21 @@ const BUCHHALTUNG_FUNKTIONEN = [
 
 const CHANGELOG = [
   {
+    version: "1.9",
+    groups: [
+      {
+        title: "DFBnet Spieler: vier Fehler behoben, die nur bei unsauberen Daten auftraten",
+        items: [
+          "Stand ein Kind versehentlich zweimal im Bestand, tauchte es gleichzeitig unter „Passt zusammen“ und unter „Fußball-Mitglied, aber nicht gemeldet“ auf — die Familie wäre also angeschrieben worden, obwohl die Spielberechtigung vorliegt. Solche Kinder werden jetzt zusammengefasst und oben unter ihrem Namen als Doppeleintrag benannt, damit sich der Bestand bereinigen lässt.",
+          "Die Zahl „X Fußball-Mitglieder im Bestand“ hat bisher Mitgliedschaften gezählt, nicht Kinder. Wer zweimal eingetreten ist, wurde doppelt mitgerechnet.",
+          "Ein Fußball-Mitglied ohne hinterlegtes Geburtsdatum fiel bisher ohne jeden Hinweis aus dem Abgleich heraus — es stand in keiner Liste und in keiner Zahl. Diese Kinder werden jetzt eigens genannt: verglichen werden können sie nicht, aber man weiß von ihnen.",
+          "Zeilen der Meldeliste, aus deren Namen sich kein Abgleich bilden lässt, werden nicht mehr gespeichert, sondern gezählt und mit Namen angezeigt. Vorher standen sie dauerhaft unter „gemeldet, aber nicht im Bestand“ und ließen sich auch von Hand nicht zuordnen.",
+          "Die Suche über den gesamten Mitgliederbestand im Auswahlmodus hat gar nicht funktioniert und mit „Unbekannte Aktion“ geantwortet. Sie tut es jetzt."
+        ]
+      }
+    ]
+  },
+  {
     version: "1.8",
     groups: [
       {

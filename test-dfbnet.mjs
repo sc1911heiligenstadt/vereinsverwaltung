@@ -17,6 +17,7 @@
 //   H  Die Filterfelder
 //   I  Die gespeicherte Meldeliste
 //   J  Der Vorfilter der Vorschlaege
+//   K  Die Luecken im Bestand (Bugjagd 11.09.2026)
 //
 // ⚠️ ALLE Namen und Geburtsdaten hier sind ERFUNDEN und muessen es
 // bleiben. Dieses Repo ist oeffentlich, und es geht um minderjaehrige
@@ -94,7 +95,10 @@ const W = new Function(rohWorker.slice(0, schnitt) +
 const rohClient = readFileSync(REPO + "/dfbnet.js", "utf8");
 const C = new Function(rohClient +
   "\nreturn { dfbKopfFinden, dfbDatum, dfbMannschaftAusBlatt, dfbKopfWort, " +
-  "dfbSuchform, dfbNameTrifft };")();
+  "dfbSuchform, dfbNameTrifft, dfbLuecke };")();
+// dfbLuecke ruft esc() erst zur Laufzeit und nur bei vorhandenen Namen --
+// als freie Variable landet das im globalen Bereich, also hier setzen.
+globalThis.esc = (s) => String(s);
 
 // ======================================================================
 console.log("A  Die Datei lesen");
@@ -976,6 +980,253 @@ pruefe("J7 Vertauschter Tag und Monat kommt durch",
        jEins(jTeil[0], jTeil[1], jT[0] + "-" + jT[2] + "-" + jT[1]).length > 0);
 pruefe("J8 Wer zu niemandem passt, bekommt auch nichts",
        jEins("Xaverina", "Unverwechselbar", "1901-01-01").length === 0);
+
+
+// ======================================================================
+console.log("K  Die Luecken im Bestand (Bugjagd 11.09.2026)");
+// ======================================================================
+//
+// Vier Funde aus der Bugjagd, jeder mit eigenen Zusagen. Alle vier waren
+// VORHER gruen -- der Pruefstand hat sie nicht gesehen, weil er nur
+// saubere Bestaende kannte. Ein Bestand ohne Doppeleintrag, ohne Luecke
+// und ohne Sonderzeichen misst genau die Faelle nicht, die hier
+// schiefgehen.
+
+// Eigene Datenbank: die Faelle sollen die Abschnitte davor nicht stoeren.
+const kdb = new DatabaseSync(":memory:");
+for (const anw of readFileSync(REPO + "/schema-kompakt.sql", "utf8")
+                    .split(";").map((x) => x.trim()).filter(Boolean)) {
+  kdb.exec(anw + ";");
+}
+const kenv = { VV_DB: d1(kdb) };
+kdb.exec("INSERT INTO benutzer_rolle (id, username, rolle, sparte_id, erstellt_am, " +
+         "erstellt_von) VALUES ('kr-pass', 'pass.stelle', 'passstelle', NULL, " + WER + ")");
+await W.handleMigration(kenv, ADMIN, cors);
+kdb.exec("INSERT INTO sparte (id, name, aktiv, erstellt_am, erstellt_von) " +
+         "VALUES ('sp-fu', 'Fussball', 1, " + WER + ")");
+
+function kPerson(pid, vorname, nachname, geb) {
+  kdb.exec("INSERT INTO person (id, vorname, nachname, geburtsdatum, erstellt_am, " +
+           "erstellt_von) VALUES ('" + pid + "', '" + vorname + "', '" + nachname + "', " +
+           (geb ? "'" + geb + "'" : "NULL") + ", " + WER + ")");
+}
+function kMitgliedschaft(mid, pid, nr) {
+  kdb.exec("INSERT INTO mitgliedschaft (id, person_id, mitgliedsnummer, art, eintritt, " +
+           "austritt, status, erstellt_am, erstellt_von) VALUES ('" + mid + "', '" + pid +
+           "', '" + nr + "', 'ordentlich', '2020-01-01', NULL, 'aktiv', " + WER + ")");
+  kdb.exec("INSERT INTO mitgliedschaft_sparte (id, mitgliedschaft_id, sparte_id, eintritt, " +
+           "erstellt_am, erstellt_von) VALUES ('kms-" + mid + "', '" + mid +
+           "', 'sp-fu', '2020-01-01', " + WER + ")");
+}
+
+// ⚠️ DASSELBE KIND ZWEIMAL -- zwei person-Zeilen, gleicher Name, gleiches
+// Geburtsdatum. Entsteht auf dem Normalweg: handleAntragAnnehmen legt bei
+// jeder Annahme eine neue Person an, ohne auf Name und Geburtsdatum zu
+// pruefen.
+kPerson("k-dop1", "Mira", "Talberg", "2014-06-06"); kMitgliedschaft("km-dop1", "k-dop1", "601");
+kPerson("k-dop2", "Mira", "Talberg", "2014-06-06"); kMitgliedschaft("km-dop2", "k-dop2", "602");
+// Eine Person mit ZWEI laufenden Mitgliedschaften (auf
+// mitgliedschaft.person_id liegt keine UNIQUE-Klammer).
+kPerson("k-zwei", "Jarno", "Bergmoser", "2013-05-05");
+kMitgliedschaft("km-zwei1", "k-zwei", "603"); kMitgliedschaft("km-zwei2", "k-zwei", "604");
+// Ein Fussballkind OHNE Geburtsdatum, nicht gemeldet.
+kPerson("k-ohne", "Korbinian", "Arnholt", null); kMitgliedschaft("km-ohne", "k-ohne", "605");
+// Ein ganz normales, nicht gemeldetes Kind als Gegenprobe.
+kPerson("k-fehlt", "Ansgar", "Feldbach", "2015-01-07");
+kMitgliedschaft("km-fehlt", "k-fehlt", "606");
+
+const K_DATEI = [
+  { nachname: "Talberg", vorname: "Mira", geburtsdatum: "2014-06-06",
+    mannschaft: "D-Junioren", aktiv: "ja" },
+  { nachname: "Bergmoser", vorname: "Jarno", geburtsdatum: "2013-05-05",
+    mannschaft: "D-Junioren", aktiv: "ja" },
+  // Zwei Namen, aus denen sich kein Abgleichsschluessel bilden laesst.
+  { nachname: "Петров", vorname: "Иван", geburtsdatum: "2015-02-02",
+    mannschaft: "D-Junioren", aktiv: "ja" },
+  { nachname: "Иванов", vorname: "Пётр", geburtsdatum: "2015-03-03",
+    mannschaft: "D-Junioren", aktiv: "ja" },
+  // Eine Zeile ohne Geburtsdatum, damit beide Zaehler nebeneinander stehen.
+  { nachname: "Ohnedatum", vorname: "Nora", geburtsdatum: "", mannschaft: "E-Junioren",
+    aktiv: "ja" },
+  // ⚠️ Diese Zeile haelt das JAHRGANGSFENSTER offen. Beim ersten Bau
+  // stand sie nicht hier, und K4 und K9 waren rot -- nicht weil der Code
+  // falsch rechnete, sondern weil die beiden verworfenen Zeilen (2015)
+  // das Fenster auf 2013-2014 zusammenschnurren liessen und Feldbach
+  // damit ausserhalb lag. Das Fenster kommt aus der DATEI, und was nicht
+  // gespeichert wird, spannt es auch nicht auf.
+  { nachname: "Zaubermann", vorname: "Ferdinand", geburtsdatum: "2015-09-09",
+    mannschaft: "E-Junioren", aktiv: "ja" }
+];
+
+const kImport = JSON.parse(await (await W.handleDfbnetImport(
+  { spieler: K_DATEI, dateiname: "bugjagd.xlsx", blaetter: "Alle Spieler (5)" },
+  kenv, ADMIN, cors)).text());
+const kA = JSON.parse(await (await W.handleDfbnetAbgleich({}, kenv, ADMIN, cors)).text());
+const kNamen = (liste) => liste.map((x) => x.name);
+
+// --- Fund 1: das doppelt erfasste Kind --------------------------------
+pruefe("K1 Das doppelt erfasste Kind steht als Treffer",
+       kNamen(kA.treffer).indexOf("Mira Talberg") >= 0, JSON.stringify(kNamen(kA.treffer)));
+// ⚠️ DAS ist der Fund. Vorher stand dasselbe Kind gleichzeitig unter
+// "Passt zusammen" UND unter "spielt ohne Spielerlaubnis" -- und jemand
+// haette Eltern angerufen, deren Kind die Spielberechtigung laengst hat.
+pruefe("K2 Und NICHT zugleich unter 'nicht gemeldet'",
+       kNamen(kA.nicht_gemeldet).indexOf("Mira Talberg") < 0,
+       JSON.stringify(kNamen(kA.nicht_gemeldet)));
+pruefe("K3 Der Doppeleintrag wird gemeldet, nicht still geschluckt",
+       kA.doppelt_erfasst === 1 && kA.doppelt_erfasst_namen.indexOf("Mira Talberg") >= 0,
+       kA.doppelt_erfasst + " / " + JSON.stringify(kA.doppelt_erfasst_namen));
+
+// --- Fund 1, zweites Symptom: die Kopfzahl ----------------------------
+// Vier Datensaetze mit Geburtsdatum im Jahrgangsfenster: Talberg zweimal
+// (zwei person-Zeilen), Bergmoser einmal trotz zweier Mitgliedschaften,
+// dazu Feldbach. Vorher zaehlte diese Zahl Mitgliedschaften -- also fuenf.
+pruefe("K4 Die Kopfzahl zaehlt Datensaetze, nicht Mitgliedschaften",
+       kA.anzahl_bestand === 4, "anzahl_bestand = " + kA.anzahl_bestand);
+pruefe("K5 Wer zwei laufende Mitgliedschaften hat, steht trotzdem nur einmal da",
+       kNamen(kA.treffer).filter((n) => n === "Jarno Bergmoser").length === 1 &&
+       kNamen(kA.nicht_gemeldet).indexOf("Jarno Bergmoser") < 0);
+
+// --- Fund 3: das Kind ohne Geburtsdatum -------------------------------
+// ⚠️ Vorher tauchte es in der GANZEN Antwort nirgends auf -- nicht in
+// einer Liste, nicht in einer Zahl. Deshalb zuerst die harte Probe ueber
+// die ganze Antwort und erst danach der Zaehler.
+pruefe("K6 Das Fussballkind ohne Geburtsdatum kommt ueberhaupt vor",
+       JSON.stringify(kA).indexOf("Korbinian Arnholt") >= 0);
+pruefe("K7 Es steht als eigene Luecke da, mit Namen",
+       kA.ohne_geburtsdatum_bestand === 1 &&
+       kA.ohne_geburtsdatum_bestand_namen.indexOf("Korbinian Arnholt") >= 0,
+       kA.ohne_geburtsdatum_bestand + " / " +
+       JSON.stringify(kA.ohne_geburtsdatum_bestand_namen));
+pruefe("K8 Und NICHT als 'nicht gemeldet' -- verglichen wurde es ja nie",
+       kNamen(kA.nicht_gemeldet).indexOf("Korbinian Arnholt") < 0);
+pruefe("K9 Gegenprobe: das normale nicht gemeldete Kind steht weiter dort",
+       kNamen(kA.nicht_gemeldet).indexOf("Ansgar Feldbach") >= 0,
+       JSON.stringify(kNamen(kA.nicht_gemeldet)));
+
+// --- Fund 4: der Name ohne Abgleichsschluessel ------------------------
+pruefe("K10 Zeilen ohne verwertbaren Namen werden beim Einlesen gezaehlt",
+       kImport.ohne_schluessel === 2, JSON.stringify(kImport));
+const kGespeichert = () =>
+  kdb.prepare("SELECT COUNT(*) AS n FROM dfbnet_spieler").get().n;
+// ⚠️ Gegen kImport.anzahl geprueft, nicht gegen eine getippte Zahl: sonst
+// wird diese Zusage rot, sobald jemand der Datei oben eine Zeile zufuegt
+// -- und eine feste Zahl im Pruefstand ist genau die Sorte Rot, die man
+// beim naechsten Mal wegklickt.
+pruefe("K11 Sie werden NICHT gespeichert -- sonst waeren sie eine Sackgasse",
+       kGespeichert() === kImport.anzahl && kImport.anzahl === K_DATEI.length - 3,
+       "Zeilen in dfbnet_spieler: " + kGespeichert() + ", gemeldet: " + kImport.anzahl);
+pruefe("K12 Kein NULL-Schluessel in der Tabelle",
+       kdb.prepare("SELECT COUNT(*) AS n FROM dfbnet_spieler " +
+                   "WHERE abgleich_schluessel IS NULL").get().n === 0);
+pruefe("K13 Der Abgleich nennt sie samt Namen",
+       kA.ohne_schluessel === 2 && kA.ohne_schluessel_namen.length === 2,
+       kA.ohne_schluessel + " / " + JSON.stringify(kA.ohne_schluessel_namen));
+pruefe("K14 Die Zeile ohne Geburtsdatum wird davon nicht verschluckt",
+       kA.ohne_geburtsdatum === 1, "ohne_geburtsdatum = " + kA.ohne_geburtsdatum);
+
+// --- Die Rechtegrenze gilt auch fuer die neuen Felder -----------------
+const kPass = JSON.parse(await (await W.handleDfbnetAbgleich({}, kenv, PASS, cors)).text());
+pruefe("K15 Die Passstelle bekommt die ZAHLEN der Luecken",
+       kPass.ohne_geburtsdatum_bestand === 1 && kPass.doppelt_erfasst === 1 &&
+       kPass.ohne_schluessel === 2);
+pruefe("K16 ... aber keinen der Namen",
+       kPass.ohne_geburtsdatum_bestand_namen.length === 0 &&
+       kPass.doppelt_erfasst_namen.length === 0 &&
+       kPass.ohne_schluessel_namen.length === 0,
+       JSON.stringify([kPass.ohne_geburtsdatum_bestand_namen, kPass.doppelt_erfasst_namen,
+                       kPass.ohne_schluessel_namen]));
+pruefe("K17 Gegenprobe: der Name steht bei ihr auch sonst nirgends",
+       JSON.stringify(kPass).indexOf("Korbinian Arnholt") < 0);
+
+// --- Die Migration ergaenzt die zwei neuen Spalten --------------------
+// ⚠️ CREATE TABLE IF NOT EXISTS ergaenzt KEINE Spalte an einer Tabelle,
+// die es schon gibt. Michels Datenbank hat dfbnet_import seit heute
+// frueh -- ohne die beiden Zaehler. Ohne das ALTER liefe jeder weitere
+// Import in einen SQL-Fehler.
+const adb = new DatabaseSync(":memory:");
+for (const anw of readFileSync(REPO + "/schema-kompakt.sql", "utf8")
+                    .split(";").map((x) => x.trim()).filter(Boolean)) {
+  adb.exec(anw + ";");
+}
+adb.exec("DROP TABLE dfbnet_import");
+adb.exec("CREATE TABLE dfbnet_import (id TEXT PRIMARY KEY, dateiname TEXT, " +
+         "eingang_am TEXT NOT NULL, erstellt_von TEXT NOT NULL, anzahl INTEGER NOT NULL, " +
+         "doppelt INTEGER NOT NULL DEFAULT 0, ohne_geburtsdatum INTEGER NOT NULL DEFAULT 0, " +
+         "ohne_geburtsdatum_namen TEXT, blaetter TEXT)");
+const aSpalten = () => new Set(adb.prepare("PRAGMA table_info(dfbnet_import)")
+                                  .all().map((x) => x.name));
+pruefe("K18 Gegenprobe: die alte Tabelle hat die Spalten wirklich nicht",
+       !aSpalten().has("ohne_schluessel"));
+const aenv = { VV_DB: d1(adb) };
+await W.handleMigration(aenv, ADMIN, cors);
+pruefe("K19 Die Migration ergaenzt sie an der bestehenden Tabelle",
+       aSpalten().has("ohne_schluessel") && aSpalten().has("ohne_schluessel_namen"),
+       JSON.stringify([...aSpalten()]));
+// ⚠️ In try/catch, und das ist keine Vorsicht, sondern eine Lehre: ohne
+// das ALTER wirft der Import hier "table dfbnet_import has no column
+// named ohne_schluessel" -- genau der Fehler, den Michel beim naechsten
+// Einlesen bekaeme. Ungefangen reisst er den ganzen Pruefstand ab, und
+// alles danach (K21-K23) laeuft nicht mehr. Beim ersten Bau ist die
+// Mutationsprobe genau darauf hereingefallen: keine roten Zeilen, also
+// gruen gemeldet -- obwohl node mit Code 1 abgestuerzt war.
+let aImport = null, aFehler = "";
+try {
+  aImport = JSON.parse(await (await W.handleDfbnetImport(
+    { spieler: [{ nachname: "Talberg", vorname: "Mira", geburtsdatum: "2014-06-06",
+                  mannschaft: "D", aktiv: "ja" }], dateiname: "nach-alter.xlsx" },
+    aenv, ADMIN, cors)).text());
+} catch (e) { aFehler = String(e && e.message ? e.message : e); }
+pruefe("K20 Und ein Import laeuft danach durch", aImport && aImport.ok === true,
+       aFehler || JSON.stringify(aImport));
+
+// --- Fund 2: jeder Aktionsname des Clients muss den Worker treffen ----
+// ⚠️ Das ist die Zusage, die den ganzen Fehler AUFGEDECKT haette:
+// dfbnet.js schickte `vv-mitglieder-liste`, den Fall gibt es im Worker
+// nicht, und der Server antwortete mit "Unbekannte Aktion". Kein
+// Syntaxfehler, keine Konsolenmeldung, keine Raster-Klasse -- nur ein
+// toter Weg. Gemessen wird gegen den ECHTEN Code beider Seiten, nie
+// gegen eine von Hand gepflegte Liste.
+const workerFaelle = new Set(
+  [...rohWorker.matchAll(/case\s+"(vv-[a-z0-9-]+)"/g)].map((m) => m[1]));
+pruefe("K21 Gegenprobe: der Worker hat ueberhaupt Faelle", workerFaelle.size > 30,
+       workerFaelle.size + " Faelle");
+const clientDateien = ["dfbnet.js", "db.js", "kodex-verwaltung.js", "antraege.js",
+                       "app.js", "import.js", "lsb.js", "reha.js", "rollen.js",
+                       "beitraege.js", "lauf.js", "zahlungen.js", "auswertung.js",
+                       "nachwuchs.js", "kodex.js", "antrag.js", "tfv-antrag.js",
+                       "db-antrag.js", "sicherung-wiederherstellen.js"];
+const tote = [];
+let gefundeneAufrufe = 0;
+for (const datei of clientDateien) {
+  let text = "";
+  try { text = readFileSync(REPO + "/" + datei, "utf8"); } catch { continue; }
+  for (const m of text.matchAll(/vvRequest\(\s*"(vv-[a-z0-9-]+)"/g)) {
+    gefundeneAufrufe++;
+    if (!workerFaelle.has(m[1])) tote.push(datei + ": " + m[1]);
+  }
+}
+// ⚠️ Erst die Gegenprobe, dann die Zusage: ohne sie waere K23 auch dann
+// gruen, wenn der regulaere Ausdruck gar nichts findet.
+pruefe("K22 Gegenprobe: es werden ueberhaupt Aufrufe gefunden", gefundeneAufrufe > 20,
+       gefundeneAufrufe + " Aufrufe");
+pruefe("K23 Kein Client ruft eine Aktion, die es im Worker nicht gibt",
+       tote.length === 0, tote.join(" · "));
+
+// --- Der Satz zu den Luecken liest sich in beiden Zahlformen ----------
+// ⚠️ Genau EIN Fall ist hier der Normalfall, nicht der Sonderfall. Beim
+// ersten Wurf stand da "1 Zeilen ohne Geburtsdatum" und "1 Kinder stehen
+// doppelt" -- im Browser gemessen, nicht vermutet.
+pruefe("K24 Einzahl", C.dfbLuecke(1, [], "Kind steht doppelt", "Kinder stehen doppelt")
+       === "<strong>1 Kind steht doppelt</strong>. ",
+       C.dfbLuecke(1, [], "Kind steht doppelt", "Kinder stehen doppelt"));
+pruefe("K25 Mehrzahl, mit Namen dahinter",
+       C.dfbLuecke(2, ["Mira T", "Jarno B"], "Kind steht doppelt", "Kinder stehen doppelt")
+       === "<strong>2 Kinder stehen doppelt</strong> (Mira T, Jarno B). ");
+// ⚠️ Bei 0 gar kein Satz: "0 Kinder stehen doppelt" liest man jeden Tag
+// und irgendwann gar nicht mehr.
+pruefe("K26 Bei null bleibt der Satz ganz weg",
+       C.dfbLuecke(0, [], "Kind steht doppelt", "Kinder stehen doppelt") === "");
 
 // ======================================================================
 console.log("");

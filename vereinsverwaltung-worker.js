@@ -1552,6 +1552,26 @@ async function handleMigration(env, me, corsHeaders) {
   // sonst nichts -- der Abgleich selbst schreibt nicht.
   for (const sql of DFBNET_SCHEMA) await env.VV_DB.prepare(sql).run();
 
+  // ⚠️ CREATE TABLE IF NOT EXISTS ergaenzt KEINE Spalte an einer Tabelle,
+  // die es schon gibt. Die beiden Zaehler fuer Zeilen ohne
+  // Abgleichsschluessel kamen am 11.09.2026 dazu, nach dem ersten
+  // Einlesen -- also wie ueberall sonst per PRAGMA und ALTER.
+  try {
+    const dfbSpalten = await env.VV_DB.prepare("PRAGMA table_info(dfbnet_import)").all();
+    const dfbDa = new Set((dfbSpalten.results || []).map((s) => s.name));
+    if (!dfbDa.has("ohne_schluessel")) {
+      await env.VV_DB.prepare(
+        "ALTER TABLE dfbnet_import ADD COLUMN ohne_schluessel INTEGER NOT NULL DEFAULT 0").run();
+    }
+    if (!dfbDa.has("ohne_schluessel_namen")) {
+      await env.VV_DB.prepare(
+        "ALTER TABLE dfbnet_import ADD COLUMN ohne_schluessel_namen TEXT").run();
+    }
+  } catch {
+    // Eigenes try/catch, damit ein Fehlschlag hier nicht die ganze
+    // Migration mitreisst -- die wird beim Oeffnen der App angestossen.
+  }
+
   // Buchhaltung (Stufe 4). Die Tabellen standen im Plan, aber nie im
   // eingespielten Schema -- die Datenbank laeuft seit Juli produktiv, ein
   // zweites Einspielen gibt es nicht. Sie entstehen deshalb hier.
@@ -6845,6 +6865,11 @@ const DFBNET_SCHEMA = [
   "doppelt INTEGER NOT NULL DEFAULT 0, " +
   "ohne_geburtsdatum INTEGER NOT NULL DEFAULT 0, " +
   "ohne_geburtsdatum_namen TEXT, " +
+  // Zeilen, aus deren Namen sich kein Abgleichsschluessel bilden laesst
+  // (11.09.2026). Zwei Spalten wie beim fehlenden Geburtsdatum daneben --
+  // dieselbe Sorte Zeile, dieselbe Behandlung.
+  "ohne_schluessel INTEGER NOT NULL DEFAULT 0, " +
+  "ohne_schluessel_namen TEXT, " +
   "blaetter TEXT)",
 
   // ⚠️ Der Abgleichsschluessel ist der PRIMARY KEY. Damit kann dieselbe
@@ -6941,6 +6966,7 @@ async function handleDfbnetImport(body, env, me, corsHeaders) {
   // nicht gelesen und kommt nirgends wieder heraus.
   const gemeldet = [];
   const ohneDatum = [];
+  const ohneSchluessel = [];
   for (const z of roh) {
     const vorname = sauber(z && z.vorname, 120) || "";
     const nachname = sauber(z && z.nachname, 120) || "";
@@ -6952,16 +6978,31 @@ async function handleDfbnetImport(body, env, me, corsHeaders) {
     // Gleichnamige zusammen. Die Zeile wird gezaehlt und gemeldet, nicht
     // still uebergangen.
     if (!istIsoDatum(geb)) { ohneDatum.push(name); continue; }
+    // ⚠️ Ohne Abgleichsschluessel wird die Zeile NICHT gespeichert
+    // (Bugjagd 11.09.2026). kodexNamensteil wirft alles weg, was nach dem
+    // Falten nicht [a-z0-9] ist -- bei einem rein kyrillisch oder
+    // griechisch geschriebenen Namen bleibt nichts uebrig, und
+    // kodexSchluessel liefert null. Gespeichert landete so eine Zeile mit
+    // NULL als Schluessel in der Tabelle (SQLite laesst NULL in einer
+    // TEXT-PRIMARY-KEY zu, beliebig oft), fand nie etwas und liess sich
+    // auch VON HAND NICHT ZUORDNEN -- handleDfbnetZuordnen bildet
+    // denselben Schluessel und weist mit 400 ab. Eine Sackgasse, aus der
+    // niemand herauskommt. Also zaehlen und benennen, wie die Zeile ohne
+    // Geburtsdatum darueber.
+    const schluessel = kodexSchluessel(vorname, nachname, geb);
+    if (!schluessel) { ohneSchluessel.push(name); continue; }
     const aktivRoh = (z && z.aktiv) === false ? "nein" : String((z && z.aktiv) || "ja");
     gemeldet.push({
       vorname, nachname, geburtsdatum: geb,
       mannschaft: sauber(z && z.mannschaft, 120) || "",
       aktiv: aktivRoh.toLowerCase() === "nein" ? "nein" : "ja",
-      schluessel: kodexSchluessel(vorname, nachname, geb)
+      schluessel
     });
   }
   if (!gemeldet.length) {
-    return json({ error: "In der Datei stand keine Zeile mit Name UND Geburtsdatum." },
+    return json({ error: "In der Datei stand keine Zeile mit einem brauchbaren Namen UND " +
+                         "einem Geburtsdatum (" + ohneDatum.length + " ohne Datum, " +
+                         ohneSchluessel.length + " ohne verwertbaren Namen)." },
                 400, corsHeaders);
   }
 
@@ -6975,8 +7016,11 @@ async function handleDfbnetImport(body, env, me, corsHeaders) {
   const jeSchluessel = new Map();
   const eindeutig = [];
   let doppelt = 0;
+  // ⚠️ g.schluessel ist hier immer belegt -- Zeilen ohne Schluessel sind
+  // oben schon herausgefallen und stehen in ohneSchluessel. Frueher stand
+  // hier eine Pruefung darauf, und die Zeile wurde TROTZDEM gespeichert.
   for (const g of gemeldet) {
-    const vorher = g.schluessel ? jeSchluessel.get(g.schluessel) : null;
+    const vorher = jeSchluessel.get(g.schluessel);
     if (vorher) {
       doppelt++;
       // Die Mannschaften werden GESAMMELT, nicht ueberschrieben: dass ein
@@ -6991,7 +7035,7 @@ async function handleDfbnetImport(body, env, me, corsHeaders) {
       if (g.aktiv === "ja") vorher.aktiv = "ja";
       continue;
     }
-    if (g.schluessel) jeSchluessel.set(g.schluessel, g);
+    jeSchluessel.set(g.schluessel, g);
     eindeutig.push(g);
   }
 
@@ -7014,10 +7058,12 @@ async function handleDfbnetImport(body, env, me, corsHeaders) {
       an.push(env.VV_DB.prepare("DELETE FROM dfbnet_import"));
       an.push(env.VV_DB.prepare(
         "INSERT INTO dfbnet_import (id, dateiname, eingang_am, erstellt_von, anzahl, " +
-        "doppelt, ohne_geburtsdatum, ohne_geburtsdatum_namen, blaetter) " +
-        "VALUES (?,?,?,?,?,?,?,?,?)"
+        "doppelt, ohne_geburtsdatum, ohne_geburtsdatum_namen, ohne_schluessel, " +
+        "ohne_schluessel_namen, blaetter) " +
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)"
       ).bind(importId, dateiname, jetzt, me.username, eindeutig.length, doppelt,
-             ohneDatum.length, JSON.stringify(ohneDatum.slice(0, 50)), blaetter));
+             ohneDatum.length, JSON.stringify(ohneDatum.slice(0, 50)),
+             ohneSchluessel.length, JSON.stringify(ohneSchluessel.slice(0, 50)), blaetter));
       erster = false;
     }
     for (const g of eindeutig.slice(i, i + BLOCK)) {
@@ -7034,7 +7080,8 @@ async function handleDfbnetImport(body, env, me, corsHeaders) {
                       { anzahl: eindeutig.length, doppelt, dateiname });
 
   return json({ ok: true, anzahl: eindeutig.length, doppelt,
-                ohne_geburtsdatum: ohneDatum.length }, 200, corsHeaders);
+                ohne_geburtsdatum: ohneDatum.length,
+                ohne_schluessel: ohneSchluessel.length }, 200, corsHeaders);
 }
 
 // Der Abgleich. LESEN -- er nimmt die gespeicherte Meldeliste und stellt
@@ -7097,6 +7144,13 @@ async function handleDfbnetAbgleich(body, env, me, corsHeaders) {
   let ohneDatumNamen = [];
   try { ohneDatumNamen = JSON.parse((importR && importR.ohne_geburtsdatum_namen) || "[]"); }
   catch { ohneDatumNamen = []; }
+  // ⚠️ Der Zugriff geht ueber `|| 0` bzw. `|| "[]"`: eine Import-Zeile,
+  // die VOR der Migration vom 11.09.2026 geschrieben wurde, hat die
+  // beiden Spalten nicht, und D1 liefert dann undefined statt zu werfen.
+  const ohneSchluesselAnzahl = importR ? Number(importR.ohne_schluessel || 0) : 0;
+  let ohneSchluesselNamen = [];
+  try { ohneSchluesselNamen = JSON.parse((importR && importR.ohne_schluessel_namen) || "[]"); }
+  catch { ohneSchluesselNamen = []; }
 
   let von = 9999, bis = 0;
   for (const g of gemeldet) {
@@ -7142,9 +7196,11 @@ async function handleDfbnetAbgleich(body, env, me, corsHeaders) {
     "GROUP BY m.id"
   ).bind(...sparteIds).all();
 
-  const pool = [];
+  // ⚠️ Das GROUP BY oben steht auf m.id -- eine Zeile je MITGLIEDSCHAFT,
+  // nicht je Kind. Wer wieder eingetreten ist, steht hier zweimal.
+  const roh = [];
   for (const m of mitglR.results || []) {
-    pool.push({
+    roh.push({
       person_id: m.id,
       name: ((m.vorname || "") + " " + (m.nachname || "")).trim(),
       geburtsdatum: m.geburtsdatum,
@@ -7161,16 +7217,52 @@ async function handleDfbnetAbgleich(body, env, me, corsHeaders) {
     });
   }
 
-  // ⚠️ Eine Person kann mehrere Mitgliedschaften tragen (Wiedereintritt).
-  // Der Schluessel zeigt deshalb auf die laufende im Fussball, nicht auf
-  // die erste gefundene -- sonst entschiede die Reihenfolge der Zeilen
-  // darueber, ob ein gemeldeter Spieler als Treffer oder als
-  // "ausgetreten" erscheint.
-  const nachSchluessel = new Map();
+  // ⚠️⚠️ ENTDOPPELN, BEVOR irgendetwas rechnet (Bugjagd 11.09.2026).
+  // Vorher lief der ganze Abgleich auf der Mitgliedschaftsliste, und das
+  // ging an zwei Stellen daneben:
+  //   - als gemeldet markiert wurde nur der EINE Eintrag aus
+  //     nachSchluessel; die uebrigen Zeilen derselben Person liefen
+  //     ungehindert in Richtung 2 und standen dort als "spielt ohne
+  //     Spielerlaubnis";
+  //   - die Kopfzahl "X Fussball-Mitglieder im Bestand" zaehlte
+  //     Mitgliedschaften und war damit zu hoch.
+  // Die Rangfolge ist dieselbe wie vorher: die laufende im Fussball
+  // gewinnt. Sonst entschiede die Zeilenreihenfolge darueber, ob ein
+  // gemeldeter Spieler als Treffer oder als "ausgetreten" erscheint.
   const rang = (p) => (p.im_bestand && p.im_fussball ? 0 : p.im_bestand ? 1 : 2);
-  for (const p of pool.slice().sort((a, b) => rang(a) - rang(b))) {
-    if (p.schluessel && !nachSchluessel.has(p.schluessel)) nachSchluessel.set(p.schluessel, p);
+  const nachPerson = new Map();
+  for (const p of roh.slice().sort((a, b) => rang(a) - rang(b))) {
+    if (!nachPerson.has(p.person_id)) nachPerson.set(p.person_id, p);
   }
+  const pool = [...nachPerson.values()];
+
+  // ⚠️⚠️ Der Schluessel zeigt auf ALLE Eintraege, nicht nur auf den
+  // besten. Dasselbe Kind kann ZWEIMAL im Bestand stehen -- mit zwei
+  // person-Zeilen, weil handleAntragAnnehmen bei jeder Annahme eine neue
+  // Person anlegt, ohne auf Name und Geburtsdatum zu pruefen. Das
+  // Entdoppeln nach person_id oben faengt diesen Fall NICHT, die Ids sind
+  // ja verschieden. Wird nur der erste Eintrag als gemeldet markiert,
+  // steht der zweite unten in "Fussball-Mitglied, aber nicht gemeldet" --
+  // und jemand ruft Eltern an, deren Kind die Spielberechtigung laengst
+  // hat.
+  const nachSchluessel = new Map();
+  for (const p of pool) {
+    if (!p.schluessel) continue;
+    const liste = nachSchluessel.get(p.schluessel);
+    if (liste) liste.push(p);
+    else nachSchluessel.set(p.schluessel, [p]);
+  }
+
+  // ⚠️ Zusammengefasst wird oben, BENANNT wird hier. Ein doppelter
+  // Datensatz stillschweigend zusammenzufassen hiesse, den Fehler im
+  // Bestand zu verstecken statt ihn zu melden -- und genau er ist der
+  // Grund, warum diese Zeile ueberhaupt geschrieben wurde.
+  const doppelteNamen = [];
+  for (const liste of nachSchluessel.values()) {
+    const laufend = liste.filter((p) => p.im_fussball && p.im_bestand);
+    if (laufend.length > 1) doppelteNamen.push(laufend[0].name);
+  }
+  doppelteNamen.sort((a, b) => a.localeCompare(b, "de"));
 
   // Offene Aufnahmeantraege. person_id ist NULL, solange der Vorstand
   // nicht beschlossen hat; angenommene stehen laengst als Mitglied im Pool.
@@ -7215,10 +7307,6 @@ async function handleDfbnetAbgleich(body, env, me, corsHeaders) {
       "SELECT abgleich_schluessel, person_id FROM dfbnet_zuordnung").all();
     for (const z of zR.results || []) vonHand.set(z.abgleich_schluessel, z.person_id);
   }
-  const nachPerson = new Map();
-  for (const p of pool.slice().sort((a, b) => rang(a) - rang(b))) {
-    if (!nachPerson.has(p.person_id)) nachPerson.set(p.person_id, p);
-  }
 
   // ⚠️ EINMAL gebaut, nicht je Zeile. Der Index kostet einen Durchlauf
   // durch den Bestand; ihn im Schleifenkoerper zu bauen waere derselbe
@@ -7240,8 +7328,18 @@ async function handleDfbnetAbgleich(body, env, me, corsHeaders) {
     // gibt, wird NICHT auf den Namensschluessel zurueckgefallen. Die
     // Zuordnung ist dann sichtbar wirkungslos, statt lautlos durch etwas
     // anderes ersetzt zu werden.
-    const m = hand || (!handId && g.schluessel ? nachSchluessel.get(g.schluessel) : null);
-    if (m) m.gemeldet = true;
+    const gleiche = (!handId && g.schluessel ? nachSchluessel.get(g.schluessel) : null) || [];
+    const m = hand || gleiche[0] || null;
+    // ⚠️ ALLE Eintraege zu diesem Namen und Geburtsdatum gelten als
+    // gemeldet, nicht nur der beste. Sonst faellt der Zwillingsdatensatz
+    // in die Maengelliste (Bugjagd 11.09.2026). Gilt auch fuer eine
+    // Handzuordnung: ein doppelter Datensatz traegt denselben Namen und
+    // dasselbe Geburtsdatum -- sonst waere er keiner.
+    if (m) {
+      m.gemeldet = true;
+      const auch = m.schluessel ? nachSchluessel.get(m.schluessel) : null;
+      if (auch) for (const p of auch) p.gemeldet = true;
+    }
 
     if (m && m.im_bestand && m.im_fussball) {
       treffer.push({
@@ -7353,12 +7451,23 @@ async function handleDfbnetAbgleich(body, env, me, corsHeaders) {
   // --- Richtung 2: Bestand -> gemeldet --------------------------------
   const nichtGemeldet = [];
   const gesehen = new Set();
+  const ohneGeburtsdatumBestand = [];
   let volljaehrigVerborgen = 0;
   for (const p of pool) {
     if (p.gemeldet || !p.im_fussball || !p.im_bestand) continue;
     if (gesehen.has(p.person_id)) continue;
     const j = parseInt(String(p.geburtsdatum || "").slice(0, 4), 10);
-    if (!j || j < von || j > bis) continue;
+    // ⚠️ Ohne Geburtsdatum fiel ein Fussballkind vorher SPURLOS aus dem
+    // ganzen Abgleich (Bugjagd 11.09.2026): der Abgleichsschluessel
+    // traegt das Datum, also findet Richtung 1 nie etwas, und hier
+    // scheiterte es am Jahrgangsvergleich. Weder in einer Liste noch in
+    // einer Zahl stand es danach. Auf der Dateiseite werden solche
+    // Zeilen laengst gezaehlt und benannt -- fuer den eigenen Bestand
+    // muss dasselbe gelten, sonst heisst eine Luecke im Datensatz "gibt
+    // es nicht". Und ein Kind mit lueckenhaftem Datensatz ist
+    // erfahrungsgemaess genau das, bei dem auch die Spielerlaubnis fehlt.
+    if (!j) { ohneGeburtsdatumBestand.push(p.name); continue; }
+    if (j < von || j > bis) continue;
     // ⚠️ Ohne Schreibrecht werden nur Minderjaehrige benannt -- genau die
     // Menge, die handleKodexListe der Passstelle ohnehin liefert.
     // Volljaehrige Fussballer waeren neu, und diese Aktion ist nicht der
@@ -7377,7 +7486,12 @@ async function handleDfbnetAbgleich(body, env, me, corsHeaders) {
     });
   }
   nichtGemeldet.sort((a, b) => a.name.localeCompare(b.name, "de"));
+  ohneGeburtsdatumBestand.sort((a, b) => a.localeCompare(b, "de"));
 
+  // ⚠️ pool ist nach person_id entdoppelt, diese Zahl zaehlt also
+  // Datensaetze und nicht Mitgliedschaften. Steht ein Kind zweimal im
+  // Bestand, sind es zwei Datensaetze -- und genau die nennt
+  // doppelt_erfasst_namen daneben beim Namen.
   const imBereich = pool.filter((p) => {
     if (!p.im_fussball || !p.im_bestand) return false;
     const j = parseInt(String(p.geburtsdatum || "").slice(0, 4), 10);
@@ -7401,6 +7515,15 @@ async function handleDfbnetAbgleich(body, env, me, corsHeaders) {
     blaetter: vollbild && importR ? (importR.blaetter || "") : null,
     ohne_geburtsdatum: ohneDatumAnzahl,
     ohne_geburtsdatum_namen: vollbild ? ohneDatumNamen.slice(0, 20) : [],
+    // ⚠️ Die Gegenseite: Fussball-Mitglieder OHNE Geburtsdatum. Namen nur
+    // mit Schreibrecht, genau wie oben -- die Passstelle bekommt die Zahl
+    // und weiss damit, dass der Abgleich nicht vollstaendig ist.
+    ohne_geburtsdatum_bestand: ohneGeburtsdatumBestand.length,
+    ohne_geburtsdatum_bestand_namen: vollbild ? ohneGeburtsdatumBestand.slice(0, 20) : [],
+    doppelt_erfasst: doppelteNamen.length,
+    doppelt_erfasst_namen: vollbild ? doppelteNamen.slice(0, 20) : [],
+    ohne_schluessel: ohneSchluesselAnzahl,
+    ohne_schluessel_namen: vollbild ? ohneSchluesselNamen.slice(0, 20) : [],
     volljaehrig_verborgen: volljaehrigVerborgen,
     treffer,
     offen,
