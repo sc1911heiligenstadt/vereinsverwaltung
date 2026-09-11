@@ -851,6 +851,13 @@ pruefe("P10 Tippfehler am Wortanfang ueberlebt den Vorfilter",
 const pT0 = pG0.split("-");
 pruefe("P11 Vertauschter Tag und Monat ueberlebt den Vorfilter",
        (await pEine(pV0, pN0, pT0[0] + "-" + pT0[2] + "-" + pT0[1])).length > 0);
+// ⚠️ Der Sortierschluessel _rang ist nur fuer die Reihenfolge da und
+// darf die Antwort nicht verlassen -- sonst stuende eine Poolposition in
+// der JSON, die niemanden etwas angeht und die der Client nicht kennt.
+const pFelder = Object.keys((pEcht["po0"] || [{}])[0] || {});
+pruefe("P11b Die Antwort traegt keinen Sortierschluessel",
+       pFelder.length > 0 && !pFelder.includes("_rang"), pFelder.join(", "));
+
 pruefe("P12 Wer zu niemandem passt, bekommt weiterhin nichts",
        (await pEine("Xaverina", "Unverwechselbar", "1901-01-01")).length === 0);
 
