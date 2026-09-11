@@ -12,6 +12,7 @@
 //   X  Der Lauf gegen die echte Datenbank
 //   Y  Die Rechtegrenze: nur darfSchreiben bekommt Vorschlaege
 //   Z  Die Oberflaeche zeigt sie auch
+//   P  Der Vorfilter: Aequivalenz und Schranke (11.09.2026)
 //
 // ⚠️ ALLE Namen und Geburtsdaten hier sind ERFUNDEN und muessen es
 // bleiben. Dieses Repo ist oeffentlich, und es geht um minderjaehrige
@@ -79,7 +80,9 @@ const quelle = roh.slice(0, schnitt);
 const NAMEN = ["kodexHart", "kodexLev", "kodexTeileListe", "kodexAehnlichkeit",
                "kodexVorschlaege", "kodexDatumGedreht", "kodexSchluessel",
                "kodexNamensteil", "KODEX_VORSCHLAG_PUNKTE", "KODEX_VORSCHLAG_ANZAHL",
-               "handleKodexListe", "handleMigration", "ladeRolle"];
+               "handleKodexListe", "handleMigration", "ladeRolle",
+               "namensIndex", "namensKandidaten", "namensSchluesselFuer",
+               "kodexZaehler"];
 const W = new Function(quelle + "\nreturn {" + NAMEN.join(",") + "};")();
 
 // ======================================================================
@@ -568,6 +571,296 @@ pruefe("Z31 Ohne Schreibrecht bleibt die Zeile leer",
 // Datenbank, und dort steht, was der Import geliefert hat.
 const h5 = zeichne(true, EIN, [{ ...KAND, name: '<img src=x onerror=1>' }]);
 pruefe("Z32 Der Name wird escaped", /&lt;img/.test(h5) && !/<img/.test(h5), h5);
+
+// ======================================================================
+console.log("P  Der Vorfilter: Aequivalenz und Schranke");
+// ======================================================================
+
+// ⚠️ WARUM DIESER ABSCHNITT EXISTIERT (11.09.2026). kodexVorschlaege hat
+// jede offene Erklaerung gegen den GESAMTEN Mitgliederpool bewertet, mit
+// einer Levenshtein-Rechnung darin. Genau diese Bauart hat beim
+// DFBnet-Abgleich den Worker umgebracht: 146 x 540 = 78.840 Bewertungen,
+// 223 ms reine Rechenzeit, harter Abbruch, keine CORS-Kopfzeilen -- im
+// Browser stand nur "Server nicht erreichbar".
+//
+// Beim Elternkodex sind es heute ein bis zwei Dutzend Erklaerungen. Es
+// laeuft. Es ist trotzdem dieselbe Landmine, sobald der Link an mehr
+// Eltern geht. Seit heute laeuft die Bewertung auch hier ueber
+// namensIndex / namensKandidaten.
+//
+// ⚠️ Bewiesen wird das als AEQUIVALENZ, nicht als Vermutung: derselbe
+// Bestand einmal vollstaendig durchgerechnet, einmal ueber den Index --
+// Punkte und Begruendungen zeichengleich. Und dazu eine SCHRANKE auf die
+// Zahl der bewerteten Paare. Ohne die bliebe die Aequivalenz auch dann
+// gruen, wenn jemand den Index gegen "nimm einfach alle" tauscht.
+//
+// ⚠️ ALLE Namen und Geburtsdaten hier sind ERFUNDEN, aus Silben gebaut.
+
+const pSilben = ["berg", "feld", "horn", "stein", "bach", "wald", "moor", "tal",
+                 "kamp", "rode", "sund", "heide", "furt", "au", "lohe", "brink"];
+const pVor = ["Anouk", "Bendix", "Cosima", "Dorian", "Elvira", "Falk", "Greta",
+              "Hinnerk", "Ilvy", "Joris", "Karlotta", "Lennart", "Maja", "Nusret",
+              "Odile", "Pepijn"];
+
+function pName(i) {
+  const vorname = pVor[i % pVor.length] + (i % 7 === 0 ? "a" : "");
+  const nachname = pSilben[i % pSilben.length] +
+                   pSilben[(i * 5 + 2) % pSilben.length] + "z" + i;
+  return [vorname, nachname];
+}
+function pGeb(i) {
+  return (2008 + (i % 10)) + "-0" + (1 + (i % 9)) + "-1" + (i % 9);
+}
+
+// 540 erfundene Mitglieder. Der Nachname traegt die laufende Zahl, damit
+// KEIN Gleichstand aus gleichem Namen UND gleicher Punktzahl entsteht --
+// sonst haengt die Reihenfolge an der Poolreihenfolge und die beiden
+// Wege waeren nur zufaellig vergleichbar.
+sparte("sp-p", "Turnen-Pruefstand");
+for (let i = 0; i < 540; i++) {
+  const [v, n] = pName(i);
+  legeAn("q" + i, v, n, pGeb(i), "9" + (1000 + i), "sp-p");
+}
+
+// Die ersten 60 stehen zusaetzlich in der Fussball-Kinderliste -- wie im
+// echten Lauf, wo `kinder` getrennt hereingereicht wird.
+const pKinder = [];
+for (let i = 0; i < 60; i++) {
+  const [v, n] = pName(i);
+  pKinder.push({ person_id: "q" + i, vorname: v, nachname: n,
+                 geburtsdatum: pGeb(i), bestaetigung_id: i % 4 === 0 ? "b" + i : null });
+}
+
+// 120 offene Erklaerungen: gleich viele ueber jede der drei Stufen, dazu
+// ein Fuenftel, das zu niemandem passt.
+const pOffene = [];
+for (let i = 0; i < 120; i++) {
+  const [v, n] = pName((i * 4) % 540);
+  const g = pGeb((i * 4) % 540);
+  let vorname = v, nachname = n, geb = g;
+  if (i % 5 === 0) {
+    vorname = v.replace(/a/, "ä");              // nur anders geschrieben
+  } else if (i % 5 === 1) {
+    nachname = n.slice(0, -1) + "7";            // Tippfehler
+  } else if (i % 5 === 2) {
+    const t = g.split("-");
+    geb = t[0] + "-" + t[2] + "-" + t[1];       // Tag und Monat vertauscht
+  } else if (i % 5 === 3) {
+    vorname = v + " Marie";                     // Zweitvorname zuviel
+  } else {
+    vorname = "Xanthippa" + i;                  // gar kein Treffer
+    nachname = "Unverwechselbar" + i;
+    geb = "1948-03-0" + (1 + (i % 9));
+  }
+  pOffene.push({ id: "po" + i, kind_vorname: vorname, kind_nachname: nachname,
+                 kind_geburtsdatum: geb, zugeordnet: false });
+}
+
+// --- Einzelfaelle, die je GENAU EINEN Schluesseltyp brauchen ----------
+//
+// ⚠️ Ohne diese drei war die Aequivalenz-Zusage zahnlos. Gemessen: die
+// 120 gebauten Faelle oben finden ihren Treffer ueber MEHRERE Schluessel
+// gleichzeitig -- die Mutationsproben "Datumsschluessel raus" und
+// "harter Namensschluessel raus" blieben deshalb beide gruen. Die
+// Aequivalenz stimmte, aber sie hat nichts bewacht.
+//
+// ⚠️ Und die Enden-Schluessel schlucken den harten Schluessel mit, weil
+// namensSchluesselFuer erst kodexHart rechnet und DANN die drei Zeichen
+// abschneidet. Der harte Schluessel traegt also nur bei Namen, die nach
+// kodexHart KUERZER ALS VIER Zeichen sind -- genau so ist Fall A gebaut.
+const pEinzeln = [
+  // A) Nur "h:". Zwei kurze Namensteile, Umlaut weggelassen, Geburtsdatum
+  //    verschieden -- kein Datumsschluessel, und fuer v:/n: sind die
+  //    harten Formen "ida"/"boh" zu kurz. 30 + 26 = 56 Punkte.
+  { id: "pe-h", person: ["Ida", "Böh", "2014-06-07"],
+    erklaerung: ["Ida", "Boh", "2011-02-03"] },
+  // B) Nur "d:". Beide Namensteile mit Levenshtein-Abstand 2, veraendert
+  //    am ERSTEN und am LETZTEN Zeichen -- damit greift weder h: noch
+  //    v:/n:. 100 + 12 + 12 = 124 Punkte.
+  { id: "pe-d", person: ["Roswitha", "Kornblum", "2013-05-12"],
+    erklaerung: ["Zoswithz", "Zornbluz", "2013-05-12"] },
+  // C) Nur "d:" mit vertauschtem Tag und Monat. Dieselben Namen, das
+  //    Datum gedreht. 60 + 12 + 12 = 84 Punkte.
+  { id: "pe-dg", person: ["Wilhelmine", "Talbrink", "2013-05-12"],
+    erklaerung: ["Zilhelminz", "Zalbrinz", "2013-12-05"] }
+];
+pEinzeln.forEach((f, i) => {
+  legeAn("qe" + i, f.person[0], f.person[1], f.person[2], "95" + i, "sp-p");
+  pOffene.push({ id: f.id, kind_vorname: f.erklaerung[0],
+                 kind_nachname: f.erklaerung[1],
+                 kind_geburtsdatum: f.erklaerung[2], zugeordnet: false });
+});
+
+// --- Der echte Lauf, ueber den Index ---------------------------------
+W.kodexZaehler.paare = 0;
+const pEcht = await W.kodexVorschlaege(env, pOffene, pKinder);
+const pPaareIndex = W.kodexZaehler.paare;
+
+// --- Das eigene Orakel: derselbe Pool, vollstaendig durchgerechnet ----
+//
+// ⚠️ Der Pool wird hier NICHT aus der Fixture nachgebaut, sondern aus der
+// Datenbank gelesen -- mit eigenem SQL. Nachgebaut aus dem, was ich
+// eingefuegt zu haben glaube, waere er kein Orakel, sondern eine zweite
+// Abschrift derselben Annahme.
+const pPool = [];
+const pGesehen = new Set();
+for (const k of pKinder) {
+  pGesehen.add(k.person_id);
+  pPool.push({ person_id: k.person_id,
+               name: (k.vorname + " " + k.nachname).trim(),
+               geburtsdatum: k.geburtsdatum,
+               teile: W.kodexTeileListe(k.vorname, k.nachname) });
+}
+for (const m of db.prepare(
+  "SELECT p.id, p.vorname, p.nachname, p.geburtsdatum FROM mitgliedschaft m " +
+  "JOIN person p ON p.id = m.person_id GROUP BY m.id").all()) {
+  if (pGesehen.has(m.id)) continue;
+  pGesehen.add(m.id);
+  pPool.push({ person_id: m.id,
+               name: ((m.vorname || "") + " " + (m.nachname || "")).trim(),
+               geburtsdatum: m.geburtsdatum,
+               teile: W.kodexTeileListe(m.vorname, m.nachname) });
+}
+for (const a of db.prepare(
+  "SELECT antrag_json FROM aufnahmeantrag WHERE person_id IS NULL " +
+  "AND status IN ('neu','geprueft')").all()) {
+  let inhalt = {};
+  try { inhalt = JSON.parse(a.antrag_json || "{}"); } catch { inhalt = {}; }
+  const teile = W.kodexTeileListe(inhalt.vorname, inhalt.nachname);
+  if (!teile.length) continue;
+  pPool.push({ person_id: null,
+               name: ((inhalt.vorname || "") + " " + (inhalt.nachname || "")).trim(),
+               geburtsdatum: String(inhalt.geburtsdatum || "").slice(0, 10),
+               teile });
+}
+
+function pSchluessel(v) {
+  return String(v.person_id) + "|" + v.name + "|" + v.punkte + "|" + v.gruende.join(",");
+}
+
+// Der vollstaendige Lauf: jede Erklaerung gegen JEDEN Pooleintrag.
+W.kodexZaehler.paare = 0;
+const pVoll = {};
+let pTreffer = 0;
+for (const o of pOffene) {
+  const teile = W.kodexTeileListe(o.kind_vorname, o.kind_nachname);
+  if (!teile.length) continue;
+  const bewertet = [];
+  pPool.forEach((p, rang) => {
+    if (!p.teile.length) return;
+    const a = W.kodexAehnlichkeit(teile, o.kind_geburtsdatum, p.teile, p.geburtsdatum);
+    if (a.signale < 1 || a.punkte < W.KODEX_VORSCHLAG_PUNKTE) return;
+    bewertet.push({ person_id: p.person_id, name: p.name,
+                    punkte: a.punkte, gruende: a.gruende, rang });
+  });
+  bewertet.sort((x, y) => y.punkte - x.punkte ||
+    (x.name < y.name ? -1 : x.name > y.name ? 1 : 0) || x.rang - y.rang);
+  pTreffer += bewertet.length;
+  pVoll[o.id] = bewertet.slice(0, W.KODEX_VORSCHLAG_ANZAHL).map(pSchluessel);
+}
+const pPaareVoll = W.kodexZaehler.paare;
+
+// ⚠️ GEGENPROBE ZUERST. Ohne sie waere P2 auch dann gruen, wenn beide
+// Wege nichts finden -- und der Vorfilter waere ungeprueft.
+// Gebaut sind 120 Erklaerungen, vier Fuenftel davon mit einem Treffer:
+// 96. Gezaehlt wird gegen 80, damit die Zusage nicht an der Fixture
+// klebt -- aber hoch genug, dass ein stummer Lauf sie rot faerbt.
+pruefe("P1 Gegenprobe: der vollstaendige Lauf findet ueberhaupt Vorschlaege",
+       pTreffer > 80, pTreffer + " Treffer");
+
+let pAbweichungen = 0, pBeispiel = "";
+for (const o of pOffene) {
+  const voll = (pVoll[o.id] || []).join(";");
+  const idx = (pEcht[o.id] || []).map(pSchluessel).join(";");
+  if (voll !== idx) {
+    pAbweichungen++;
+    if (!pBeispiel) pBeispiel = o.id + ": voll [" + voll + "] / index [" + idx + "]";
+  }
+}
+// ⚠️ Gegenprobe zu den Einzelfaellen: sie muessen ueberhaupt einen
+// Vorschlag ergeben. Faenden sie keinen, waeren sie in P2 zwei leere
+// Listen -- gleich, aber ohne Aussage, und die Mutationsproben blieben
+// wieder gruen.
+pEinzeln.forEach((f, i) => {
+  const v = (pEcht[f.id] || []).find((x) => x.person_id === "qe" + i);
+  pruefe("P1" + String.fromCharCode(97 + i) + " Einzelfall " + f.id +
+         " findet seinen Partner", !!v,
+         JSON.stringify(pEcht[f.id]));
+});
+
+pruefe("P2 Bei " + pOffene.length + " Erklaerungen liefert der Index zeichengleich " +
+       "dasselbe wie der volle Lauf",
+       pAbweichungen === 0, pAbweichungen + " Abweichungen, z. B. " + pBeispiel);
+
+// ⚠️ DIE SCHRANKE. Ohne sie koennte jemand namensKandidaten gegen "nimm
+// einfach alle" tauschen: P2 bliebe gruen, der Worker stuerbe wieder.
+// Gemessen an dieser Fixture: 3.933 bewertete Paare statt 67.527.
+//
+// MUTATIONSPROBEN, alle am 11.09.2026 wirklich gefahren:
+//   Index gegen "nimm einfach alle"        -> P3 und P6 rot
+//   Index je Erklaerung statt einmal       -> P5 rot
+//   beide Datumsschluessel raus            -> P1b, P1c, P2 rot
+//   harter Namensschluessel raus           -> P1a, P2 rot
+//   Enden-Schluessel (v:/n:) raus          -> GRUEN, und das ist richtig
+//
+// ⚠️ Der letzte Punkt ist kein Loch, sondern die ehrliche Lage: ein
+// reiner Tippfehler wiegt 12 Punkte, die Schwelle liegt bei 50. Ein
+// Vorschlag entsteht ohnehin nur mit passendem Datum oder einem exakt
+// gleichen Namensteil -- beides exakte Schluessel. Die Enden sind eine
+// Reserve fuer den Tag, an dem jemand die Gewichte aendert. Genauso
+// steht es im Worker und in der CLAUDE.md.
+//
+// ⚠️ Grosszuegig angesetzt: dieser Bestand ist aus sechzehn Silben
+// gebaut und teilt deshalb viel mehr Namensanfaenge als ein echter.
+pruefe("P3 Der echte Lauf bewertet einen Bruchteil der Paare",
+       pPaareIndex < pPaareVoll / 10,
+       pPaareIndex + " statt " + pPaareVoll);
+// Und die Gegenrechnung von Hand, damit die Zahl nicht nur relativ ist.
+pruefe("P4 Gegenprobe zur Schranke: der volle Lauf ist wirklich das Produkt",
+       pPaareVoll === pOffene.length * pPool.length,
+       pPaareVoll + " gegen " + (pOffene.length * pPool.length));
+
+// ⚠️ Der Index wird EINMAL gebaut, nicht je Erklaerung. Im Schleifenkoerper
+// waere er derselbe quadratische Lauf in gruen -- und P3 bliebe trotzdem
+// gruen, weil die gezaehlten PAARE dieselben blieben.
+const pQuelle = readFileSync(REPO + "/vereinsverwaltung-worker.js", "utf8");
+const pRumpf = pQuelle.slice(pQuelle.indexOf("async function kodexVorschlaege"));
+const pKopf = pRumpf.slice(0, pRumpf.indexOf("\n  const ergebnis = {};"));
+pruefe("P5 Der Index entsteht VOR der Schleife ueber die Erklaerungen",
+       /namensIndex\(pool\)/.test(pKopf), "nicht vor 'const ergebnis' gefunden");
+pruefe("P6 In der Schleife wird nicht mehr ueber den ganzen Pool gelaufen",
+       !/for \(const p of pool\)/.test(pRumpf.slice(0, pRumpf.indexOf("\n}\n"))));
+
+// --- Die drei Stufen einzeln, durch die ECHTE Funktion ---------------
+async function pEine(vorname, nachname, geb) {
+  const r = await W.kodexVorschlaege(
+    env, [{ id: "px", kind_vorname: vorname, kind_nachname: nachname,
+            kind_geburtsdatum: geb, zugeordnet: false }], pKinder);
+  return r["px"] || [];
+}
+const [pV0, pN0] = pName(300);
+const pG0 = pGeb(300);
+pruefe("P7 Umlaut-Variante ueberlebt den Vorfilter",
+       (await pEine(pV0.replace(/a/, "ä"), pN0, pG0)).length > 0);
+pruefe("P8 Zweitvorname zuviel ueberlebt den Vorfilter",
+       (await pEine(pV0 + " Marie", pN0, pG0)).length > 0);
+pruefe("P9 Tippfehler am Wortende ueberlebt den Vorfilter",
+       (await pEine(pV0, pN0.slice(0, -1) + "7", pG0)).length > 0);
+pruefe("P10 Tippfehler am Wortanfang ueberlebt den Vorfilter",
+       (await pEine(pV0, "z" + pN0.slice(1), pG0)).length > 0);
+const pT0 = pG0.split("-");
+pruefe("P11 Vertauschter Tag und Monat ueberlebt den Vorfilter",
+       (await pEine(pV0, pN0, pT0[0] + "-" + pT0[2] + "-" + pT0[1])).length > 0);
+pruefe("P12 Wer zu niemandem passt, bekommt weiterhin nichts",
+       (await pEine("Xaverina", "Unverwechselbar", "1901-01-01")).length === 0);
+
+// ⚠️ Und der Zufallstreffer bleibt draussen: gleicher Geburtstag, voellig
+// anderer Name. Der Index laesst ihn durch (Datumsschluessel), die
+// Signal-Schranke in kodexVorschlaege wirft ihn heraus -- das ist die
+// Arbeitsteilung, und sie muss so bleiben.
+pruefe("P13 Gleicher Geburtstag allein erzeugt auch hier KEINEN Vorschlag",
+       (await pEine("Xaverina", "Unverwechselbar", pG0)).length === 0,
+       JSON.stringify(await pEine("Xaverina", "Unverwechselbar", pG0)));
 
 // ======================================================================
 console.log("");

@@ -5623,6 +5623,17 @@ function kodexDatumGedreht(iso) {
 const KODEX_VORSCHLAG_PUNKTE = 50;
 const KODEX_VORSCHLAG_ANZAHL = 3;
 
+// Ein Zaehlwerk fuer die bewerteten Paare. Kostet ein ++ je Vergleich
+// und traegt die einzige Zusage, die den Vorfilter wirklich festnagelt:
+// ein Pruefstand kann damit messen, WIE VIELE Paare ein echter Lauf
+// bewertet.
+//
+// ⚠️ Ohne diese Zahl bliebe jede Aequivalenz-Zusage auch dann gruen,
+// wenn jemand namensKandidaten gegen "nimm einfach alle" tauscht --
+// gleiches Ergebnis, wieder 78.840 Bewertungen, wieder ein toter Worker.
+// Gleichheit allein ist hier also KEIN Beweis; die Schranke ist es.
+const kodexZaehler = { paare: 0 };
+
 // Wie aehnlich sind sich zwei Kinder?
 //
 // ⚠️ Das Geburtsdatum allein reicht NIE. Bei 540 Mitgliedern teilen sich
@@ -5631,6 +5642,7 @@ const KODEX_VORSCHLAG_ANZAHL = 3;
 // Deshalb zaehlt diese Funktion `signale` mit -- ohne wenigstens ein
 // Namenssignal faellt der Vorschlag raus, so hoch die Punktzahl auch ist.
 function kodexAehnlichkeit(teileA, gebA, teileB, gebB) {
+  kodexZaehler.paare++;
   const gruende = [];
   let punkte = 0;
 
@@ -5676,6 +5688,88 @@ function kodexAehnlichkeit(teileA, gebA, teileB, gebB) {
   }
 
   return { punkte, gruende, signale: gleich + schreib + nah };
+}
+
+// ⚠️ DER VORSCHLAGSLAUF HAT DEN WORKER UMGEBRACHT (11.09.2026, erster
+// echter Lauf bei Michel). 146 ungeklaerte Faelle mal 540 Mitglieder sind
+// 78.840 Bewertungen, jede mit Levenshtein darin -- gemessen 223 ms reine
+// Rechenzeit gegen 3,9 ms ohne den Lauf. Ein harter Abbruch schickt keine
+// CORS-Kopfzeilen, deshalb kam im Browser nur "Server nicht erreichbar"
+// an, und es sah nach einem Netzproblem aus.
+//
+// Beim Elternkodex fiel das zunaechst nicht auf: dort sind es ein bis
+// zwei Dutzend offene Erklaerungen, beim DFBnet-Abgleich die ganze
+// Meldeliste. ⚠️ Dieselbe Landmine lag trotzdem dort -- sobald der
+// Kodex-Link an mehr Eltern geht, waechst die erste Menge mit. Deshalb
+// steht dieser Vorfilter hier oben und NICHT im DFBnet-Teil: er gehoert
+// BEIDEN Laeufen, kodexVorschlaege und handleDfbnetAbgleich, und heisst
+// deswegen "namens..." und nicht "dfbnet...".
+//
+// ⚠️ Wer einen dritten solchen Lauf baut: diese drei Funktionen
+// mitbenutzen, NICHT aehnlich nachbauen. Eine zweite Schluesselliste
+// waere eine zweite Stelle, die beim naechsten Gewichtswechsel in
+// kodexAehnlichkeit lautlos Treffer verliert.
+//
+// Die Loesung ist ein billiger Vorfilter. ⚠️ Seine Schluessel sind so
+// gewaehlt, dass KEINE der drei Bewertungsstufen verlorengeht:
+//   d:  Geburtsdatum (und das mit vertauschtem Tag/Monat) -> "Geburtstag"
+//   h:  kodexHart(teil) exakt  -> "gleich" und "nur anders geschrieben"
+//   v:/n: die ersten und die letzten drei Zeichen -> "fast gleich";
+//       zwei Woerter mit Levenshtein-Abstand <= 2 muessen in einem der
+//       beiden Enden uebereinstimmen, sonst laegen dort schon zwei
+//       Aenderungen.
+// Gerechnet wird danach mit derselben Funktion wie vorher -- Punkte und
+// Begruendungen aendern sich nicht, nur die Zahl der Paare.
+//
+// ⚠️ EHRLICHE EINORDNUNG der beiden Enden-Schluessel: mit den heutigen
+// Gewichten sind sie eine RESERVE, keine Notwendigkeit. Ein reiner
+// Tippfehler wiegt 12 Punkte, die Schwelle liegt bei 50 -- ein Vorschlag
+// kommt also ohnehin nur zustande, wenn zusaetzlich das Geburtsdatum
+// passt oder ein anderer Namensteil exakt stimmt, und beides sind exakte
+// Schluessel. Die Mutationsprobe "Enden-Schluessel raus" bleibt deshalb
+// gruen. Sie bleiben trotzdem stehen: wer die Gewichte in
+// kodexAehnlichkeit aendert, verliert sonst lautlos Treffer -- und genau
+// diese Sorte Lautlosigkeit kostet hier sonst einen ganzen Nachmittag.
+function namensSchluesselFuer(teile, geburtsdatum) {
+  const keys = [];
+  const geb = String(geburtsdatum || "").slice(0, 10);
+  if (geb) {
+    keys.push("d:" + geb);
+    const gedreht = kodexDatumGedreht(geb);
+    if (gedreht && gedreht !== geb) keys.push("d:" + gedreht);
+  }
+  for (const t of teile) {
+    const h = kodexHart(t);
+    if (!h) continue;
+    keys.push("h:" + h);
+    if (h.length >= 4) {
+      keys.push("v:" + h.slice(0, 3));
+      keys.push("n:" + h.slice(-3));
+    }
+  }
+  return keys;
+}
+
+function namensIndex(eintraege) {
+  const karte = new Map();
+  for (const e of eintraege) {
+    if (!e.teile || !e.teile.length) continue;
+    for (const k of namensSchluesselFuer(e.teile, e.geburtsdatum)) {
+      let liste = karte.get(k);
+      if (!liste) { liste = []; karte.set(k, liste); }
+      liste.push(e);
+    }
+  }
+  return karte;
+}
+
+function namensKandidaten(karte, teile, geburtsdatum) {
+  const raus = new Set();
+  for (const k of namensSchluesselFuer(teile, geburtsdatum)) {
+    const liste = karte.get(k);
+    if (liste) for (const e of liste) raus.add(e);
+  }
+  return raus;
 }
 
 // Der Vorschlagslauf. Liefert je Erklaerung hoechstens drei Kandidaten.
@@ -5783,13 +5877,31 @@ async function kodexVorschlaege(env, offene, kinder) {
     // deswegen scheitern zu lassen, waere der schlechtere Tausch.
   }
 
+  // ⚠️ Die Poolreihenfolge festhalten, BEVOR der Index sie aufloest.
+  // Vorher lief die Bewertung ueber `pool` selbst; bei gleicher Punktzahl
+  // UND gleichem Namen entschied dann die stabile Sortierung, also die
+  // Poolreihenfolge. namensKandidaten liefert ein Set, das nach
+  // Schluesseln gruppiert ist -- ohne diesen letzten Vergleich wuerden
+  // solche Gleichstaende umsortiert, und die Aequivalenz waere keine
+  // mehr. Mit ihm kommt zeichengleich dasselbe heraus wie vorher.
+  pool.forEach((p, i) => { p._rang = i; });
+
+  // ⚠️ EINMAL gebaut, nicht je Erklaerung -- sonst waere der Index
+  // derselbe quadratische Lauf in gruen. Siehe den Block bei
+  // namensSchluesselFuer: an genau dieser Bauart ist der DFBnet-Abgleich
+  // am 11.09.2026 gestorben.
+  const kandidatenKarte = namensIndex(pool);
+
   const ergebnis = {};
   for (const o of zuTun) {
     const teile = kodexTeileListe(o.kind_vorname, o.kind_nachname);
     if (!teile.length) continue;
     const bewertet = [];
-    for (const p of pool) {
-      if (!p.teile.length) continue;
+    // ⚠️ Nur die Kandidaten aus dem Index, nicht der ganze Bestand.
+    // namensIndex laesst Eintraege ohne Namensteile von sich aus weg --
+    // die alte Zeile `if (!p.teile.length) continue;` ist deshalb hier
+    // nicht verlorengegangen, sondern nach oben gewandert.
+    for (const p of namensKandidaten(kandidatenKarte, teile, o.kind_geburtsdatum)) {
       const a = kodexAehnlichkeit(teile, o.kind_geburtsdatum, p.teile, p.geburtsdatum);
       if (a.signale < 1 || a.punkte < KODEX_VORSCHLAG_PUNKTE) continue;
       bewertet.push({
@@ -5801,12 +5913,15 @@ async function kodexVorschlaege(env, offene, kinder) {
         belegt: !!p.belegt,
         antrag: !!p.antrag,
         punkte: a.punkte,
-        gruende: a.gruende
+        gruende: a.gruende,
+        _rang: p._rang
       });
     }
     bewertet.sort((x, y) => y.punkte - x.punkte ||
-      (x.name < y.name ? -1 : x.name > y.name ? 1 : 0));
-    ergebnis[o.id] = bewertet.slice(0, KODEX_VORSCHLAG_ANZAHL);
+      (x.name < y.name ? -1 : x.name > y.name ? 1 : 0) ||
+      x._rang - y._rang);
+    ergebnis[o.id] = bewertet.slice(0, KODEX_VORSCHLAG_ANZAHL)
+      .map(({ _rang, ...v }) => v);
   }
   return ergebnis;
 }
@@ -6775,78 +6890,6 @@ async function hatDfbnetTabelle(env) {
   return dfbnetTabelleDa;
 }
 
-// ⚠️ DER VORSCHLAGSLAUF HAT DEN WORKER UMGEBRACHT (11.09.2026, erster
-// echter Lauf bei Michel). 146 ungeklaerte Faelle mal 540 Mitglieder sind
-// 78.840 Bewertungen, jede mit Levenshtein darin -- gemessen 223 ms reine
-// Rechenzeit gegen 3,9 ms ohne den Lauf. Ein harter Abbruch schickt keine
-// CORS-Kopfzeilen, deshalb kam im Browser nur "Server nicht erreichbar"
-// an, und es sah nach einem Netzproblem aus.
-//
-// Beim Elternkodex faellt das nicht auf: dort sind es ein bis zwei
-// Dutzend offene Erklaerungen, hier die ganze Meldeliste.
-//
-// Die Loesung ist ein billiger Vorfilter. ⚠️ Seine Schluessel sind so
-// gewaehlt, dass KEINE der drei Bewertungsstufen verlorengeht:
-//   d:  Geburtsdatum (und das mit vertauschtem Tag/Monat) -> "Geburtstag"
-//   h:  kodexHart(teil) exakt  -> "gleich" und "nur anders geschrieben"
-//   v:/n: die ersten und die letzten drei Zeichen -> "fast gleich";
-//       zwei Woerter mit Levenshtein-Abstand <= 2 muessen in einem der
-//       beiden Enden uebereinstimmen, sonst laegen dort schon zwei
-//       Aenderungen.
-// Gerechnet wird danach mit derselben Funktion wie vorher -- Punkte und
-// Begruendungen aendern sich nicht, nur die Zahl der Paare.
-//
-// ⚠️ EHRLICHE EINORDNUNG der beiden Enden-Schluessel: mit den heutigen
-// Gewichten sind sie eine RESERVE, keine Notwendigkeit. Ein reiner
-// Tippfehler wiegt 12 Punkte, die Schwelle liegt bei 50 -- ein Vorschlag
-// kommt also ohnehin nur zustande, wenn zusaetzlich das Geburtsdatum
-// passt oder ein anderer Namensteil exakt stimmt, und beides sind exakte
-// Schluessel. Die Mutationsprobe "Enden-Schluessel raus" bleibt deshalb
-// gruen. Sie bleiben trotzdem stehen: wer die Gewichte in
-// kodexAehnlichkeit aendert, verliert sonst lautlos Treffer -- und genau
-// diese Sorte Lautlosigkeit kostet hier sonst einen ganzen Nachmittag.
-function dfbnetSchluesselFuer(teile, geburtsdatum) {
-  const keys = [];
-  const geb = String(geburtsdatum || "").slice(0, 10);
-  if (geb) {
-    keys.push("d:" + geb);
-    const gedreht = kodexDatumGedreht(geb);
-    if (gedreht && gedreht !== geb) keys.push("d:" + gedreht);
-  }
-  for (const t of teile) {
-    const h = kodexHart(t);
-    if (!h) continue;
-    keys.push("h:" + h);
-    if (h.length >= 4) {
-      keys.push("v:" + h.slice(0, 3));
-      keys.push("n:" + h.slice(-3));
-    }
-  }
-  return keys;
-}
-
-function dfbnetIndex(eintraege) {
-  const karte = new Map();
-  for (const e of eintraege) {
-    if (!e.teile || !e.teile.length) continue;
-    for (const k of dfbnetSchluesselFuer(e.teile, e.geburtsdatum)) {
-      let liste = karte.get(k);
-      if (!liste) { liste = []; karte.set(k, liste); }
-      liste.push(e);
-    }
-  }
-  return karte;
-}
-
-function dfbnetKandidaten(karte, teile, geburtsdatum) {
-  const raus = new Set();
-  for (const k of dfbnetSchluesselFuer(teile, geburtsdatum)) {
-    const liste = karte.get(k);
-    if (liste) for (const e of liste) raus.add(e);
-  }
-  return raus;
-}
-
 // Mehr Zeilen als das: dann ist die falsche Datei hochgeladen worden.
 const DFBNET_MAX_ZEILEN = 3000;
 const DFBNET_VORSCHLAG_ANZAHL = 3;
@@ -7181,7 +7224,7 @@ async function handleDfbnetAbgleich(body, env, me, corsHeaders) {
   // durch den Bestand; ihn im Schleifenkoerper zu bauen waere derselbe
   // Fehler in gruen.
   const kandidatenKarte = vollbild
-    ? dfbnetIndex(pool.concat(antraege.map((a) => ({ antrag: a, teile: a.teile,
+    ? namensIndex(pool.concat(antraege.map((a) => ({ antrag: a, teile: a.teile,
                                                      geburtsdatum: a.geburtsdatum }))))
     : null;
 
@@ -7267,9 +7310,9 @@ async function handleDfbnetAbgleich(body, env, me, corsHeaders) {
     if (vollbild && zeile.lage === "unbekannt" && !hand) {
       const bewertet = [];
       // ⚠️ Nur die Kandidaten aus dem Index, nicht der ganze Bestand.
-      // Siehe den Block bei dfbnetIndex: daran ist der erste Lauf
+      // Siehe den Block bei namensIndex: daran ist der erste Lauf
       // gestorben.
-      for (const e of dfbnetKandidaten(kandidatenKarte, g.teile, g.geburtsdatum)) {
+      for (const e of namensKandidaten(kandidatenKarte, g.teile, g.geburtsdatum)) {
         const a = kodexAehnlichkeit(g.teile, g.geburtsdatum, e.teile, e.geburtsdatum);
         if (a.signale < 1 || a.punkte < KODEX_VORSCHLAG_PUNKTE) continue;
         if (e.antrag) {

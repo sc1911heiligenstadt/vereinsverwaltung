@@ -86,7 +86,7 @@ if (schnitt < 0) throw new Error("export default nicht gefunden");
 const W = new Function(rohWorker.slice(0, schnitt) +
   "\nreturn { handleDfbnetAbgleich, handleDfbnetImport, handleDfbnetZuordnen, " +
   "handleMigration, ladeRolle, kodexSchluessel, DFBNET_MAX_ZEILEN, " +
-  "dfbnetIndex, dfbnetKandidaten, kodexTeileListe, kodexAehnlichkeit, " +
+  "namensIndex, namensKandidaten, kodexTeileListe, kodexAehnlichkeit, " +
   "KODEX_VORSCHLAG_PUNKTE };")();
 
 // dfbnet.js benutzt $, esc, datumDe und XLSX erst beim ZEICHNEN. Die drei
@@ -911,10 +911,10 @@ function jVollstaendig(g) {
   return raus.sort();
 }
 
-const jKarte = W.dfbnetIndex(jPool);
+const jKarte = W.namensIndex(jPool);
 function jUeberIndex(g) {
   const raus = [];
-  for (const p of W.dfbnetKandidaten(jKarte, g.teile, g.geburtsdatum)) {
+  for (const p of W.namensKandidaten(jKarte, g.teile, g.geburtsdatum)) {
     const a = W.kodexAehnlichkeit(g.teile, g.geburtsdatum, p.teile, p.geburtsdatum);
     if (a.signale < 1 || a.punkte < W.KODEX_VORSCHLAG_PUNKTE) continue;
     raus.push(p.person_id + "|" + a.punkte + "|" + a.gruende.join(","));
@@ -928,7 +928,7 @@ for (const g of jGemeldet) {
   const voll = jVollstaendig(g);
   const idx = jUeberIndex(g);
   jTreffer += voll.length;
-  jPaareIndex += W.dfbnetKandidaten(jKarte, g.teile, g.geburtsdatum).size;
+  jPaareIndex += W.namensKandidaten(jKarte, g.teile, g.geburtsdatum).size;
   if (voll.join(";") !== idx.join(";")) {
     jAbweichungen++;
     if (!jBeispiel) jBeispiel = "voll " + voll.length + " / index " + idx.length;

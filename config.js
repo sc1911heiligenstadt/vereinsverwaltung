@@ -185,6 +185,19 @@ const BUCHHALTUNG_FUNKTIONEN = [
 
 const CHANGELOG = [
   {
+    version: "1.8",
+    groups: [
+      {
+        title: "Elternkodex: die Vorschläge rechnen wieder in Millisekunden",
+        items: [
+          "Die Karte „Nicht zuzuordnen“ hat bisher jede offene Erklärung gegen den gesamten Mitgliederbestand gerechnet. Bei ein bis zwei Dutzend Erklärungen fiel das nicht auf; mit einem Elternkodex-Link, der an mehr Familien geht, wäre daraus dieselbe Überlastung geworden, die den DFBnet-Abgleich zum Abbruch gebracht hat.",
+          "Jetzt wird vorab eingegrenzt, wer überhaupt in Frage kommt — über Geburtsdatum (auch mit vertauschtem Tag und Monat) und über die Namensform. Gemessen am Prüfbestand: 3.933 Vergleiche statt 67.527.",
+          "An den Vorschlägen selbst ändert sich nichts. Dieselben Kinder, dieselbe Reihenfolge, dieselben Begründungen — der Prüfstand rechnet beide Wege nebeneinander durch und hält sie Zeichen für Zeichen gegeneinander."
+        ]
+      }
+    ]
+  },
+  {
     version: "1.7",
     groups: [
       {
