@@ -99,6 +99,15 @@ const APP_FUNKTIONEN = [
     ]
   },
   {
+    title: "DFBnet Spieler",
+    items: [
+      "Der Reiter „DFBnet Spieler“ hält den Export der Spielberechtigungen aus dem DFBnet gegen den Mitgliederbestand. Die Datei wird eingelesen, verglichen und wieder vergessen — gespeichert wird nichts.",
+      "Er beantwortet zwei Fragen: Wer ist beim Verband gemeldet, zahlt aber keinen Beitrag? Und wer zahlt Beitrag in der Abteilung Fußball, hat aber keine Spielberechtigung?",
+      "Verglichen wird über Name und Geburtsdatum, nachsichtig gegenüber Schreibweisen: „Grünbaum“ und „Grunbaum“ gelten als derselbe Name. Zu jedem ungeklärten Fall stehen bis zu drei ähnliche Namen aus dem Bestand samt Begründung.",
+      "Abgeglichen wird nur die Abteilung Fußball und nur die Jahrgänge, die in der Datei vorkommen — ein Export der A- bis E-Junioren stellt also keine Herrenmannschaft als „nicht gemeldet“ hin."
+    ]
+  },
+  {
     title: "Auswertungen und Meldungen",
     items: [
       "Die Auswertungen liegen auf einer eigenen Seite: Bestand, Altersaufbau, Entwicklung über zehn Jahre, Beitragsklassen und Stimmberechtigte nach § 8 Abs. 2.",
@@ -172,6 +181,22 @@ const BUCHHALTUNG_FUNKTIONEN = [
 ];
 
 const CHANGELOG = [
+  {
+    version: "1.6",
+    groups: [
+      {
+        title: "Neuer Reiter „DFBnet Spieler“: Spielberechtigungen gegen den Bestand",
+        items: [
+          "Der Export der Spielberechtigungen aus dem DFBnet lässt sich einlesen und wird gegen den Mitgliederbestand gehalten. Bisher lagen beide Listen nebeneinander, ohne dass jemand sie verglichen hätte.",
+          "Herausgesucht werden die zwei Lücken dazwischen: gemeldete Spieler ohne Fußball-Mitgliedschaft — die spielen und zahlen nichts — und Fußball-Mitglieder ohne Spielberechtigung, die zahlen und nicht spielen dürfen.",
+          "Zu einem gemeldeten Spieler ohne Eintrag im Bestand stehen bis zu drei ähnliche Namen mit Begründung; Umlaute, Zweitvornamen und Tippfehler von ein bis zwei Buchstaben werden verziehen. Wird dabei ein Fußball-Mitglied getroffen, steht der Hinweis auch auf der Gegenseite — dann ist es ein Kind mit zwei Schreibweisen und kein doppelter Fall.",
+          "Alle Blätter der Datei werden gelesen; ein Spieler, der in zwei Mannschaften gemeldet ist, wird einmal geführt und trägt beide Mannschaften.",
+          "Es wird nichts gespeichert: keine Tabelle, keine Spalte, kein Eintrag. Die Datei bleibt im Browser, der Server vergleicht und antwortet.",
+          "Der Reiter steht Geschäftsstelle, Schatzmeister und Passstelle offen. Ohne Bearbeitungsrecht gibt es keine Mitgliedsnummern, keine Vorschläge und keinen Hinweis darauf, in welcher anderen Abteilung ein gemeldeter Spieler steht."
+        ]
+      }
+    ]
+  },
   {
     version: "1.5",
     groups: [

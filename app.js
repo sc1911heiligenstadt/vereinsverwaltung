@@ -118,7 +118,8 @@ async function start() {
       (meineRechte.darfNachwuchs
         ? "Ihre Rolle ist für die Spielerlaubnis vorgesehen: Der Mitgliederbestand " +
           "bleibt verschlossen, die Nachwuchs-Anmeldungen stehen im Reiter " +
-          "<strong>Anträge</strong>."
+          "<strong>Anträge</strong>, der Abgleich mit dem Verband unter " +
+          "<strong>DFBnet Spieler</strong>."
         : "Ihre Rolle ist für Kennzahlen vorgesehen und hat keinen Zugriff auf Personendaten. " +
           "Die Auswertungen stehen im Eintrag <strong>Auswertungen &rarr;</strong> " +
           "oben in der Leiste.") +
@@ -142,6 +143,14 @@ async function start() {
       // Server geprueft, und die Karte mit dem Link bleibt verborgen).
       $("nav-kodex").hidden = false;
       ladeKodex();
+
+      // Der DFBnet-Abgleich ist die Kernarbeit dieser Rolle: sie macht die
+      // Spielerpaesse und merkt als erste, wenn jemand spielt, den der
+      // Verein gar nicht kennt. ladeDfbnet() verdrahtet nur den
+      // Einlese-Knopf und ruft den Server nicht -- es haengt an keiner
+      // Migration und darf deshalb neben der Sichtbarkeit stehen.
+      $("nav-dfbnet").hidden = false;
+      ladeDfbnet();
     }
     return;
   }
@@ -178,6 +187,14 @@ async function start() {
   // begrenzt, diese Liste ist es nicht. An darfPersonenSehen gehängt wäre
   // der Reiter ein Weg um seine Spartengrenze herum.
   $("nav-kodex").hidden = !meineRechte.darfNachwuchs;
+
+  // Der DFBnet-Abgleich haengt am selben Recht und aus demselben Grund:
+  // er stellt die gemeldeten Spieler dem Bestand der Abteilung Fussball
+  // gegenueber und ist damit keine Sicht, die sich auf die Sparten eines
+  // Abteilungsleiters einschraenken liesse. Mitgliedsnummern und
+  // Vorschlaege zieht der Server ohne darfSchreiben selbst ab.
+  $("nav-dfbnet").hidden = !meineRechte.darfNachwuchs;
+  if (meineRechte.darfNachwuchs) ladeDfbnet();
 
   // Der Reiter „Einstellungen“ trägt seit 2026-08-10 drei Blöcke mit drei
   // verschiedenen Rechten. Jeder ist oben einzeln versteckt; der Reiter

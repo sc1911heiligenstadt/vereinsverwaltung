@@ -6665,6 +6665,370 @@ async function handleKodexLoeschen(body, env, me, corsHeaders) {
   return json({ ok: true }, 200, corsHeaders);
 }
 
+// ---------------------------------------------------------------------
+// DFBnet-Abgleich: gemeldete Spieler gegen den Mitgliederbestand
+// ---------------------------------------------------------------------
+//
+// Die Spielberechtigungen stehen im DFBnet, die Mitgliedschaften hier.
+// Zwei Listen, die bisher niemand nebeneinandergelegt hat -- und genau in
+// der Luecke dazwischen stehen die beiden teuren Faelle:
+//
+//   1. gemeldet, aber kein Fussball-Mitglied  -> spielt, zahlt nichts
+//   2. Fussball-Mitglied, aber nicht gemeldet -> zahlt, darf nicht spielen
+//
+// ⚠️ Diese Aktion SCHREIBT NICHTS. Kein INSERT, kein UPDATE, keine neue
+// Spalte, keine neue Tabelle. Die hochgeladene Liste ist eine
+// Momentaufnahme aus einem fremden System; sie in D1 zu legen hiesse,
+// einen zweiten, alternden Bestand neben dem echten zu fuehren -- dieselbe
+// Begruendung, aus der die Verbandserhebung des Rehasports im Browser
+// bleibt (reha.js).
+//
+// ⚠️ Der Jahrgangsbereich der Gegenrichtung kommt aus der DATEI, nicht
+// aus dem Code. Ein Export der A- bis E-Junioren deckt die Jahrgaenge
+// 2008-2017 ab; wer den Bestand ungefiltert dagegenhaelt, meldet jeden
+// Herrenspieler und jedes Bambini-Kind als "nicht gemeldet" -- eine Liste,
+// die niemand durchsieht. Geprueft werden deshalb nur die Jahrgaenge, die
+// in der Datei wirklich vorkommen.
+
+// Mehr Zeilen als das: dann ist die falsche Datei hochgeladen worden.
+const DFBNET_MAX_ZEILEN = 3000;
+const DFBNET_VORSCHLAG_ANZAHL = 3;
+
+async function handleDfbnetAbgleich(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfNachwuchs) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+
+  // ⚠️ Dieselbe Grenze wie beim Elternkodex, an derselben Stelle gezogen:
+  // die Passstelle bekommt den ABGLEICH, nicht den Bestand. Sie sieht
+  // keine Mitgliedsnummer (handleKodexListe zieht sie ihr ebenfalls ab),
+  // erfaehrt bei einem Spieler ohne Fussball-Mitgliedschaft nicht, in
+  // WELCHER anderen Abteilung er steht, und bekommt keine Vorschlaege --
+  // die greifen in den Gesamtbestand, genau wie bei kodexVorschlaege.
+  const vollbild = !!rolle.darfSchreiben;
+
+  const stichtag = istIsoDatum(sauber(body.stichtag, 10) || "")
+    ? sauber(body.stichtag, 10) : new Date().toISOString().slice(0, 10);
+
+  const roh = Array.isArray(body.spieler) ? body.spieler : [];
+  if (!roh.length) {
+    return json({ error: "Es wurde keine Spielerzeile uebergeben." }, 400, corsHeaders);
+  }
+  if (roh.length > DFBNET_MAX_ZEILEN) {
+    return json({ error: "Zu viele Zeilen (" + roh.length + "). Erwartet wird der Export " +
+                         "der Spielberechtigungen, nicht der gesamte Verband." }, 400, corsHeaders);
+  }
+
+  // ⚠️ Weissliste wie bei pruefeAntrag: der Server nimmt genau fuenf
+  // Felder und baut den Rest selbst. Was der Browser sonst mitschickt --
+  // die E-Mail-Spalte etwa, die im DFBnet-Export danebensteht -- wird
+  // nicht gelesen und kommt nirgends wieder heraus.
+  const gemeldet = [];
+  const ohneDatum = [];
+  for (const z of roh) {
+    const vorname = sauber(z && z.vorname, 120) || "";
+    const nachname = sauber(z && z.nachname, 120) || "";
+    const geb = String(sauber(z && z.geburtsdatum, 10) || "").slice(0, 10);
+    const name = (vorname + " " + nachname).trim();
+    if (!name) continue;
+    // ⚠️ Ohne Geburtsdatum wird NICHT geraten. Der Abgleichsschluessel
+    // traegt es, und ein Namensvergleich allein wirft bei 540 Mitgliedern
+    // Gleichnamige zusammen. Die Zeile wird gezaehlt und gemeldet, nicht
+    // still uebergangen.
+    if (!istIsoDatum(geb)) { ohneDatum.push(name); continue; }
+    const aktivRoh = (z && z.aktiv) === false ? "nein" : String((z && z.aktiv) || "ja");
+    gemeldet.push({
+      name,
+      geburtsdatum: geb,
+      mannschaft: sauber(z && z.mannschaft, 120) || "",
+      aktiv: aktivRoh.toLowerCase() === "nein" ? "nein" : "ja",
+      schluessel: kodexSchluessel(vorname, nachname, geb),
+      teile: kodexTeileListe(vorname, nachname)
+    });
+  }
+  if (!gemeldet.length) {
+    return json({ error: "In der Datei stand keine Zeile mit Name UND Geburtsdatum." },
+                400, corsHeaders);
+  }
+
+  // ⚠️ Doppelte werden HIER zusammengefasst, nicht im Browser. Die Datei
+  // fuehrt dieselben Spieler mehrfach (ein Blatt je Mannschaft plus ein
+  // Sammelblatt), und wer in zwei Mannschaften spielrecht hat, steht
+  // ohnehin zweimal. Zusammengefasst wird ueber kodexSchluessel -- die
+  // EINE Funktion, die auch den Abgleich entscheidet. Eine zweite,
+  // aehnliche Zusammenfassung im Client waere genau die Art von zweiter
+  // Liste, die hier schon dreimal auseinandergelaufen ist.
+  const jeSchluessel = new Map();
+  const eindeutig = [];
+  let doppelt = 0;
+  for (const g of gemeldet) {
+    const vorher = g.schluessel ? jeSchluessel.get(g.schluessel) : null;
+    if (vorher) {
+      doppelt++;
+      // Die Mannschaften werden GESAMMELT, nicht ueberschrieben: dass ein
+      // Spieler in der C- und in der B-Jugend gemeldet ist, ist eine
+      // Auskunft und kein Duplikat zum Wegwerfen.
+      if (g.mannschaft && vorher.mannschaft.split(", ").indexOf(g.mannschaft) < 0) {
+        vorher.mannschaft = vorher.mannschaft
+          ? vorher.mannschaft + ", " + g.mannschaft : g.mannschaft;
+      }
+      // Ein aktives Spielrecht schlaegt ein ruhendes -- sonst entschiede
+      // die Blattreihenfolge darueber, ob jemand als "nicht aktiv" gilt.
+      if (g.aktiv === "ja") vorher.aktiv = "ja";
+      continue;
+    }
+    if (g.schluessel) jeSchluessel.set(g.schluessel, g);
+    eindeutig.push(g);
+  }
+  gemeldet.length = 0;
+  for (const g of eindeutig) gemeldet.push(g);
+
+  let von = 9999, bis = 0;
+  for (const g of gemeldet) {
+    const j = parseInt(g.geburtsdatum.slice(0, 4), 10);
+    if (j < von) von = j;
+    if (j > bis) bis = j;
+  }
+
+  // ⚠️ Dieselbe Festlegung wie beim Elternkodex: der Abgleich gilt der
+  // Abteilung Fussball, und findet sie sich nicht, wird NICHT ungefiltert
+  // geliefert. Eine Liste aller Mitglieder saehe wie ein Ergebnis aus und
+  // waere fachlich falsch -- Turnkinder stuenden darin als "nicht gemeldet".
+  const spartenR = await env.VV_DB
+    .prepare("SELECT id, name FROM sparte WHERE aktiv = 1 ORDER BY sortierung, name").all();
+  const fussball = (spartenR.results || []).filter((s) => istKodexSparte(s.name));
+  if (!fussball.length) {
+    return json({ error: "Die Abteilung Fussball wurde nicht gefunden. Der Abgleich gilt nur " +
+                         "ihr. Bitte pruefen, ob die Abteilung aktiv ist und wie sie " +
+                         "geschrieben ist." }, 409, corsHeaders);
+  }
+  const sparteIds = fussball.map((s) => s.id);
+  const platzhalter = sparteIds.map(() => "?").join(",");
+
+  // ⚠️ EINE mengenbasierte Abfrage ueber den ganzen Bestand, keine
+  // Schleife mit einer Abfrage je gemeldetem Spieler. 146 Spieler waeren
+  // 146 Rundlaeufe, und daran ist dieser Worker schon zweimal gestorben
+  // (handleMesslaufSchnell, handleImport).
+  //
+  // ⚠️ Anschrift, E-Mail und Bankdaten kommen im SELECT nicht vor. Was
+  // nicht abgefragt wird, steht auch nicht im Netzwerk-Tab.
+  const alter = alterSql(stichtag);
+  const bestand = bestandSql(stichtag);
+  const mitglR = await env.VV_DB.prepare(
+    "SELECT p.id, p.vorname, p.nachname, p.geburtsdatum, m.status, m.mitgliedsnummer, " +
+    "       " + alter + " AS jahre, " +
+    "       (CASE WHEN " + bestand + " THEN 1 ELSE 0 END) AS im_bestand, " +
+    "       MAX(CASE WHEN ms.sparte_id IN (" + platzhalter + ") THEN 1 ELSE 0 END) AS im_fussball, " +
+    "       GROUP_CONCAT(s.name, ', ') AS sparten " +
+    "FROM mitgliedschaft m JOIN person p ON p.id = m.person_id " +
+    "LEFT JOIN mitgliedschaft_sparte ms ON ms.mitgliedschaft_id = m.id " +
+    "  AND (ms.austritt IS NULL OR ms.austritt >= '" + stichtag + "') " +
+    "LEFT JOIN sparte s ON s.id = ms.sparte_id " +
+    "GROUP BY m.id"
+  ).bind(...sparteIds).all();
+
+  const pool = [];
+  for (const m of mitglR.results || []) {
+    pool.push({
+      person_id: m.id,
+      name: ((m.vorname || "") + " " + (m.nachname || "")).trim(),
+      geburtsdatum: m.geburtsdatum,
+      mitgliedsnummer: m.mitgliedsnummer,
+      status: m.status,
+      sparten: m.sparten || "",
+      jahre: typeof m.jahre === "number" ? m.jahre : null,
+      im_fussball: !!m.im_fussball,
+      im_bestand: !!m.im_bestand,
+      schluessel: kodexSchluessel(m.vorname, m.nachname, m.geburtsdatum),
+      teile: kodexTeileListe(m.vorname, m.nachname),
+      gemeldet: false,
+      vermutlich: null
+    });
+  }
+
+  // ⚠️ Eine Person kann mehrere Mitgliedschaften tragen (Wiedereintritt).
+  // Der Schluessel zeigt deshalb auf die laufende im Fussball, nicht auf
+  // die erste gefundene -- sonst entschiede die Reihenfolge der Zeilen
+  // darueber, ob ein gemeldeter Spieler als Treffer oder als
+  // "ausgetreten" erscheint.
+  const nachSchluessel = new Map();
+  const rang = (p) => (p.im_bestand && p.im_fussball ? 0 : p.im_bestand ? 1 : 2);
+  for (const p of pool.slice().sort((a, b) => rang(a) - rang(b))) {
+    if (p.schluessel && !nachSchluessel.has(p.schluessel)) nachSchluessel.set(p.schluessel, p);
+  }
+
+  // Offene Aufnahmeantraege. person_id ist NULL, solange der Vorstand
+  // nicht beschlossen hat; angenommene stehen laengst als Mitglied im Pool.
+  const antraege = [];
+  try {
+    const aR = await env.VV_DB.prepare(
+      "SELECT id, eingang_am, antrag_json FROM aufnahmeantrag " +
+      "WHERE person_id IS NULL AND status IN ('neu','geprueft')").all();
+    for (const a of aR.results || []) {
+      // ⚠️ Das JSON wird NUR hier im Server ausgewertet: daneben stehen
+      // IBAN und Anschrift. Hinaus gehen Name und Geburtsdatum.
+      let inhalt = {};
+      try { inhalt = JSON.parse(a.antrag_json || "{}"); } catch { inhalt = {}; }
+      const teile = kodexTeileListe(inhalt.vorname, inhalt.nachname);
+      if (!teile.length) continue;
+      const geb = String(inhalt.geburtsdatum || "").slice(0, 10);
+      antraege.push({
+        name: ((inhalt.vorname || "") + " " + (inhalt.nachname || "")).trim(),
+        geburtsdatum: geb,
+        eingang_am: String(a.eingang_am || "").slice(0, 10),
+        schluessel: kodexSchluessel(inhalt.vorname, inhalt.nachname, geb),
+        teile
+      });
+    }
+  } catch {
+    // Die Tabelle kann in einer frisch aufgesetzten Datenbank fehlen.
+  }
+  const antragNachSchluessel = new Map();
+  for (const a of antraege) {
+    if (a.schluessel && !antragNachSchluessel.has(a.schluessel)) {
+      antragNachSchluessel.set(a.schluessel, a);
+    }
+  }
+
+  // --- Richtung 1: gemeldet -> Bestand --------------------------------
+  const treffer = [];
+  const offen = [];
+  for (const g of gemeldet) {
+    const m = g.schluessel ? nachSchluessel.get(g.schluessel) : null;
+    if (m) m.gemeldet = true;
+
+    if (m && m.im_bestand && m.im_fussball) {
+      treffer.push({
+        name: g.name, geburtsdatum: g.geburtsdatum,
+        mannschaft: g.mannschaft, aktiv: g.aktiv,
+        mitglied: m.name,
+        mitgliedsnummer: vollbild ? (m.mitgliedsnummer || "") : null,
+        status: m.status
+      });
+      continue;
+    }
+
+    const zeile = {
+      name: g.name, geburtsdatum: g.geburtsdatum,
+      mannschaft: g.mannschaft, aktiv: g.aktiv,
+      lage: "unbekannt", hinweis: "", vorschlaege: []
+    };
+    const antrag = !m && g.schluessel ? antragNachSchluessel.get(g.schluessel) : null;
+
+    if (m && m.im_bestand && !m.im_fussball) {
+      zeile.lage = "andere_abteilung";
+      zeile.hinweis = vollbild
+        ? "Mitglied, aber nicht in der Abteilung Fußball geführt" +
+          (m.sparten ? " (" + m.sparten + ")" : " (ohne Abteilung)") + "."
+        : "Nicht als Fußball-Mitglied geführt.";
+    } else if (m && !m.im_bestand) {
+      zeile.lage = "ausgetreten";
+      zeile.hinweis = vollbild
+        ? "Die Mitgliedschaft ist beendet (Status " + (m.status || "?") + ")."
+        : "Nicht als Fußball-Mitglied geführt.";
+    } else if (antrag) {
+      zeile.lage = "antrag";
+      zeile.hinweis = vollbild
+        ? "Ein Aufnahmeantrag vom " + antrag.eingang_am + " liegt vor, ist aber noch nicht " +
+          "beschlossen (§ 4)."
+        : "Nicht als Fußball-Mitglied geführt.";
+    } else {
+      zeile.lage = "unbekannt";
+      zeile.hinweis = "Zu diesem Namen und Geburtsdatum steht nichts im Bestand.";
+    }
+
+    // ⚠️ Vorschlaege nur fuer darfSchreiben und nur fuer den unklaren
+    // Fall. Der Lauf greift in den GESAMTBESTAND -- dieselbe Begruendung
+    // wie bei kodexVorschlaege. Und wo die Lage bereits geklaert ist,
+    // waere ein Vorschlag nur Rauschen.
+    if (vollbild && zeile.lage === "unbekannt") {
+      const bewertet = [];
+      for (const p of pool) {
+        if (!p.teile.length) continue;
+        const a = kodexAehnlichkeit(g.teile, g.geburtsdatum, p.teile, p.geburtsdatum);
+        if (a.signale < 1 || a.punkte < KODEX_VORSCHLAG_PUNKTE) continue;
+        bewertet.push({
+          person_id: p.person_id, name: p.name, geburtsdatum: p.geburtsdatum,
+          mitgliedsnummer: p.mitgliedsnummer || "",
+          herkunft: (p.im_fussball ? "Fußball" : (p.sparten || "ohne Abteilung")) +
+                    (p.im_bestand ? "" : " · " + (p.status || "beendet")),
+          im_fussball: p.im_fussball && p.im_bestand,
+          punkte: a.punkte, gruende: a.gruende, _p: p
+        });
+      }
+      for (const an of antraege) {
+        const a = kodexAehnlichkeit(g.teile, g.geburtsdatum, an.teile, an.geburtsdatum);
+        if (a.signale < 1 || a.punkte < KODEX_VORSCHLAG_PUNKTE) continue;
+        bewertet.push({
+          person_id: null, name: an.name, geburtsdatum: an.geburtsdatum, mitgliedsnummer: "",
+          herkunft: "Aufnahmeantrag vom " + an.eingang_am + ", noch nicht angenommen",
+          im_fussball: false, punkte: a.punkte, gruende: a.gruende, _p: null
+        });
+      }
+      bewertet.sort((a, b) => b.punkte - a.punkte || a.name.localeCompare(b.name, "de"));
+      zeile.vorschlaege = bewertet.slice(0, DFBNET_VORSCHLAG_ANZAHL).map((v) => {
+        // ⚠️ Diese Quervernetzung ist der eigentliche Nutzen: dasselbe
+        // Kind steht sonst zweimal in der Auswertung -- links als "kein
+        // Mitglied", rechts als "nicht gemeldet" -- und niemand sieht,
+        // dass es EINE Schreibweise ist und kein doppelter Fall.
+        // Automatisch verheiratet wird trotzdem nichts: ein Fast-Treffer
+        // darf nicht entscheiden, wer spielberechtigt ist.
+        if (v._p && v.im_fussball && !v._p.vermutlich) v._p.vermutlich = g.name;
+        delete v._p;
+        return v;
+      });
+    }
+    offen.push(zeile);
+  }
+
+  // --- Richtung 2: Bestand -> gemeldet --------------------------------
+  const nichtGemeldet = [];
+  const gesehen = new Set();
+  let volljaehrigVerborgen = 0;
+  for (const p of pool) {
+    if (p.gemeldet || !p.im_fussball || !p.im_bestand) continue;
+    if (gesehen.has(p.person_id)) continue;
+    const j = parseInt(String(p.geburtsdatum || "").slice(0, 4), 10);
+    if (!j || j < von || j > bis) continue;
+    // ⚠️ Ohne Schreibrecht werden nur Minderjaehrige benannt -- genau die
+    // Menge, die handleKodexListe der Passstelle ohnehin liefert.
+    // Volljaehrige Fussballer waeren neu, und diese Aktion ist nicht der
+    // Ort, an dem eine Rechtegrenze stillschweigend weiter wird.
+    if (!vollbild && !(p.jahre !== null && p.jahre < 18)) { volljaehrigVerborgen++; continue; }
+    gesehen.add(p.person_id);
+    nichtGemeldet.push({
+      name: p.name, geburtsdatum: p.geburtsdatum,
+      mitgliedsnummer: vollbild ? (p.mitgliedsnummer || "") : null,
+      status: p.status,
+      vermutlich: p.vermutlich || null
+    });
+  }
+  nichtGemeldet.sort((a, b) => a.name.localeCompare(b.name, "de"));
+
+  const imBereich = pool.filter((p) => {
+    if (!p.im_fussball || !p.im_bestand) return false;
+    const j = parseInt(String(p.geburtsdatum || "").slice(0, 4), 10);
+    return j >= von && j <= bis;
+  }).length;
+
+  return json({
+    ok: true,
+    stichtag,
+    abteilung: fussball.map((s) => s.name).join(", "),
+    jahrgang_von: von,
+    jahrgang_bis: bis,
+    vollbild,
+    anzahl_gemeldet: gemeldet.length,
+    anzahl_bestand: imBereich,
+    doppelt,
+    ohne_geburtsdatum: ohneDatum.length,
+    ohne_geburtsdatum_namen: vollbild ? ohneDatum.slice(0, 20) : [],
+    volljaehrig_verborgen: volljaehrigVerborgen,
+    treffer,
+    offen,
+    nicht_gemeldet: nichtGemeldet
+  }, 200, corsHeaders);
+}
+
 async function handleBuchInit(env, me, corsHeaders) {
   const rolle = await ladeRolle(env, me);
   if (!rolle.darfBuchen) {
@@ -8508,6 +8872,10 @@ export default {
         case "vv-kodex-detail":    return handleKodexDetail(body, env, me, corsHeaders);
         case "vv-kodex-zuordnen":  return handleKodexZuordnen(body, env, me, corsHeaders);
         case "vv-kodex-loeschen":  return handleKodexLoeschen(body, env, me, corsHeaders);
+        // DFBnet-Abgleich. Lesen ab darfNachwuchs (die Passstelle macht die
+        // Spielerpaesse), Mitgliedsnummern und Vorschlaege erst ab
+        // darfSchreiben -- geprueft im Handler. Schreibt nichts.
+        case "vv-dfbnet-abgleich": return handleDfbnetAbgleich(body, env, me, corsHeaders);
         default:
           return json({ error: "Unbekannte Aktion" }, 400, corsHeaders);
       }

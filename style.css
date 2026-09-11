@@ -1373,3 +1373,43 @@ tr.ko-vorschlag > td {
 /* Der Knopf sitzt unter der Begruendung, nicht dahinter: am Handy
    schoebe er sie sonst aus dem Bild. */
 .ko-vorschlagsliste .btn { margin-top: 4px; }
+
+/* --- DFBnet-Abgleich ------------------------------------------------
+   Dieselben zwei Fallen wie bei den Kodex-Vorschlaegen, und sie sind
+   hier noch einmal einzeln gesetzt statt die ko-Klassen mitzubenutzen:
+   ein spaeterer Eingriff am Elternkodex soll diesen Reiter nicht
+   mitverschieben. */
+tr.dfb-vorschlag-zeile > td {
+  background: #f7f9fc;
+  border-top: 0;
+  padding-top: 2px;
+  padding-bottom: 10px;
+  /* ⚠️ `th, td` tragen flottenweit `white-space: nowrap`. Hier steht
+     Fliesstext -- ohne diese Zeile bestimmt der laengste Begruendungs-
+     satz die min-content-Breite der ganzen Tabelle. */
+  white-space: normal;
+}
+/* Die Zelle spannt alle Spalten und ist damit so breit wie die Tabelle.
+   Am Handy ist die breiter als das Bild -- deshalb klebt der Inhalt am
+   linken Rand, statt rechts hinauszulaufen. */
+.dfb-vorschlag-inhalt {
+  position: sticky;
+  left: 0;
+  max-width: calc(100vw - 72px);
+}
+.dfb-vorschlag {
+  font-size: 13px;
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+.dfb-vorschlag .fussnote { display: block; }
+/* Die Trefferliste ist zugeklappt: sie ist mit Abstand die laengste und
+   zugleich die, an der nichts zu tun ist. */
+details.dfb-klapp > summary { cursor: pointer; padding: 4px 0; }
+
+/* Fussnoten in den DFBnet-Tabellen stehen UNTER ihrem Wert, nicht
+   dahinter: als Inline-Text schoeben sie die Spalte auf, und genau die
+   Zusatzangabe laege dann hinter der Kante. Bewusst auf #tab-dfbnet
+   begrenzt -- die uebrigen Tabellen der App sind davon nicht betroffen. */
+#tab-dfbnet td .fussnote { display: block; margin: 2px 0 0; }
+#tab-dfbnet .dfb-vorschlag-inhalt > .fussnote { margin: 0; }
