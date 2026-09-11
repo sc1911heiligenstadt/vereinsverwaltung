@@ -498,6 +498,12 @@ button.btn.klein { padding: 5px 12px; font-size: 13px; }
 /* align-items an der Unterkante: sobald ein Eingabefeld mit Beschriftung
    in einer Knopfreihe steht (Einzugsdatum im Beitragslauf), würde die
    Vorgabe "stretch" alle Knöpfe daneben auf dessen Höhe aufblasen. */
+/* ⚠️ `display: flex` schlaegt das `hidden`-Attribut -- eine Knopfreihe
+   mit `hidden` bliebe sichtbar. Genau das ist am 11.09.2026 passiert:
+   die Passstelle haette "Meldeliste einlesen" und "Gespeicherte Liste
+   loeschen" angeboten bekommen, beide mit sicherem 403. Flottenfalle,
+   in dieser Datei schon bei .overlay und nav a geloest. */
+.knopfreihe[hidden] { display: none; }
 .knopfreihe {
   display: flex;
   align-items: flex-end;

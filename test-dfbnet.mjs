@@ -16,6 +16,7 @@
 //   G  Die Handzuordnung
 //   H  Die Filterfelder
 //   I  Die gespeicherte Meldeliste
+//   J  Der Vorfilter der Vorschlaege
 //
 // ⚠️ ALLE Namen und Geburtsdaten hier sind ERFUNDEN und muessen es
 // bleiben. Dieses Repo ist oeffentlich, und es geht um minderjaehrige
@@ -84,7 +85,9 @@ const schnitt = rohWorker.indexOf("export default");
 if (schnitt < 0) throw new Error("export default nicht gefunden");
 const W = new Function(rohWorker.slice(0, schnitt) +
   "\nreturn { handleDfbnetAbgleich, handleDfbnetImport, handleDfbnetZuordnen, " +
-  "handleMigration, ladeRolle, kodexSchluessel, DFBNET_MAX_ZEILEN };")();
+  "handleMigration, ladeRolle, kodexSchluessel, DFBNET_MAX_ZEILEN, " +
+  "dfbnetIndex, dfbnetKandidaten, kodexTeileListe, kodexAehnlichkeit, " +
+  "KODEX_VORSCHLAG_PUNKTE };")();
 
 // dfbnet.js benutzt $, esc, datumDe und XLSX erst beim ZEICHNEN. Die drei
 // Lesefunktionen kommen ohne aus -- genau deshalb stehen sie getrennt.
@@ -833,6 +836,146 @@ pruefe("I19 Dieselbe Datei zweimal aneinander ergibt dieselben sechs Zeilen",
        zaehle("dfbnet_spieler") === 6, "" + zaehle("dfbnet_spieler"));
 
 await einlesen(DATEI);
+
+
+// ======================================================================
+console.log("J  Der Vorfilter der Vorschlaege");
+// ======================================================================
+//
+// ⚠️ Hier ist der Worker am 11.09.2026 gestorben. 146 ungeklaerte Faelle
+// mal 540 Mitglieder sind 78.840 Bewertungen mit Levenshtein darin --
+// gemessen 223 ms reine Rechenzeit, und ein harter Abbruch schickt keine
+// CORS-Kopfzeilen: im Browser stand nur "Server nicht erreichbar".
+//
+// Der Vorfilter darf dabei NICHTS verlieren. Diese Zusagen messen genau
+// das: derselbe Bestand, einmal vollstaendig durchgerechnet und einmal
+// ueber den Index -- das Ergebnis muss Zeichen fuer Zeichen dasselbe sein.
+
+// Ein erfundener Bestand in der Groessenordnung des echten.
+const jPool = [];
+const jSilben = ["bran", "holt", "wies", "kamp", "stein", "tal", "berg", "feld",
+                 "dorf", "hof", "bach", "see", "moor", "hain", "rott", "wald"];
+const jVor = ["Anne", "Bent", "Caro", "Dora", "Emil", "Finn", "Grit", "Hanno",
+              "Ilka", "Jost", "Kira", "Lino", "Mira", "Nils", "Ove", "Pina"];
+for (let i = 0; i < 540; i++) {
+  const vorname = jVor[i % jVor.length] + (i % 5 === 0 ? "s" : "");
+  const nachname = jSilben[i % jSilben.length] + jSilben[(i * 7 + 3) % jSilben.length] +
+                   (i % 4 === 0 ? "er" : "");
+  jPool.push({
+    person_id: "jp" + i, name: vorname + " " + nachname,
+    geburtsdatum: (2008 + (i % 10)) + "-0" + (1 + (i % 9)) + "-1" + (i % 9),
+    teile: W.kodexTeileListe(vorname, nachname),
+    im_fussball: i % 3 === 0, im_bestand: true, sparten: "Turnen", status: "aktiv",
+    mitgliedsnummer: "" + (1000 + i)
+  });
+}
+
+// Die gemeldeten Spieler: ein Teil trifft, ein Teil nicht -- und ein paar
+// treffen nur ueber eine der drei Stufen.
+const jGemeldet = [];
+for (let i = 0; i < 150; i++) {
+  const q = jPool[i % jPool.length];
+  let vorname, nachname, geb;
+  if (i % 5 === 0) {
+    // Umlaut-Variante: "anders geschrieben"
+    vorname = q.name.split(" ")[0].replace(/a/, "ä");
+    nachname = q.name.split(" ")[1];
+    geb = q.geburtsdatum;
+  } else if (i % 5 === 1) {
+    // Tippfehler: nur "fast gleich"
+    vorname = q.name.split(" ")[0];
+    nachname = q.name.split(" ")[1].slice(0, -1) + "z";
+    geb = "2011-07-07";
+  } else if (i % 5 === 2) {
+    // Tag und Monat vertauscht
+    vorname = q.name.split(" ")[0];
+    nachname = q.name.split(" ")[1];
+    const t = q.geburtsdatum.split("-");
+    geb = t[0] + "-" + t[2] + "-" + t[1];
+  } else {
+    // gar kein Treffer
+    vorname = "Zaubermann" + i;
+    nachname = "Ohnegleichen" + i;
+    geb = "1955-03-0" + (1 + (i % 9));
+  }
+  jGemeldet.push({ teile: W.kodexTeileListe(vorname, nachname), geburtsdatum: geb });
+}
+
+function jVollstaendig(g) {
+  const raus = [];
+  for (const p of jPool) {
+    const a = W.kodexAehnlichkeit(g.teile, g.geburtsdatum, p.teile, p.geburtsdatum);
+    if (a.signale < 1 || a.punkte < W.KODEX_VORSCHLAG_PUNKTE) continue;
+    raus.push(p.person_id + "|" + a.punkte + "|" + a.gruende.join(","));
+  }
+  return raus.sort();
+}
+
+const jKarte = W.dfbnetIndex(jPool);
+function jUeberIndex(g) {
+  const raus = [];
+  for (const p of W.dfbnetKandidaten(jKarte, g.teile, g.geburtsdatum)) {
+    const a = W.kodexAehnlichkeit(g.teile, g.geburtsdatum, p.teile, p.geburtsdatum);
+    if (a.signale < 1 || a.punkte < W.KODEX_VORSCHLAG_PUNKTE) continue;
+    raus.push(p.person_id + "|" + a.punkte + "|" + a.gruende.join(","));
+  }
+  return raus.sort();
+}
+
+let jAbweichungen = 0, jTreffer = 0, jPaareIndex = 0;
+let jBeispiel = "";
+for (const g of jGemeldet) {
+  const voll = jVollstaendig(g);
+  const idx = jUeberIndex(g);
+  jTreffer += voll.length;
+  jPaareIndex += W.dfbnetKandidaten(jKarte, g.teile, g.geburtsdatum).size;
+  if (voll.join(";") !== idx.join(";")) {
+    jAbweichungen++;
+    if (!jBeispiel) jBeispiel = "voll " + voll.length + " / index " + idx.length;
+  }
+}
+
+// ⚠️ Gegenprobe ZUERST: der vollstaendige Lauf muss ueberhaupt etwas
+// finden. Ohne diese Zeile waere J2 auch dann gruen, wenn beide Wege
+// nichts liefern -- und der Vorfilter waere ungeprueft.
+pruefe("J1 Gegenprobe: der vollstaendige Lauf findet ueberhaupt Vorschlaege",
+       jTreffer > 50, jTreffer + " Treffer");
+pruefe("J2 Der Vorfilter liefert bei 150 Faellen dasselbe wie der volle Lauf",
+       jAbweichungen === 0, jAbweichungen + " Abweichungen, z. B. " + jBeispiel);
+
+// ⚠️ Und er ist wirklich billiger. Ohne diese Zusage koennte jemand den
+// Index gegen "nimm einfach alle" austauschen: J2 bliebe gruen, der
+// Worker stuerbe wieder.
+// ⚠️ Die Schranke ist absichtlich grosszuegig: dieser Testbestand ist aus
+// sechzehn Silben gebaut und teilt sich deshalb viel mehr Namensanfaenge
+// als ein echter. An den echten Namen gemessen waren es 96 Paare statt
+// 78.840.
+pruefe("J3 Er bewertet einen Bruchteil der Paare",
+       jPaareIndex < jGemeldet.length * jPool.length / 10,
+       jPaareIndex + " statt " + (jGemeldet.length * jPool.length));
+
+// Die drei Stufen einzeln: jede muss den Vorfilter ueberleben.
+const jEins = (v, n, g) => jUeberIndex({ teile: W.kodexTeileListe(v, n), geburtsdatum: g });
+const jQ = jPool[0];
+const jTeil = jQ.name.split(" ");
+pruefe("J4 Umlaut-Variante kommt durch",
+       jEins(jTeil[0].replace(/a/, "ä"), jTeil[1], jQ.geburtsdatum).length > 0);
+// ⚠️ Diese beiden kommen ueber das GEBURTSDATUM herein, nicht ueber die
+// Enden-Schluessel: ein reiner Tippfehler wiegt 12 Punkte, die Schwelle
+// liegt bei 50. Ein Vorschlag entsteht also ohnehin nur mit passendem
+// Datum oder einem exakt gleichen Namensteil. Die Enden-Schluessel sind
+// eine Reserve fuer den Tag, an dem jemand die Gewichte aendert -- die
+// Mutationsprobe "Enden-Schluessel raus" bleibt heute gruen, und das
+// steht so auch im Worker.
+pruefe("J5 Tippfehler am Wortende ueberlebt den Vorfilter",
+       jEins(jTeil[0], jTeil[1].slice(0, -1) + "z", jQ.geburtsdatum).length > 0);
+pruefe("J6 Tippfehler am Wortanfang ueberlebt den Vorfilter",
+       jEins(jTeil[0], "z" + jTeil[1].slice(1), jQ.geburtsdatum).length > 0);
+const jT = jQ.geburtsdatum.split("-");
+pruefe("J7 Vertauschter Tag und Monat kommt durch",
+       jEins(jTeil[0], jTeil[1], jT[0] + "-" + jT[2] + "-" + jT[1]).length > 0);
+pruefe("J8 Wer zu niemandem passt, bekommt auch nichts",
+       jEins("Xaverina", "Unverwechselbar", "1901-01-01").length === 0);
 
 // ======================================================================
 console.log("");

@@ -6775,6 +6775,78 @@ async function hatDfbnetTabelle(env) {
   return dfbnetTabelleDa;
 }
 
+// ⚠️ DER VORSCHLAGSLAUF HAT DEN WORKER UMGEBRACHT (11.09.2026, erster
+// echter Lauf bei Michel). 146 ungeklaerte Faelle mal 540 Mitglieder sind
+// 78.840 Bewertungen, jede mit Levenshtein darin -- gemessen 223 ms reine
+// Rechenzeit gegen 3,9 ms ohne den Lauf. Ein harter Abbruch schickt keine
+// CORS-Kopfzeilen, deshalb kam im Browser nur "Server nicht erreichbar"
+// an, und es sah nach einem Netzproblem aus.
+//
+// Beim Elternkodex faellt das nicht auf: dort sind es ein bis zwei
+// Dutzend offene Erklaerungen, hier die ganze Meldeliste.
+//
+// Die Loesung ist ein billiger Vorfilter. ⚠️ Seine Schluessel sind so
+// gewaehlt, dass KEINE der drei Bewertungsstufen verlorengeht:
+//   d:  Geburtsdatum (und das mit vertauschtem Tag/Monat) -> "Geburtstag"
+//   h:  kodexHart(teil) exakt  -> "gleich" und "nur anders geschrieben"
+//   v:/n: die ersten und die letzten drei Zeichen -> "fast gleich";
+//       zwei Woerter mit Levenshtein-Abstand <= 2 muessen in einem der
+//       beiden Enden uebereinstimmen, sonst laegen dort schon zwei
+//       Aenderungen.
+// Gerechnet wird danach mit derselben Funktion wie vorher -- Punkte und
+// Begruendungen aendern sich nicht, nur die Zahl der Paare.
+//
+// ⚠️ EHRLICHE EINORDNUNG der beiden Enden-Schluessel: mit den heutigen
+// Gewichten sind sie eine RESERVE, keine Notwendigkeit. Ein reiner
+// Tippfehler wiegt 12 Punkte, die Schwelle liegt bei 50 -- ein Vorschlag
+// kommt also ohnehin nur zustande, wenn zusaetzlich das Geburtsdatum
+// passt oder ein anderer Namensteil exakt stimmt, und beides sind exakte
+// Schluessel. Die Mutationsprobe "Enden-Schluessel raus" bleibt deshalb
+// gruen. Sie bleiben trotzdem stehen: wer die Gewichte in
+// kodexAehnlichkeit aendert, verliert sonst lautlos Treffer -- und genau
+// diese Sorte Lautlosigkeit kostet hier sonst einen ganzen Nachmittag.
+function dfbnetSchluesselFuer(teile, geburtsdatum) {
+  const keys = [];
+  const geb = String(geburtsdatum || "").slice(0, 10);
+  if (geb) {
+    keys.push("d:" + geb);
+    const gedreht = kodexDatumGedreht(geb);
+    if (gedreht && gedreht !== geb) keys.push("d:" + gedreht);
+  }
+  for (const t of teile) {
+    const h = kodexHart(t);
+    if (!h) continue;
+    keys.push("h:" + h);
+    if (h.length >= 4) {
+      keys.push("v:" + h.slice(0, 3));
+      keys.push("n:" + h.slice(-3));
+    }
+  }
+  return keys;
+}
+
+function dfbnetIndex(eintraege) {
+  const karte = new Map();
+  for (const e of eintraege) {
+    if (!e.teile || !e.teile.length) continue;
+    for (const k of dfbnetSchluesselFuer(e.teile, e.geburtsdatum)) {
+      let liste = karte.get(k);
+      if (!liste) { liste = []; karte.set(k, liste); }
+      liste.push(e);
+    }
+  }
+  return karte;
+}
+
+function dfbnetKandidaten(karte, teile, geburtsdatum) {
+  const raus = new Set();
+  for (const k of dfbnetSchluesselFuer(teile, geburtsdatum)) {
+    const liste = karte.get(k);
+    if (liste) for (const e of liste) raus.add(e);
+  }
+  return raus;
+}
+
 // Mehr Zeilen als das: dann ist die falsche Datei hochgeladen worden.
 const DFBNET_MAX_ZEILEN = 3000;
 const DFBNET_VORSCHLAG_ANZAHL = 3;
@@ -7105,6 +7177,14 @@ async function handleDfbnetAbgleich(body, env, me, corsHeaders) {
     if (!nachPerson.has(p.person_id)) nachPerson.set(p.person_id, p);
   }
 
+  // ⚠️ EINMAL gebaut, nicht je Zeile. Der Index kostet einen Durchlauf
+  // durch den Bestand; ihn im Schleifenkoerper zu bauen waere derselbe
+  // Fehler in gruen.
+  const kandidatenKarte = vollbild
+    ? dfbnetIndex(pool.concat(antraege.map((a) => ({ antrag: a, teile: a.teile,
+                                                     geburtsdatum: a.geburtsdatum }))))
+    : null;
+
   // --- Richtung 1: gemeldet -> Bestand --------------------------------
   const treffer = [];
   const offen = [];
@@ -7186,27 +7266,30 @@ async function handleDfbnetAbgleich(body, env, me, corsHeaders) {
     // Widerspruch.
     if (vollbild && zeile.lage === "unbekannt" && !hand) {
       const bewertet = [];
-      for (const p of pool) {
-        if (!p.teile.length) continue;
-        const a = kodexAehnlichkeit(g.teile, g.geburtsdatum, p.teile, p.geburtsdatum);
+      // ⚠️ Nur die Kandidaten aus dem Index, nicht der ganze Bestand.
+      // Siehe den Block bei dfbnetIndex: daran ist der erste Lauf
+      // gestorben.
+      for (const e of dfbnetKandidaten(kandidatenKarte, g.teile, g.geburtsdatum)) {
+        const a = kodexAehnlichkeit(g.teile, g.geburtsdatum, e.teile, e.geburtsdatum);
         if (a.signale < 1 || a.punkte < KODEX_VORSCHLAG_PUNKTE) continue;
-        bewertet.push({
-          person_id: p.person_id, name: p.name, geburtsdatum: p.geburtsdatum,
-          mitgliedsnummer: p.mitgliedsnummer || "",
-          herkunft: (p.im_fussball ? "Fußball" : (p.sparten || "ohne Abteilung")) +
-                    (p.im_bestand ? "" : " · " + (p.status || "beendet")),
-          im_fussball: p.im_fussball && p.im_bestand,
-          punkte: a.punkte, gruende: a.gruende, _p: p
-        });
-      }
-      for (const an of antraege) {
-        const a = kodexAehnlichkeit(g.teile, g.geburtsdatum, an.teile, an.geburtsdatum);
-        if (a.signale < 1 || a.punkte < KODEX_VORSCHLAG_PUNKTE) continue;
-        bewertet.push({
-          person_id: null, name: an.name, geburtsdatum: an.geburtsdatum, mitgliedsnummer: "",
-          herkunft: "Aufnahmeantrag vom " + an.eingang_am + ", noch nicht angenommen",
-          im_fussball: false, punkte: a.punkte, gruende: a.gruende, _p: null
-        });
+        if (e.antrag) {
+          bewertet.push({
+            person_id: null, name: e.antrag.name, geburtsdatum: e.antrag.geburtsdatum,
+            mitgliedsnummer: "",
+            herkunft: "Aufnahmeantrag vom " + e.antrag.eingang_am +
+                      ", noch nicht angenommen",
+            im_fussball: false, punkte: a.punkte, gruende: a.gruende, _p: null
+          });
+        } else {
+          bewertet.push({
+            person_id: e.person_id, name: e.name, geburtsdatum: e.geburtsdatum,
+            mitgliedsnummer: e.mitgliedsnummer || "",
+            herkunft: (e.im_fussball ? "Fußball" : (e.sparten || "ohne Abteilung")) +
+                      (e.im_bestand ? "" : " · " + (e.status || "beendet")),
+            im_fussball: e.im_fussball && e.im_bestand,
+            punkte: a.punkte, gruende: a.gruende, _p: e
+          });
+        }
       }
       bewertet.sort((a, b) => b.punkte - a.punkte || a.name.localeCompare(b.name, "de"));
       zeile.vorschlaege = bewertet.slice(0, DFBNET_VORSCHLAG_ANZAHL).map((v) => {
