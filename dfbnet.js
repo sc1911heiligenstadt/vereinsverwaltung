@@ -203,6 +203,48 @@ function dfbLuecke(anzahl, namen, eins, viele) {
     (namen && namen.length ? " (" + esc(namen.join(", ")) + ")" : "") + ". ";
 }
 
+// Zuordnungen, zu denen es in der Meldeliste keine Zeile mehr gibt.
+//
+// ⚠️ Sie brauchen eine EIGENE Karte, und zwar auch im leeren Zustand
+// (Abnahme 11.09.2026). Eine Handzuordnung speichert Namen und
+// Geburtsdatum des gemeldeten Kindes mit und überlebt jeden neuen Export
+// — absichtlich. Nur hing der Knopf „Zuordnung aufheben" bisher an einer
+// ZEILE der Meldeliste: war das Kind im nächsten Export nicht mehr dabei
+// oder die Liste gelöscht, stand sein Name für immer in der Datenbank und
+// niemand kam mehr heran.
+//
+// ⚠️ Gelöscht wird nichts von selbst. Sichtbar machen und aufheben lassen
+// ist das Richtige — eine App, die Entscheidungen der Geschäftsstelle
+// stillschweigend wegräumt, ist schlimmer als eine, die sie liegen lässt.
+function dfbVerwaisteKarte(e) {
+  const liste = (e && e.verwaiste_zuordnungen) || [];
+  if (!liste.length) return "";
+  return '<div class="karte"><h2>Zuordnungen ohne Zeile in der Meldeliste ' +
+    '<span class="version-badge">' + liste.length + "</span></h2>" +
+    '<p class="fussnote">Diese Zuordnungen wurden von Hand gesetzt, der zugehörige ' +
+    "Spieler steht aber in der aktuellen Meldeliste nicht mehr — weil er im neuen " +
+    "Export fehlt oder die Liste gelöscht wurde. Sie bleiben absichtlich stehen, " +
+    "damit derselbe Schreibfehler beim nächsten Export nicht noch einmal aufgelöst " +
+    "werden muss. Wird der Spieler nicht mehr erwartet, gehört die Zuordnung " +
+    "aufgehoben: <strong>sie trägt Name und Geburtsdatum des Kindes.</strong></p>" +
+    '<div class="tabelle-scroll"><table><thead><tr>' +
+      "<th>Gemeldet als</th><th>Geboren</th>" +
+    "</tr></thead><tbody>" +
+    liste.map((v) =>
+      "<tr>" +
+        '<td class="umbruch">' + esc(v.name) +
+          '<span class="fussnote">zugeordnet am ' + esc(datumDe(v.erstellt_am)) + "</span>" +
+          // ⚠️ Der Knopf steht in der ERSTEN Spalte — dieselbe Lehre wie
+          // dreimal zuvor in diesem Reiter: was zu tun ist, gehört nach
+          // links, alles rechts Angehängte ist am Handy hinter der Kante.
+          '<span class="fussnote"><button type="button" class="btn grau klein" ' +
+          'data-dfb="aufheben"' + dfbRohAttr(v) + ">Zuordnung aufheben</button></span>" +
+        "</td>" +
+        "<td>" + esc(datumDe(v.geburtsdatum)) + "</td>" +
+      "</tr>").join("") +
+    "</tbody></table></div></div>";
+}
+
 // Die Rohfelder eines gemeldeten Spielers als data-Attribute. Sie gehen
 // unveraendert an den Server zurueck, der daraus den Schluessel bildet.
 function dfbRohAttr(z) {
@@ -293,7 +335,10 @@ function dfbZeichne() {
   // antraege.js (antwort.nur_nachwuchs).
   if ($("dfb-knopfreihe")) $("dfb-knopfreihe").hidden = !(e && e.vollbild);
   if (!e || e.leer) {
-    ziel.innerHTML = "";
+    // ⚠️ Auch ohne Meldeliste muss die Karte mit den verwaisten
+    // Zuordnungen erscheinen — genau dann ist sie der EINZIGE Weg an
+    // diese Daten heran.
+    ziel.innerHTML = dfbVerwaisteKarte(e);
     if (filterKarte) filterKarte.hidden = true;
     $("dfb-weg").hidden = true;
     $("dfb-stand").innerHTML = '<p class="fussnote">' +
@@ -556,6 +601,10 @@ function dfbZeichne() {
       "</tr>"
     ).join("") +
     "</tbody></table></div></details></div>";
+
+  // Ganz unten, nach den drei Listen: es ist Aufräumarbeit, keine
+  // Tagesarbeit — aber sie muss auffindbar sein.
+  html += dfbVerwaisteKarte(e);
 
   ziel.innerHTML = html;
 }

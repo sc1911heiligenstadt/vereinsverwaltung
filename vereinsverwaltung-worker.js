@@ -7135,8 +7135,46 @@ async function handleDfbnetAbgleich(body, env, me, corsHeaders) {
     });
   }
 
+  // ⚠️⚠️ Die Handzuordnungen werden HIER geladen, VOR der leeren Antwort
+  // (Abnahme 11.09.2026). Grund: eine Zuordnung speichert Namen und
+  // Geburtsdatum des gemeldeten Kindes mit und ueberlebt jeden neuen
+  // Export und jedes Loeschen der Liste -- absichtlich, damit niemand
+  // denselben Schreibfehler zweimal aufloest. Nur: der Knopf "Zuordnung
+  // aufheben" haengt an einer ZEILE der Meldeliste. Ist die Liste weg
+  // oder das Kind im naechsten Export nicht mehr dabei, steht die Zeile
+  // mit seinem Namen fuer immer in der Datenbank und niemand kommt mehr
+  // an sie heran -- ein Datenbestand ueber Minderjaehrige ohne Loeschweg.
+  // Deshalb kommen die verwaisten Zuordnungen mit in die Antwort, auch in
+  // die leere. Geloescht wird nichts von selbst: sichtbar machen und
+  // aufheben lassen ist das Richtige, stillschweigend wegraeumen nicht.
+  const zuordnungen = [];
+  {
+    const zR = await env.VV_DB.prepare(
+      "SELECT abgleich_schluessel, person_id, gemeldet_vorname, gemeldet_nachname, " +
+      "gemeldet_geburtsdatum, erstellt_am FROM dfbnet_zuordnung").all();
+    for (const z of zR.results || []) zuordnungen.push(z);
+  }
+  const gemeldeteSchluessel = new Set(gemeldet.map((g) => g.schluessel));
+  // ⚠️ Namen nur mit Schreibrecht -- dieselbe Grenze wie ueberall sonst in
+  // dieser Antwort. Ohne das waere hier ein Weg an der Passstellen-Grenze
+  // vorbei, und zwar ausgerechnet fuer Kinder, die gar nicht mehr gemeldet
+  // sind.
+  const verwaist = vollbild
+    ? zuordnungen
+        .filter((z) => !gemeldeteSchluessel.has(z.abgleich_schluessel))
+        .map((z) => ({
+          name: ((z.gemeldet_vorname || "") + " " + (z.gemeldet_nachname || "")).trim(),
+          vorname: z.gemeldet_vorname || "",
+          nachname: z.gemeldet_nachname || "",
+          geburtsdatum: z.gemeldet_geburtsdatum || "",
+          erstellt_am: String(z.erstellt_am || "").slice(0, 10)
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name, "de"))
+    : [];
+
   if (!gemeldet.length) {
-    return json({ ok: true, leer: true, eingerichtet: true, vollbild }, 200, corsHeaders);
+    return json({ ok: true, leer: true, eingerichtet: true, vollbild,
+                  verwaiste_zuordnungen: verwaist }, 200, corsHeaders);
   }
 
   const doppelt = importR ? Number(importR.doppelt || 0) : 0;
@@ -7301,12 +7339,11 @@ async function handleDfbnetAbgleich(body, env, me, corsHeaders) {
   // die Korrektur fuer genau den Fall, in dem er danebengeht. Dieselbe
   // Reihenfolge wie in handleKodexListe (erst nachPerson, dann
   // nachSchluessel), und aus demselben Grund.
+  // ⚠️ Kein zweiter Rundlauf: die Zeilen stehen schon in `zuordnungen`, oben
+  // geholt. Eine zweite Abfrage derselben Tabelle waere genau das Muster,
+  // an dem dieser Worker zweimal gestorben ist.
   const vonHand = new Map();
-  if (await hatDfbnetTabelle(env)) {
-    const zR = await env.VV_DB.prepare(
-      "SELECT abgleich_schluessel, person_id FROM dfbnet_zuordnung").all();
-    for (const z of zR.results || []) vonHand.set(z.abgleich_schluessel, z.person_id);
-  }
+  for (const z of zuordnungen) vonHand.set(z.abgleich_schluessel, z.person_id);
 
   // ⚠️ EINMAL gebaut, nicht je Zeile. Der Index kostet einen Durchlauf
   // durch den Bestand; ihn im Schleifenkoerper zu bauen waere derselbe
@@ -7524,6 +7561,10 @@ async function handleDfbnetAbgleich(body, env, me, corsHeaders) {
     doppelt_erfasst_namen: vollbild ? doppelteNamen.slice(0, 20) : [],
     ohne_schluessel: ohneSchluesselAnzahl,
     ohne_schluessel_namen: vollbild ? ohneSchluesselNamen.slice(0, 20) : [],
+    // Zuordnungen, zu denen es in der aktuellen Meldeliste keine Zeile
+    // mehr gibt. Siehe den Block oben -- ohne sie haetten sie keinen Weg
+    // mehr aus der Datenbank heraus.
+    verwaiste_zuordnungen: verwaist,
     volljaehrig_verborgen: volljaehrigVerborgen,
     treffer,
     offen,

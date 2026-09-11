@@ -185,6 +185,19 @@ const BUCHHALTUNG_FUNKTIONEN = [
 
 const CHANGELOG = [
   {
+    version: "2.0",
+    groups: [
+      {
+        title: "DFBnet Spieler: Zuordnungen lassen sich jetzt auch wieder loswerden",
+        items: [
+          "Eine von Hand gesetzte Zuordnung speichert Name und Geburtsdatum des gemeldeten Kindes mit und bleibt absichtlich stehen, wenn eine neue Meldeliste eingelesen wird — damit derselbe Schreibfehler nicht zweimal aufgelöst werden muss.",
+          "Der Knopf „Zuordnung aufheben“ hing aber an einer Zeile der Meldeliste. Stand das Kind im neuen Export nicht mehr drin oder war die Liste gelöscht, blieb der Eintrag mit seinem Namen in der Datenbank und es gab keinen Weg mehr, ihn zu entfernen.",
+          "Solche Zuordnungen stehen jetzt in einer eigenen Karte am Ende des Reiters — auch dann, wenn gar keine Meldeliste vorhanden ist. Von dort lassen sie sich aufheben. Gelöscht wird weiterhin nichts von allein."
+        ]
+      }
+    ]
+  },
+  {
     version: "1.9",
     groups: [
       {

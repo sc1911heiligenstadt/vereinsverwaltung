@@ -18,6 +18,7 @@
 //   I  Die gespeicherte Meldeliste
 //   J  Der Vorfilter der Vorschlaege
 //   K  Die Luecken im Bestand (Bugjagd 11.09.2026)
+//   L  Zuordnungen ohne Zeile in der Meldeliste (Abnahme 11.09.2026)
 //
 // ⚠️ ALLE Namen und Geburtsdaten hier sind ERFUNDEN und muessen es
 // bleiben. Dieses Repo ist oeffentlich, und es geht um minderjaehrige
@@ -95,10 +96,18 @@ const W = new Function(rohWorker.slice(0, schnitt) +
 const rohClient = readFileSync(REPO + "/dfbnet.js", "utf8");
 const C = new Function(rohClient +
   "\nreturn { dfbKopfFinden, dfbDatum, dfbMannschaftAusBlatt, dfbKopfWort, " +
-  "dfbSuchform, dfbNameTrifft, dfbLuecke };")();
-// dfbLuecke ruft esc() erst zur Laufzeit und nur bei vorhandenen Namen --
-// als freie Variable landet das im globalen Bereich, also hier setzen.
-globalThis.esc = (s) => String(s);
+  "dfbSuchform, dfbNameTrifft, dfbLuecke, dfbVerwaisteKarte };")();
+// ⚠️ dfbnet.js ruft esc() und datumDe() als FREIE Variablen -- im Browser
+// kommen sie aus app.js. Hier werden die ECHTEN Funktionen aus app.js
+// herausgeschnitten statt nachgebaut: eine eigene Attrappe prüfte sonst
+// das Escaping der Attrappe, nicht das ausgelieferte.
+const rohApp = readFileSync(REPO + "/app.js", "utf8");
+const escQuelle = (rohApp.match(/function esc\(wert\)[\s\S]*?\n\}/) || [""])[0];
+const datQuelle = (rohApp.match(/function datumDe\(iso\)[\s\S]*?\n\}/) || [""])[0];
+if (!escQuelle || !datQuelle) throw new Error("esc/datumDe nicht aus app.js zu holen");
+const H = new Function(escQuelle + "\n" + datQuelle + "\nreturn { esc, datumDe };")();
+globalThis.esc = H.esc;
+globalThis.datumDe = H.datumDe;
 
 // ======================================================================
 console.log("A  Die Datei lesen");
@@ -1227,6 +1236,147 @@ pruefe("K25 Mehrzahl, mit Namen dahinter",
 // und irgendwann gar nicht mehr.
 pruefe("K26 Bei null bleibt der Satz ganz weg",
        C.dfbLuecke(0, [], "Kind steht doppelt", "Kinder stehen doppelt") === "");
+
+
+// ======================================================================
+console.log("L  Zuordnungen ohne Zeile in der Meldeliste (Abnahme 11.09.2026)");
+// ======================================================================
+//
+// ⚠️ Eine Handzuordnung speichert Namen und Geburtsdatum des gemeldeten
+// Kindes MIT und ueberlebt jeden neuen Export und jedes Loeschen der
+// Liste. Das ist Absicht. Nur hing der Knopf "Zuordnung aufheben" an
+// einer ZEILE der Meldeliste -- war das Kind im naechsten Export nicht
+// mehr dabei oder die Liste geloescht, stand sein Name fuer immer in der
+// Datenbank und niemand kam mehr heran. Ein Datenbestand ueber
+// Minderjaehrige ohne Loeschweg.
+
+const ldb = new DatabaseSync(":memory:");
+for (const anw of readFileSync(REPO + "/schema-kompakt.sql", "utf8")
+                    .split(";").map((x) => x.trim()).filter(Boolean)) {
+  ldb.exec(anw + ";");
+}
+const lenv = { VV_DB: d1(ldb) };
+ldb.exec("INSERT INTO benutzer_rolle (id, username, rolle, sparte_id, erstellt_am, " +
+         "erstellt_von) VALUES ('lr-pass', 'pass.stelle', 'passstelle', NULL, " + WER + ")");
+await W.handleMigration(lenv, ADMIN, cors);
+ldb.exec("INSERT INTO sparte (id, name, aktiv, erstellt_am, erstellt_von) " +
+         "VALUES ('sp-fu', 'Fussball', 1, " + WER + ")");
+ldb.exec("INSERT INTO person (id, vorname, nachname, geburtsdatum, erstellt_am, " +
+         "erstellt_von) VALUES ('lp1', 'Mira', 'Talberg', '2014-06-06', " + WER + ")");
+ldb.exec("INSERT INTO mitgliedschaft (id, person_id, mitgliedsnummer, art, eintritt, " +
+         "austritt, status, erstellt_am, erstellt_von) VALUES ('lm1', 'lp1', '801', " +
+         "'ordentlich', '2020-01-01', NULL, 'aktiv', " + WER + ")");
+ldb.exec("INSERT INTO mitgliedschaft_sparte (id, mitgliedschaft_id, sparte_id, eintritt, " +
+         "erstellt_am, erstellt_von) VALUES ('lms1', 'lm1', 'sp-fu', '2020-01-01', " + WER + ")");
+
+// Der gemeldete Name ist anders geschrieben -- genau der Fall, fuer den
+// es die Handzuordnung gibt.
+await W.handleDfbnetImport({ spieler: [
+  { nachname: "Talbergg", vorname: "Mira", geburtsdatum: "2014-06-06",
+    mannschaft: "D-Junioren", aktiv: "ja" }
+], dateiname: "lauf1.xlsx" }, lenv, ADMIN, cors);
+await W.handleDfbnetZuordnen({ vorname: "Mira", nachname: "Talbergg",
+  geburtsdatum: "2014-06-06", person_id: "lp1" }, lenv, ADMIN, cors);
+
+const lA = (wer) => W.handleDfbnetAbgleich({}, lenv, wer || ADMIN, cors)
+  .then((r) => r.text()).then(JSON.parse);
+
+const l1 = await lA();
+pruefe("L1 Solange der Spieler in der Liste steht, ist die Zuordnung nicht verwaist",
+       (l1.verwaiste_zuordnungen || []).length === 0,
+       JSON.stringify(l1.verwaiste_zuordnungen));
+pruefe("L2 Gegenprobe: sie wirkt auch wirklich",
+       l1.treffer.length === 1 && l1.treffer[0].von_hand === true);
+
+// ⚠️ Der Alltagsfall: neuer Export, das Kind ist nicht mehr dabei.
+await W.handleDfbnetImport({ spieler: [
+  { nachname: "Bergmoser", vorname: "Jarno", geburtsdatum: "2013-05-05",
+    mannschaft: "D-Junioren", aktiv: "ja" }
+], dateiname: "lauf2.xlsx" }, lenv, ADMIN, cors);
+const l2 = await lA();
+pruefe("L3 Nach einem Export ohne das Kind steht die Zuordnung als verwaist da",
+       (l2.verwaiste_zuordnungen || []).length === 1 &&
+       l2.verwaiste_zuordnungen[0].name === "Mira Talbergg",
+       JSON.stringify(l2.verwaiste_zuordnungen));
+// ⚠️ Ueber `|| {}` gelesen, nicht ueber [0] direkt. Ohne das wirft diese
+// Zeile bei leerer Liste einen TypeError und reisst den ganzen Pruefstand
+// mit -- die Mutation "verwaiste nie melden" sah dadurch aus wie ein
+// Absturz statt wie eine gefangene Verschlechterung. Dieselbe Lehre wie
+// bei K20.
+const l2Eins = (l2.verwaiste_zuordnungen || [])[0] || {};
+pruefe("L4 Mit den Feldern, die zum Aufheben noetig sind",
+       l2Eins.vorname === "Mira" && l2Eins.nachname === "Talbergg" &&
+       l2Eins.geburtsdatum === "2014-06-06", JSON.stringify(l2Eins));
+
+// ⚠️ Und der harte Fall: die ganze Liste geloescht. Vorher war der Reiter
+// danach LEER und die Zeile unerreichbar.
+await W.handleDfbnetImport({ loeschen: true }, lenv, ADMIN, cors);
+const l3 = await lA();
+pruefe("L5 Auch die leere Antwort traegt sie", l3.leer === true &&
+       (l3.verwaiste_zuordnungen || []).length === 1,
+       "leer=" + l3.leer + " verwaist=" + JSON.stringify(l3.verwaiste_zuordnungen));
+pruefe("L6 Gegenprobe: die Zeile steht wirklich noch in der Datenbank",
+       ldb.prepare("SELECT COUNT(*) AS n FROM dfbnet_zuordnung").get().n === 1);
+
+// Der Weg heraus muss dann auch gehen.
+const lWeg = JSON.parse(await (await W.handleDfbnetZuordnen(
+  { vorname: "Mira", nachname: "Talbergg", geburtsdatum: "2014-06-06", person_id: "" },
+  lenv, ADMIN, cors)).text());
+pruefe("L7 Aufheben geht ohne Meldeliste", lWeg.ok === true && lWeg.zugeordnet === false,
+       JSON.stringify(lWeg));
+pruefe("L8 Und die Zeile ist danach weg",
+       ldb.prepare("SELECT COUNT(*) AS n FROM dfbnet_zuordnung").get().n === 0);
+
+// ⚠️ Die Rechtegrenze gilt auch hier: es sind Namen von Kindern, die gar
+// nicht mehr gemeldet sind -- ohne diese Zeile waere die Karte ein Weg an
+// der Passstellen-Grenze vorbei.
+await W.handleDfbnetZuordnen({ vorname: "Mira", nachname: "Talbergg",
+  geburtsdatum: "2014-06-06", person_id: "lp1" }, lenv, ADMIN, cors);
+const lPass = await lA(PASS);
+pruefe("L9 Die Passstelle bekommt die verwaisten Zuordnungen NICHT",
+       (lPass.verwaiste_zuordnungen || []).length === 0,
+       JSON.stringify(lPass.verwaiste_zuordnungen));
+pruefe("L10 Gegenprobe: der Name steht in ihrer Antwort auch sonst nirgends",
+       JSON.stringify(lPass).indexOf("Talbergg") < 0);
+pruefe("L11 Gegenprobe: die Geschaeftsstelle sieht ihn sehr wohl",
+       JSON.stringify(await lA()).indexOf("Talbergg") >= 0);
+
+// ⚠️ Kein zweiter Rundlauf fuer dieselbe Tabelle. Vorher wurde
+// dfbnet_zuordnung zweimal abgefragt.
+lenv.VV_DB.lauf.abfragen = 0;
+await lA();
+pruefe("L12 Der Abgleich fragt dfbnet_zuordnung nur EINMAL ab",
+       lenv.VV_DB.lauf.abfragen <= 8, lenv.VV_DB.lauf.abfragen + " Rundlaeufe");
+
+// Und die Karte muss gezeichnet werden -- eine gruene Zusage auf ein Feld
+// der Antwort belegt nicht, dass es jemand zu sehen bekommt.
+const lHtml = C.dfbVerwaisteKarte({ verwaiste_zuordnungen: [
+  { name: "Mira Talbergg", vorname: "Mira", nachname: "Talbergg",
+    geburtsdatum: "2014-06-06", erstellt_am: "2026-09-11" }] });
+pruefe("L13 Die Karte nennt den Namen", lHtml.indexOf("Mira Talbergg") >= 0);
+pruefe("L14 ... und traegt einen Aufheben-Knopf mit allen drei Rohfeldern",
+       /data-dfb="aufheben"/.test(lHtml) && /data-vorname="Mira"/.test(lHtml) &&
+       /data-nachname="Talbergg"/.test(lHtml) && /data-geb="2014-06-06"/.test(lHtml),
+       lHtml);
+pruefe("L15 Ohne verwaiste Zuordnungen gar keine Karte",
+       C.dfbVerwaisteKarte({ verwaiste_zuordnungen: [] }) === "" &&
+       C.dfbVerwaisteKarte({}) === "");
+
+// ⚠️ Die Karte muss in BEIDEN Zweigen von dfbZeichne stehen -- im vollen
+// UND im leeren. Im leeren ist sie der einzige Weg an diese Daten heran,
+// und genau der fehlte. dfbZeichne selbst braucht das DOM, deshalb hier
+// die Verdrahtung am Quelltext; im Browser ist sie zusaetzlich gemessen.
+const lLeerZweig = (rohClient.match(/if \(!e \|\| e\.leer\) \{[\s\S]*?\n  \}/) || [""])[0];
+pruefe("L16 Gegenprobe: der leere Zweig wurde ueberhaupt gefunden",
+       lLeerZweig.length > 100, lLeerZweig.length + " Zeichen");
+pruefe("L17 Der leere Zweig zeichnet die Karte",
+       lLeerZweig.indexOf("dfbVerwaisteKarte") >= 0, lLeerZweig);
+// ⚠️ Ohne das `(?<!function )` zaehlt die DEFINITION mit -- beim ersten
+// Wurf stand hier 2 erwartet und 3 gemessen, und die Erwartung war falsch,
+// nicht der Code.
+const lAufrufe = (rohClient.match(/(?<!function )dfbVerwaisteKarte\(e\)/g) || []).length;
+pruefe("L18 Die Karte wird an genau ZWEI Stellen gezeichnet (leer und voll)",
+       lAufrufe === 2, lAufrufe + " Aufrufe");
 
 // ======================================================================
 console.log("");
