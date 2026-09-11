@@ -817,3 +817,30 @@ CREATE TABLE elternkodex_verlauf (
 
 CREATE INDEX idx_kodex_verlauf_zeile ON elternkodex_verlauf(bestaetigung_id);
 
+
+-- ---------------------------------------------------------------------
+-- 11. DFBnet-Abgleich: die Handzuordnung
+-- ---------------------------------------------------------------------
+--
+-- Der Abgleich der Spielberechtigungen mit dem Bestand speichert NICHTS.
+-- Diese eine Tabelle ist die Ausnahme, und sie haelt keine Verbandsdaten
+-- fest, sondern eine ENTSCHEIDUNG der Geschaeftsstelle: "dieser gemeldete
+-- Spieler ist dieses Mitglied, auch wenn der Name anders geschrieben ist".
+-- Dasselbe Muster wie elternkodex_bestaetigung.person_id.
+--
+-- Der Schluessel ist der der DATEI-Seite (Name + Geburtsdatum, wie das
+-- DFBnet sie fuehrt). Schreibt der Verband den Namen spaeter anders,
+-- entsteht ein neuer Schluessel und die Zuordnung greift nicht mehr --
+-- richtig so: es ist dann eine andere Behauptung als die bestaetigte.
+--
+-- Entsteht zur Laufzeit in handleMigration (DFBNET_SCHEMA). Bei
+-- Aenderungen schema-kompakt.sql mitziehen.
+CREATE TABLE dfbnet_zuordnung (
+  abgleich_schluessel   TEXT PRIMARY KEY,
+  person_id             TEXT NOT NULL REFERENCES person(id),
+  gemeldet_vorname      TEXT,
+  gemeldet_nachname     TEXT,
+  gemeldet_geburtsdatum TEXT,
+  erstellt_am           TEXT NOT NULL,
+  erstellt_von          TEXT NOT NULL
+);

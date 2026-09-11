@@ -4,13 +4,17 @@
 // jeder Zeile genau fuenf Felder an den Worker und zeigt, was zwischen
 // beiden Listen klafft.
 //
-// ⚠️ Es wird nichts gespeichert -- weder in D1 noch im localStorage. Die
-// Datei ist eine Momentaufnahme aus dem DFBnet; sie irgendwo abzulegen
-// hiesse, einen zweiten, alternden Bestand neben dem echten zu fuehren.
-// Ein neuer Abgleich ist ein Klick, ein veralteter Stand waere ein
-// Dauerproblem. (Dieselbe Ueberlegung wie bei reha.js -- dort gewinnt der
-// localStorage, weil die Verbandserhebung nur einmal im Jahr erscheint
-// und in eine Meldedatei einfliesst; hier wird nichts weitergerechnet.)
+// ⚠️ Die eingelesene Liste wird in D1 GESPEICHERT (Michel, 11.09.2026).
+// Daraus folgt der ganze Aufbau dieser Datei:
+//   - Beim Oeffnen des Reiters wird NICHTS hochgeladen, sondern der
+//     gespeicherte Stand abgerufen. Auch die Passstelle sieht ihn, die
+//     die Datei gar nicht hat.
+//   - Einlesen ist ein Schreibvorgang (vv-dfbnet-import, darfSchreiben),
+//     der Abgleich ist Lesen (vv-dfbnet-abgleich, darfNachwuchs).
+//   - Es gibt immer genau EINE gueltige Liste; ein neuer Export ersetzt
+//     den alten. Zwei nebeneinander hiessen, dass jemand raten muss.
+// Der Browser haelt deshalb keinen Stand mehr -- kein localStorage, keine
+// zwischengespeicherte Datei. Was gilt, steht im Server.
 //
 // ⚠️ Erkannt wird ueber die UEBERSCHRIFTEN, nie ueber feste Spalten- oder
 // Zeilennummern. Der DFBnet-Export traegt drei Kopfzeilen mit Vereinsname
@@ -152,8 +156,22 @@ async function dfbDateiLesen(datei) {
 }
 
 // ---------------------------------------------------------------------
-// Anzeige
+// Anzeige, Filter und Handzuordnung
 // ---------------------------------------------------------------------
+//
+// ⚠️ Die Filterfelder stehen im HTML, nicht in diesem gerenderten Block.
+// Sie werden bei jedem Zeichnen sonst neu erzeugt -- und der Cursor
+// spraenge beim Tippen aus dem Suchfeld. Nur `#dfb-ergebnis` wird ersetzt.
+//
+// ⚠️ Nach jeder Zuordnung wird der Abgleich im SERVER neu gerechnet,
+// statt die Zeile im Browser umzuhaengen. Sonst gaebe es zwei Fassungen
+// derselben Auswertung: die des Servers und die, die der Client sich
+// daraus gebastelt hat -- und die zweite ginge beim ersten Sonderfall
+// (Zuordnung auf ein Turnkind) daneben.
+
+// Die Zeile, fuer die gerade ein Mitglied gesucht wird (Auswahlmodus).
+let dfbWaehlt = null;
+let dfbMitgliedTreffer = null;
 
 function dfbMeldung(id, text, art) {
   const el = $(id);
@@ -170,27 +188,134 @@ function dfbLageChip(lage) {
   return '<span class="chip gekuendigt">nicht im Bestand</span>';
 }
 
-function dfbVorschlagZeile(v) {
+// Die Rohfelder eines gemeldeten Spielers als data-Attribute. Sie gehen
+// unveraendert an den Server zurueck, der daraus den Schluessel bildet.
+function dfbRohAttr(z) {
+  return ' data-vorname="' + esc(z.vorname || "") + '"' +
+         ' data-nachname="' + esc(z.nachname || "") + '"' +
+         ' data-geb="' + esc(z.geburtsdatum || "") + '"';
+}
+
+function dfbVorschlagZeile(o, v, vollbild) {
   return '<div class="dfb-vorschlag">' +
     "<strong>" + esc(v.name) + "</strong> · " + esc(datumDe(v.geburtsdatum)) +
     (v.mitgliedsnummer ? " · Nr. " + esc(v.mitgliedsnummer) : "") +
     " · " + esc(v.herkunft) +
-    '<span class="fussnote">' + esc((v.gruende || []).join(" · ")) + "</span></div>";
+    '<span class="fussnote">' + esc((v.gruende || []).join(" · ")) + "</span>" +
+    // ⚠️ Kein Knopf ohne person_id: ein Vorschlag kann auch aus einem
+    // offenen Aufnahmeantrag stammen, und den gibt es als Person noch
+    // gar nicht. Zuordnen liefe dort in einen 404.
+    (vollbild && v.person_id
+      ? '<button type="button" class="btn klein" data-dfb="zuordnen"' +
+        dfbRohAttr(o) + ' data-person="' + esc(v.person_id) + '">Diesem Mitglied zuordnen</button>'
+      : "") +
+    "</div>";
 }
+
+// --- Filter -----------------------------------------------------------
+
+function dfbFilterWerte() {
+  return {
+    suche: dfbSuchform(($("dfb-f-suche") && $("dfb-f-suche").value) || ""),
+    mannschaft: ($("dfb-f-mannschaft") && $("dfb-f-mannschaft").value) || "",
+    lage: ($("dfb-f-lage") && $("dfb-f-lage").value) || ""
+  };
+}
+
+// ⚠️ Die Suche ist umlautblind, und zwar nach DERSELBEN Regel, nach der
+// der Server Vorschlaege bildet (kodexHart). Sonst findet „Grünbaum"
+// weder „Gruenbaum" noch „Grunbaum" -- und genau diese drei Schreibweisen
+// sind der Grund, warum es diesen Reiter gibt. Ein Filter, der bei der
+// haeufigsten Abweichung leer bleibt, liest sich wie „gibt es nicht".
+function dfbSuchform(text) {
+  return String(text || "")
+    .normalize("NFC")
+    .toLowerCase()
+    .replace(/ä/g, "a").replace(/ö/g, "o").replace(/ü/g, "u").replace(/ß/g, "ss")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/ae/g, "a").replace(/oe/g, "o").replace(/ue/g, "u").replace(/ss/g, "s")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function dfbNameTrifft(name, suche) {
+  return !suche || dfbSuchform(name).indexOf(suche) >= 0;
+}
+
+// Die Mannschaftsauswahl wird aus der DATEI gefuellt, nicht fest
+// verdrahtet: der Verein hat mal drei D-Jugenden, mal zwei.
+function dfbMannschaftenFuellen(e) {
+  const feld = $("dfb-f-mannschaft");
+  if (!feld) return;
+  const alle = new Set();
+  for (const z of e.treffer.concat(e.offen)) {
+    for (const m of String(z.mannschaft || "").split(", ")) {
+      if (m.trim()) alle.add(m.trim());
+    }
+  }
+  const vorher = feld.value;
+  feld.innerHTML = '<option value="">Alle Mannschaften</option>' +
+    [...alle].sort().map((m) => '<option value="' + esc(m) + '">' + esc(m) + "</option>").join("");
+  // ⚠️ Die Auswahl ueberlebt das Neuzeichnen nur, wenn es sie noch gibt.
+  // Sonst stuende ein Filter im Feld, den niemand mehr wegklicken kann,
+  // weil er zu keiner Zeile passt.
+  feld.value = alle.has(vorher) ? vorher : "";
+}
+
+// --- Zeichnen ---------------------------------------------------------
 
 function dfbZeichne() {
   const ziel = $("dfb-ergebnis");
   if (!ziel) return;
   const e = dfbErgebnis;
-  if (!e) {
+  const filterKarte = $("dfb-filter");
+  // ⚠️ `leer` ist kein Fehler, sondern der Normalzustand vor dem ersten
+  // Einlesen -- und der Zustand, den die Passstelle sieht, solange die
+  // Geschaeftsstelle noch nichts hochgeladen hat. Deshalb ein Satz, der
+  // sagt, worauf man wartet, und keine Fehlermeldung.
+  // ⚠️ Die Knopfreihe haengt an vollbild aus der ANTWORT, nicht an
+  // meineRechte: die Oberflaeche soll zeigen, was der Server geliefert
+  // hat, nicht was sie zu duerfen glaubt. Dieselbe Regel wie in
+  // antraege.js (antwort.nur_nachwuchs).
+  if ($("dfb-knopfreihe")) $("dfb-knopfreihe").hidden = !(e && e.vollbild);
+  if (!e || e.leer) {
     ziel.innerHTML = "";
-    $("dfb-stand").innerHTML = '<p class="fussnote">Noch keine Datei eingelesen. ' +
-      "Der Abgleich läuft gegen die Abteilung Fußball und vergleicht nur die " +
-      "Jahrgänge, die in der Datei wirklich vorkommen.</p>";
+    if (filterKarte) filterKarte.hidden = true;
+    $("dfb-weg").hidden = true;
+    $("dfb-stand").innerHTML = '<p class="fussnote">' +
+      (e && e.eingerichtet === false
+        ? "Die Tabellen für den Abgleich werden gerade eingerichtet. Bitte die Seite " +
+          "in einem Moment neu laden."
+        : (e && !e.vollbild
+            ? "Es ist noch keine Meldeliste eingelesen. Sobald die Geschäftsstelle den " +
+              "DFBnet-Export hochgeladen hat, steht der Abgleich hier."
+            : "Noch keine Meldeliste eingelesen. Der Abgleich läuft gegen die Abteilung " +
+              "Fußball und vergleicht nur die Jahrgänge, die in der Datei wirklich " +
+              "vorkommen.")) + "</p>";
     return;
   }
+  if (filterKarte) filterKarte.hidden = false;
+  $("dfb-weg").hidden = !e.vollbild;
 
-  const offenUnklar = e.offen.filter((o) => o.lage === "unbekannt").length;
+  const f = dfbFilterWerte();
+  const offenAlle = e.offen;
+  const offen = offenAlle.filter((o) =>
+    dfbNameTrifft(o.name, f.suche) &&
+    (!f.lage || o.lage === f.lage) &&
+    (!f.mannschaft || String(o.mannschaft || "").split(", ").indexOf(f.mannschaft) >= 0));
+  // ⚠️ Der Mannschaftsfilter gilt hier NICHT: ein Mitglied traegt keine
+  // Mannschaft, die steht nur in der DFBnet-Datei. Ihn trotzdem
+  // anzuwenden hiesse, diese Liste bei gesetztem Filter immer leer zu
+  // zeigen -- und das laese sich als „alles in Ordnung" lesen.
+  const nichtGemeldet = e.nicht_gemeldet.filter((n) => dfbNameTrifft(n.name, f.suche));
+  const treffer = e.treffer.filter((t) =>
+    dfbNameTrifft(t.name, f.suche) &&
+    (!f.mannschaft || String(t.mannschaft || "").split(", ").indexOf(f.mannschaft) >= 0));
+
+  const zahl = (gezeigt, gesamt) => gezeigt === gesamt
+    ? '<span class="version-badge">' + gesamt + "</span>"
+    : '<span class="version-badge">' + gezeigt + " von " + gesamt + "</span>";
+
+  const offenUnklar = offenAlle.filter((o) => o.lage === "unbekannt").length;
 
   $("dfb-stand").innerHTML =
     '<div class="hinweis ' + ((e.offen.length || e.nicht_gemeldet.length) ? "warn" : "erfolg") + '">' +
@@ -199,9 +324,14 @@ function dfbZeichne() {
       e.jahrgang_von + "–" + e.jahrgang_bis + " im Bestand. " +
       "<strong>" + e.treffer.length + "</strong> passen zusammen." +
     "</div>" +
-    '<p class="fussnote">Abgeglichen zum ' + esc(datumDe(e.stichtag)) +
+    '<p class="fussnote">Meldeliste eingelesen am ' +
+    esc(datumDe(String(e.eingelesen_am || "").slice(0, 10))) +
+    (e.eingelesen_von ? " von " + esc(e.eingelesen_von) : "") +
+    (e.dateiname ? " aus " + esc(e.dateiname) : "") +
+    ", abgeglichen zum " + esc(datumDe(e.stichtag)) +
     " gegen die Abteilung " + esc(e.abteilung) + ". " +
     (e.doppelt ? e.doppelt + " doppelte Zeilen aus der Datei wurden zusammengefasst. " : "") +
+    (e.von_hand ? "<strong>" + e.von_hand + " davon sind von Hand zugeordnet.</strong> " : "") +
     (e.ohne_geburtsdatum
       ? "<strong>" + e.ohne_geburtsdatum + " Zeilen ohne Geburtsdatum</strong> blieben außen vor" +
         (e.ohne_geburtsdatum_namen && e.ohne_geburtsdatum_namen.length
@@ -211,23 +341,59 @@ function dfbZeichne() {
       ? e.volljaehrig_verborgen + " volljährige Fußball-Mitglieder dieser Jahrgänge sind " +
         "ebenfalls nicht gemeldet; ihre Namen sieht nur die Geschäftsstelle. "
       : "") +
-    "Es wurde nichts gespeichert — der Abgleich ist eine reine Gegenüberstellung.</p>";
+    "Der Abgleich wird bei jedem Öffnen neu gerechnet; gespeichert sind die eingelesene " +
+    "Liste und die Zuordnungen von Hand.</p>";
 
   let html = "";
 
+  // --- Der Auswahlmodus ------------------------------------------------
+  if (dfbWaehlt) {
+    html += '<div class="karte dfb-waehlkarte"><div class="hinweis warn">' +
+      "Zu wem gehört <strong>" + esc(dfbWaehlt.name) + "</strong> (" +
+      esc(datumDe(dfbWaehlt.geburtsdatum)) + ")? " +
+      "Bitte unten in <em>Fußball-Mitglied, aber nicht gemeldet</em> auf <em>Das ist er</em> " +
+      "klicken — oder hier nach einem beliebigen Mitglied suchen." +
+      ' <button type="button" class="btn grau klein" data-dfb="ab">Abbrechen</button>' +
+      "</div>" +
+      '<div class="feld"><label for="dfb-mitgliedsuche">Mitglied suchen ' +
+      "(Name oder Mitgliedsnummer)</label>" +
+      '<input id="dfb-mitgliedsuche" placeholder="z. B. Mustermann"></div>' +
+      '<div class="knopfreihe">' +
+      '<button type="button" class="btn grau" data-dfb="mitglied-suchen">Suchen</button></div>' +
+      '<div id="dfb-mitgliedliste">' +
+      (dfbMitgliedTreffer === null
+        ? ""
+        : (dfbMitgliedTreffer.length
+            ? dfbMitgliedTreffer.map((m) =>
+                '<div class="dfb-vorschlag"><strong>' + esc(m.vorname + " " + m.nachname) +
+                "</strong> · " + esc(datumDe(m.geburtsdatum)) +
+                (m.mitgliedsnummer ? " · Nr. " + esc(m.mitgliedsnummer) : "") +
+                " · " + esc(m.sparten || "ohne Abteilung") +
+                (m.status && m.status !== "aktiv" ? " · " + esc(m.status) : "") +
+                '<button type="button" class="btn klein" data-dfb="zuordnen"' +
+                dfbRohAttr(dfbWaehlt) + ' data-person="' + esc(m.person_id) +
+                '">Zuordnen</button></div>').join("")
+            : '<p class="fussnote">Kein Mitglied gefunden.</p>')) +
+      "</div></div>";
+  }
+
   // --- Gemeldet, aber nicht im Bestand --------------------------------
   html += '<div class="karte"><h2>Gemeldet, aber nicht als Fußball-Mitglied geführt ' +
-    '<span class="version-badge">' + e.offen.length + "</span></h2>";
-  if (!e.offen.length) {
+    zahl(offen.length, offenAlle.length) + "</h2>";
+  if (!offenAlle.length) {
     html += '<p class="fussnote">Keine. Jeder gemeldete Spieler ist Mitglied der ' +
       "Abteilung Fußball.</p>";
+  } else if (!offen.length) {
+    html += '<p class="fussnote">Kein Treffer für diesen Filter. ' + offenAlle.length +
+      " Zeilen sind vorhanden.</p>";
   } else {
     html += '<p class="fussnote">Diese Spieler haben eine Spielberechtigung, stehen im ' +
       "Bestand aber nicht als Fußball-Mitglied. " +
       (offenUnklar
         ? "Bei " + offenUnklar + " davon findet sich überhaupt kein Eintrag — unter der " +
-          "Zeile stehen dann bis zu drei ähnliche Namen mit Begründung. Steht dort nichts, " +
-          "fehlt meist nicht die Zuordnung, sondern die Anmeldung."
+          "Zeile stehen dann bis zu drei ähnliche Namen mit Begründung. Passt keiner, " +
+          "führt <em>Mitglied wählen</em> zur Suche über den ganzen Bestand. Steht dort " +
+          "nichts, fehlt meist nicht die Zuordnung, sondern die Anmeldung."
         : "") + "</p>" +
       // ⚠️ Nur DREI Spalten, und die Lage steht als Plakette beim Namen.
       // Am Handy scrollt diese Tabelle in ihrer Huelle, und beim ersten
@@ -239,9 +405,10 @@ function dfbZeichne() {
       '<div class="tabelle-scroll"><table><thead><tr>' +
         "<th>Name</th><th>Geboren</th><th>Mannschaft</th>" +
       "</tr></thead><tbody>" +
-      e.offen.map((o) =>
+      offen.map((o) =>
         '<tr class="dfb-zeile">' +
           '<td class="umbruch">' + esc(o.name) + " " + dfbLageChip(o.lage) +
+            (o.von_hand ? ' <span class="chip antrag">von Hand</span>' : "") +
             (o.aktiv === "nein" ? ' <span class="chip ruhend">Spielrecht ruht</span>' : "") +
           "</td>" +
           "<td>" + esc(datumDe(o.geburtsdatum)) + "</td>" +
@@ -250,12 +417,20 @@ function dfbZeichne() {
         '<tr class="dfb-vorschlag-zeile"><td colspan="3">' +
           '<div class="dfb-vorschlag-inhalt">' +
           '<span class="fussnote">' + esc(o.hinweis) + "</span>" +
-          ((o.vorschlaege && o.vorschlaege.length)
-            ? o.vorschlaege.map(dfbVorschlagZeile).join("")
-            : (o.lage === "unbekannt" && e.vollbild
-                ? '<span class="fussnote">Kein ähnlicher Name im Bestand und in keinem ' +
-                  "offenen Aufnahmeantrag.</span>"
-                : "")) +
+          (o.vorschlaege || []).map((v) => dfbVorschlagZeile(o, v, e.vollbild)).join("") +
+          (e.vollbild && o.lage === "unbekannt" && !o.von_hand && !(o.vorschlaege || []).length
+            ? '<span class="fussnote">Kein ähnlicher Name im Bestand und in keinem ' +
+              "offenen Aufnahmeantrag.</span>"
+            : "") +
+          (e.vollbild
+            ? '<div class="knopfreihe dfb-zeilen-knoepfe">' +
+              (o.von_hand
+                ? '<button type="button" class="btn grau klein" data-dfb="aufheben"' +
+                  dfbRohAttr(o) + ">Zuordnung aufheben</button>"
+                : '<button type="button" class="btn grau klein" data-dfb="waehlen"' +
+                  dfbRohAttr(o) + ' data-name="' + esc(o.name) + '">Mitglied wählen …</button>') +
+              "</div>"
+            : "") +
           "</div></td></tr>"
       ).join("") +
       "</tbody></table></div>";
@@ -264,17 +439,24 @@ function dfbZeichne() {
 
   // --- Im Bestand, aber nicht gemeldet --------------------------------
   html += '<div class="karte"><h2>Fußball-Mitglied, aber nicht gemeldet ' +
-    '<span class="version-badge">' + e.nicht_gemeldet.length + "</span></h2>";
+    zahl(nichtGemeldet.length, e.nicht_gemeldet.length) + "</h2>";
   if (!e.nicht_gemeldet.length) {
     html += '<p class="fussnote">Keine. Für jedes Fußball-Mitglied dieser Jahrgänge liegt ' +
       "eine Spielberechtigung vor.</p>";
+  } else if (!nichtGemeldet.length) {
+    html += '<p class="fussnote">Kein Treffer für diesen Filter. ' + e.nicht_gemeldet.length +
+      " Mitglieder sind vorhanden.</p>";
   } else {
     html += '<p class="fussnote">Diese Mitglieder zahlen Beitrag in der Abteilung Fußball, ' +
       "stehen aber in keiner Spielberechtigung der Datei. Das ist entweder eine fehlende " +
       "Spielerlaubnis — oder das Kind spielt gar nicht. Steht unter einem Namen der " +
       "Vermerk <em>vermutlich gemeldet als …</em>, gibt es einen gemeldeten Spieler mit " +
       "ähnlichem Namen: dann ist es <em>ein</em> Kind mit zwei Schreibweisen und kein " +
-      "doppelter Fall.</p>" +
+      "doppelter Fall." +
+      (f.mannschaft
+        ? " <strong>Der Mannschaftsfilter gilt hier nicht</strong> — eine Mannschaft steht " +
+          "nur in der DFBnet-Datei, nicht am Mitglied."
+        : "") + "</p>" +
       // ⚠️ Der Hinweis auf die andere Schreibweise steht UNTER dem Namen,
       // nicht in einer vierten Spalte. Als Spalte lag er am Handy hinter
       // der Kante (gemessen: 407 px in einer 317-px-Huelle) -- und er ist
@@ -283,7 +465,7 @@ function dfbZeichne() {
         "<th>Name</th><th>Geboren</th>" +
         (e.vollbild ? "<th>Nr.</th>" : "") +
       "</tr></thead><tbody>" +
-      e.nicht_gemeldet.map((n) =>
+      nichtGemeldet.map((n) =>
         "<tr>" +
           '<td class="umbruch">' + esc(n.name) +
             (n.status && n.status !== "aktiv"
@@ -291,6 +473,16 @@ function dfbZeichne() {
             (n.vermutlich
               ? '<span class="fussnote">vermutlich gemeldet als „' + esc(n.vermutlich) +
                 "“ — andere Schreibweise, dasselbe Kind</span>"
+              : "") +
+            // ⚠️ Der Knopf steht IN der Namensspalte, nicht in einer
+            // eigenen. Als vierte Spalte lag er am Handy hinter der
+            // Kante (gemessen: 347 px in einer 315-px-Huelle) -- und er
+            // ist im Auswahlmodus das Einzige, was man anklicken soll.
+            // Dieselbe Falle wie zweimal zuvor in diesem Reiter.
+            (dfbWaehlt && n.person_id
+              ? '<span class="fussnote"><button type="button" class="btn klein" ' +
+                'data-dfb="zuordnen"' + dfbRohAttr(dfbWaehlt) +
+                ' data-person="' + esc(n.person_id) + '">Das ist er</button></span>'
               : "") +
           "</td>" +
           "<td>" + esc(datumDe(n.geburtsdatum)) + "</td>" +
@@ -303,19 +495,29 @@ function dfbZeichne() {
 
   // --- Die Treffer, zuletzt und zugeklappt ----------------------------
   html += '<div class="karte"><details class="dfb-klapp"><summary><strong>Passt zusammen (' +
-    e.treffer.length + ")</strong></summary>" +
+    (treffer.length === e.treffer.length
+      ? e.treffer.length : treffer.length + " von " + e.treffer.length) + ")</strong></summary>" +
     '<p class="fussnote">Diese gemeldeten Spieler sind Mitglied der Abteilung Fußball. ' +
-    "Hier ist nichts zu tun; die Liste steht nur zum Nachschlagen.</p>" +
+    "Hier ist nichts zu tun; die Liste steht nur zum Nachschlagen. Zeilen mit " +
+    "<em>von Hand</em> wurden zugeordnet, weil der Name anders geschrieben ist — dort " +
+    "lässt sich die Zuordnung auch wieder aufheben.</p>" +
     '<div class="tabelle-scroll"><table><thead><tr>' +
       "<th>Name</th><th>Geboren</th><th>Mannschaft</th>" +
       (e.vollbild ? "<th>Nr.</th>" : "") +
     "</tr></thead><tbody>" +
-    e.treffer.map((t) =>
+    treffer.map((t) =>
       "<tr>" +
         '<td class="umbruch">' + esc(t.name) +
+          (t.von_hand ? ' <span class="chip antrag">von Hand</span>' : "") +
           (t.aktiv === "nein" ? ' <span class="chip ruhend">Spielrecht ruht</span>' : "") +
           (t.status && t.status !== "aktiv"
             ? ' <span class="chip ruhend">' + esc(t.status) + "</span>" : "") +
+          (t.von_hand && t.mitglied !== t.name
+            ? '<span class="fussnote">zugeordnet zu ' + esc(t.mitglied) + "</span>" : "") +
+          (t.von_hand && e.vollbild
+            ? '<span class="fussnote"><button type="button" class="btn grau klein" ' +
+              'data-dfb="aufheben"' + dfbRohAttr(t) + ">Zuordnung aufheben</button></span>"
+            : "") +
         "</td>" +
         "<td>" + esc(datumDe(t.geburtsdatum)) + "</td>" +
         '<td class="umbruch">' + esc(t.mannschaft) + "</td>" +
@@ -327,6 +529,21 @@ function dfbZeichne() {
   ziel.innerHTML = html;
 }
 
+// --- Abgleich laufen lassen -------------------------------------------
+
+// ⚠️ Kein Stichtagsfeld. Der Abgleich beantwortet „wer spielt HEUTE ohne
+// Mitgliedschaft" -- ein frei waehlbarer Stichtag machte daraus eine
+// Frage, deren Antwort niemand nachvollziehen kann, sobald der Ausdruck
+// auf dem Tisch liegt. Der Server nimmt den heutigen Tag.
+async function dfbAbgleichen(meldung) {
+  dfbMeldung("dfb-hinweis", meldung || "Abgleich läuft …", "info");
+  const antwort = await vvRequest("vv-dfbnet-abgleich", {});
+  dfbErgebnis = antwort;
+  if (!antwort.leer) dfbMannschaftenFuellen(antwort);
+  dfbMeldung("dfb-hinweis", "", "info");
+  dfbZeichne();
+}
+
 async function dfbDateiGewaehlt(ereignis) {
   const datei = ereignis.target.files && ereignis.target.files[0];
   // ⚠️ Das Feld wird sofort geleert. Ohne das feuert `change` beim
@@ -335,25 +552,34 @@ async function dfbDateiGewaehlt(ereignis) {
   ereignis.target.value = "";
   if (!datei || dfbLaeuft) return;
 
+  // ⚠️ Die Rueckfrage steht VOR dem Lesen, nicht danach: ein neuer Export
+  // ersetzt den gespeicherten, und wer das nicht will, soll es erfahren,
+  // bevor etwas passiert.
+  if (dfbErgebnis && !dfbErgebnis.leer &&
+      !confirm("Die gespeicherte Meldeliste vom " +
+               datumDe(String(dfbErgebnis.eingelesen_am || "").slice(0, 10)) +
+               " wird durch diese Datei ersetzt. Fortfahren?")) {
+    return;
+  }
+
   dfbLaeuft = true;
+  dfbWaehlt = null;
+  dfbMitgliedTreffer = null;
   dfbMeldung("dfb-fehler", "", "fehler");
   dfbMeldung("dfb-hinweis", "Datei wird gelesen …", "info");
   try {
     const gelesen = await dfbDateiLesen(datei);
-    dfbMeldung("dfb-hinweis", "Gelesen: " + gelesen.spieler.length + " Zeilen aus " +
-      esc(gelesen.blaetter.join(", ")) + ". Abgleich läuft …", "info");
-    // ⚠️ Kein Stichtagsfeld. Der Abgleich beantwortet „wer spielt HEUTE
-    // ohne Mitgliedschaft" -- ein frei waehlbarer Stichtag machte daraus
-    // eine Frage, deren Antwort niemand nachvollziehen kann, sobald der
-    // Ausdruck auf dem Tisch liegt. Der Server nimmt den heutigen Tag.
-    const antwort = await vvRequest("vv-dfbnet-abgleich", { spieler: gelesen.spieler });
-    dfbErgebnis = antwort;
-    dfbMeldung("dfb-hinweis", "", "info");
-    dfbZeichne();
-    $("dfb-weg").hidden = false;
+    dfbMeldung("dfb-hinweis", "Gelesen: " + gelesen.spieler.length + " Zeilen. " +
+      "Wird gespeichert …", "info");
+    await vvRequest("vv-dfbnet-import", {
+      spieler: gelesen.spieler,
+      // ⚠️ Nur der Dateiname, nicht der Pfad. Ein Pfad sagt etwas ueber
+      // den Rechner der Geschaeftsstelle und nichts ueber die Meldung.
+      dateiname: String(datei.name || "").slice(0, 200),
+      blaetter: gelesen.blaetter.join(", ")
+    });
+    await dfbAbgleichen("Gespeichert. Abgleich läuft …");
   } catch (e) {
-    dfbErgebnis = null;
-    dfbZeichne();
     dfbMeldung("dfb-hinweis", "", "info");
     dfbMeldung("dfb-fehler", esc(e && e.message ? e.message : String(e)), "fehler");
   } finally {
@@ -361,16 +587,138 @@ async function dfbDateiGewaehlt(ereignis) {
   }
 }
 
+// --- Zuordnen ---------------------------------------------------------
+
+async function dfbZuordnen(roh, personId) {
+  if (dfbLaeuft) return;
+  dfbLaeuft = true;
+  dfbMeldung("dfb-fehler", "", "fehler");
+  try {
+    await vvRequest("vv-dfbnet-zuordnen", {
+      vorname: roh.vorname, nachname: roh.nachname, geburtsdatum: roh.geburtsdatum,
+      person_id: personId || null
+    });
+    dfbWaehlt = null;
+    dfbMitgliedTreffer = null;
+    await dfbAbgleichen(personId ? "Zugeordnet. Abgleich läuft neu …"
+                                 : "Zuordnung aufgehoben. Abgleich läuft neu …");
+  } catch (e) {
+    dfbMeldung("dfb-hinweis", "", "info");
+    dfbMeldung("dfb-fehler", esc(e && e.message ? e.message : String(e)), "fehler");
+  } finally {
+    dfbLaeuft = false;
+  }
+}
+
+// Sucht ueber die bestehende Mitgliederliste. ⚠️ Bewusst keine eigene
+// Aktion: `vv-mitglieder-liste` kann das laengst, haengt an
+// darfPersonenSehen und filtert einen Abteilungsleiter serverseitig auf
+// seine Sparte. Eine zweite Suche waere eine zweite Rechtegrenze.
+async function dfbMitgliedSuchen() {
+  const feld = $("dfb-mitgliedsuche");
+  const suche = feld ? feld.value.trim() : "";
+  if (!suche) return;
+  dfbMeldung("dfb-fehler", "", "fehler");
+  try {
+    const antwort = await vvRequest("vv-mitglieder-liste", { suche, limit: 8 });
+    dfbMitgliedTreffer = antwort.zeilen || [];
+    dfbZeichne();
+    const neu = $("dfb-mitgliedsuche");
+    if (neu) { neu.value = suche; neu.focus(); }
+  } catch (e) {
+    dfbMeldung("dfb-fehler", esc(e && e.message ? e.message : String(e)), "fehler");
+  }
+}
+
+// --- Verdrahtung ------------------------------------------------------
+
 function ladeDfbnet() {
   const feld = $("dfb-datei");
   if (!feld || feld.dataset.verdrahtet) { dfbZeichne(); return; }
   feld.dataset.verdrahtet = "1";
   feld.addEventListener("change", dfbDateiGewaehlt);
-  $("dfb-weg").addEventListener("click", () => {
-    dfbErgebnis = null;
-    $("dfb-weg").hidden = true;
+
+  // ⚠️ Der Knopf loescht jetzt wirklich etwas und fragt deshalb nach.
+  // Vorher hiess er "Ergebnis schliessen" und warf nur eine Anzeige weg.
+  $("dfb-weg").addEventListener("click", async () => {
+    if (dfbLaeuft) return;
+    if (!confirm("Die gespeicherte Meldeliste wird gelöscht. Die von Hand gesetzten " +
+                 "Zuordnungen bleiben erhalten. Fortfahren?")) return;
+    dfbLaeuft = true;
+    dfbWaehlt = null;
+    dfbMitgliedTreffer = null;
     dfbMeldung("dfb-fehler", "", "fehler");
-    dfbZeichne();
+    try {
+      await vvRequest("vv-dfbnet-import", { loeschen: true });
+      await dfbAbgleichen("Gelöscht.");
+    } catch (e) {
+      dfbMeldung("dfb-hinweis", "", "info");
+      dfbMeldung("dfb-fehler", esc(e && e.message ? e.message : String(e)), "fehler");
+    } finally {
+      dfbLaeuft = false;
+    }
   });
+
+  // Die Filterfelder stehen im HTML und ueberleben das Neuzeichnen.
+  for (const id of ["dfb-f-suche", "dfb-f-mannschaft", "dfb-f-lage"]) {
+    const el = $(id);
+    if (el) el.addEventListener("input", dfbZeichne);
+  }
+  const zurueck = $("dfb-f-weg");
+  if (zurueck) {
+    zurueck.addEventListener("click", () => {
+      for (const id of ["dfb-f-suche", "dfb-f-mannschaft", "dfb-f-lage"]) {
+        const el = $(id);
+        if (el) el.value = "";
+      }
+      dfbZeichne();
+    });
+  }
+
+  // ⚠️ EIN Zuhoerer am Behaelter statt einer je Knopf: der Inhalt wird
+  // bei jedem Zeichnen ersetzt, und einzeln verdrahtete Knoepfe waeren
+  // nach der ersten Zuordnung tot.
+  $("dfb-ergebnis").addEventListener("click", (ev) => {
+    const knopf = ev.target.closest("[data-dfb]");
+    if (!knopf) return;
+    const was = knopf.dataset.dfb;
+    const roh = {
+      vorname: knopf.dataset.vorname || "",
+      nachname: knopf.dataset.nachname || "",
+      geburtsdatum: knopf.dataset.geb || "",
+      name: knopf.dataset.name || ""
+    };
+    if (was === "zuordnen") dfbZuordnen(roh, knopf.dataset.person);
+    else if (was === "aufheben") dfbZuordnen(roh, null);
+    else if (was === "waehlen") {
+      dfbWaehlt = roh;
+      dfbMitgliedTreffer = null;
+      dfbZeichne();
+      const k = document.querySelector(".dfb-waehlkarte");
+      // ⚠️ Ohne behavior:"smooth" -- mit smooth blieb scrollY auf 0, und
+      // die Karte erschien, ohne dass jemand sie zu sehen bekam.
+      if (k) k.scrollIntoView({ block: "start" });
+    } else if (was === "ab") {
+      dfbWaehlt = null;
+      dfbMitgliedTreffer = null;
+      dfbZeichne();
+    } else if (was === "mitglied-suchen") dfbMitgliedSuchen();
+  });
+
+  // Enter im Suchfeld sucht, statt das Formular zu nichts zu bewegen.
+  $("dfb-ergebnis").addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter" && ev.target && ev.target.id === "dfb-mitgliedsuche") {
+      ev.preventDefault();
+      dfbMitgliedSuchen();
+    }
+  });
+
   dfbZeichne();
+  // Den gespeicherten Stand holen. ⚠️ Ein Fehlschlag darf den Reiter
+  // nicht leer lassen: dfbZeichne() hat oben bereits den Wartetext
+  // gesetzt, hier kommt nur die Meldung dazu.
+  dfbAbgleichen("Abgleich wird geladen …").catch((e) => {
+    dfbMeldung("dfb-hinweis", "", "info");
+    dfbMeldung("dfb-fehler", esc(e && e.message ? e.message : String(e)), "fehler");
+  });
 }

@@ -1548,6 +1548,10 @@ async function handleMigration(env, me, corsHeaders) {
   // in dieser App nie geloescht, der Verweis kann also nicht faul werden).
   for (const sql of KODEX_SCHEMA) await env.VV_DB.prepare(sql).run();
 
+  // Die Handzuordnung des DFBnet-Abgleichs (11.09.2026). Eine Tabelle,
+  // sonst nichts -- der Abgleich selbst schreibt nicht.
+  for (const sql of DFBNET_SCHEMA) await env.VV_DB.prepare(sql).run();
+
   // Buchhaltung (Stufe 4). Die Tabellen standen im Plan, aber nie im
   // eingespielten Schema -- die Datenbank laeuft seit Juli produktiv, ein
   // zweites Einspielen gibt es nicht. Sie entstehen deshalb hier.
@@ -6690,24 +6694,122 @@ async function handleKodexLoeschen(body, env, me, corsHeaders) {
 // die niemand durchsieht. Geprueft werden deshalb nur die Jahrgaenge, die
 // in der Datei wirklich vorkommen.
 
+// Die Handzuordnung. EINE Tabelle, EINE Zeile je gemeldetem Spieler,
+// dessen Name der Schluessel nicht trifft.
+//
+// ⚠️ Sie ist kein Spiegel des DFBnet-Bestands, sondern eine ENTSCHEIDUNG
+// der Geschaeftsstelle -- genau wie elternkodex_bestaetigung.person_id.
+// Der Abgleich selbst speichert weiterhin nichts; was hier steht, hat ein
+// Mensch geklickt. Deshalb ist es auch richtig, dass es bleibt: dieselbe
+// Schreibweise kommt beim naechsten Export wieder, und niemand soll sie
+// zweimal von Hand aufloesen.
+//
+// ⚠️ Der Schluessel ist der der DATEI-Seite (Name + Geburtsdatum, wie das
+// DFBnet sie fuehrt), nicht der des Mitglieds. Schreibt der Verband den
+// Namen spaeter anders, entsteht ein neuer Schluessel und die Zuordnung
+// greift nicht mehr -- das ist ehrlich so: es ist dann eine andere
+// Behauptung als die, die jemand bestaetigt hat.
+const DFBNET_SCHEMA = [
+  // Die eingelesene Meldeliste. ⚠️ Sie wird GESPEICHERT (Michel,
+  // 11.09.2026: "die daten duerfen gerne auch abgespeichert werden, keine
+  // reine browsernutzung") -- und das aendert zwei Dinge grundlegend:
+  //   1. Wer den Reiter oeffnet, sieht den Abgleich sofort. Auch die
+  //      Passstelle, die die Datei gar nicht hat.
+  //   2. Einlesen ist damit ein SCHREIBVORGANG und haengt an
+  //      darfSchreiben; der Abgleich bleibt Lesen und damit bei
+  //      darfNachwuchs. Zwei Aktionen statt einer.
+  // Es gibt immer genau EINE gueltige Liste: ein neuer Export ersetzt den
+  // alten vollstaendig. Ein Verlauf waere ein zweiter, alternder Bestand
+  // -- und welcher Stand gilt, duerfte niemand raten muessen.
+  "CREATE TABLE IF NOT EXISTS dfbnet_import (" +
+  "id TEXT PRIMARY KEY, " +
+  "dateiname TEXT, " +
+  "eingang_am TEXT NOT NULL, " +
+  "erstellt_von TEXT NOT NULL, " +
+  "anzahl INTEGER NOT NULL, " +
+  "doppelt INTEGER NOT NULL DEFAULT 0, " +
+  "ohne_geburtsdatum INTEGER NOT NULL DEFAULT 0, " +
+  "ohne_geburtsdatum_namen TEXT, " +
+  "blaetter TEXT)",
+
+  // ⚠️ Der Abgleichsschluessel ist der PRIMARY KEY. Damit kann dieselbe
+  // Person nicht zweimal in der Liste stehen -- das Zusammenfassen der
+  // neun Blaetter ist so nicht nur eine Rechnung im Code, sondern eine
+  // Zusage der Datenbank.
+  "CREATE TABLE IF NOT EXISTS dfbnet_spieler (" +
+  "abgleich_schluessel TEXT PRIMARY KEY, " +
+  "import_id TEXT NOT NULL, " +
+  "vorname TEXT, " +
+  "nachname TEXT, " +
+  "geburtsdatum TEXT NOT NULL, " +
+  "mannschaft TEXT, " +
+  "aktiv TEXT NOT NULL DEFAULT 'ja')",
+
+  "CREATE TABLE IF NOT EXISTS dfbnet_zuordnung (" +
+  "abgleich_schluessel TEXT PRIMARY KEY, " +
+  "person_id TEXT NOT NULL REFERENCES person(id), " +
+  "gemeldet_vorname TEXT, " +
+  "gemeldet_nachname TEXT, " +
+  "gemeldet_geburtsdatum TEXT, " +
+  "erstellt_am TEXT NOT NULL, " +
+  "erstellt_von TEXT NOT NULL)"
+];
+
+// Merker wie ueberall: NUR das Ja wird gemerkt. Die Migration laeuft in
+// einem anderen Isolate als ein spaeterer Aufruf; ein gemerktes Nein
+// wiese noch stundenlang ab, obwohl die Tabelle laengst da ist.
+let dfbnetTabelleDa = false;
+async function hatDfbnetTabelle(env) {
+  if (dfbnetTabelleDa) return true;
+  try {
+    // ⚠️ ALLE DREI. Fehlte eine -- Worker neu, Migration seither nicht
+    // gelaufen --, liefe der Abgleich in einen nackten SQL-Fehler.
+    // Lieber vorn sagen, dass noch nichts eingerichtet ist.
+    const r = await env.VV_DB.prepare(
+      "SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' " +
+      "AND name IN ('dfbnet_zuordnung', 'dfbnet_import', 'dfbnet_spieler')").first();
+    dfbnetTabelleDa = !!r && Number(r.n) === 3;
+  } catch {
+    return false;
+  }
+  return dfbnetTabelleDa;
+}
+
 // Mehr Zeilen als das: dann ist die falsche Datei hochgeladen worden.
 const DFBNET_MAX_ZEILEN = 3000;
 const DFBNET_VORSCHLAG_ANZAHL = 3;
 
-async function handleDfbnetAbgleich(body, env, me, corsHeaders) {
+// Die Meldeliste einlesen und SPEICHERN. Schreibvorgang, deshalb
+// darfSchreiben -- der Abgleich selbst bleibt bei darfNachwuchs.
+//
+// ⚠️ Ein neuer Export ERSETZT den alten vollstaendig. Es gibt genau eine
+// gueltige Meldeliste; zwei nebeneinander hiessen, dass jemand raten
+// muss, welche gilt. Die Handzuordnungen bleiben davon unberuehrt -- sie
+// sind Entscheidungen ueber Namen, nicht Teil des Exports, und derselbe
+// Schreibfehler kommt beim naechsten Export wieder.
+async function handleDfbnetImport(body, env, me, corsHeaders) {
   const rolle = await ladeRolle(env, me);
-  if (!rolle.darfNachwuchs) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+  if (!rolle.darfSchreiben) {
+    return json({ error: "Nur die Geschaeftsstelle kann eine Meldeliste einlesen" },
+                403, corsHeaders);
+  }
+  if (!(await hatDfbnetTabelle(env))) {
+    return json({ error: "Die Tabellen sind noch nicht eingerichtet. Bitte die " +
+                         "Vereinsverwaltung einmal neu laden." }, 409, corsHeaders);
+  }
 
-  // ⚠️ Dieselbe Grenze wie beim Elternkodex, an derselben Stelle gezogen:
-  // die Passstelle bekommt den ABGLEICH, nicht den Bestand. Sie sieht
-  // keine Mitgliedsnummer (handleKodexListe zieht sie ihr ebenfalls ab),
-  // erfaehrt bei einem Spieler ohne Fussball-Mitgliedschaft nicht, in
-  // WELCHER anderen Abteilung er steht, und bekommt keine Vorschlaege --
-  // die greifen in den Gesamtbestand, genau wie bei kodexVorschlaege.
-  const vollbild = !!rolle.darfSchreiben;
+  const jetzt = new Date().toISOString();
 
-  const stichtag = istIsoDatum(sauber(body.stichtag, 10) || "")
-    ? sauber(body.stichtag, 10) : new Date().toISOString().slice(0, 10);
+  // Die gespeicherte Liste wegwerfen. ⚠️ Die Handzuordnungen bleiben --
+  // siehe oben.
+  if (body.loeschen) {
+    await env.VV_DB.batch([
+      env.VV_DB.prepare("DELETE FROM dfbnet_spieler"),
+      env.VV_DB.prepare("DELETE FROM dfbnet_import")
+    ]);
+    await protokolliere(env, me.username, "dfbnet-liste-geloescht", "dfbnet_import", null, {});
+    return json({ ok: true, geloescht: true }, 200, corsHeaders);
+  }
 
   const roh = Array.isArray(body.spieler) ? body.spieler : [];
   if (!roh.length) {
@@ -6737,12 +6839,10 @@ async function handleDfbnetAbgleich(body, env, me, corsHeaders) {
     if (!istIsoDatum(geb)) { ohneDatum.push(name); continue; }
     const aktivRoh = (z && z.aktiv) === false ? "nein" : String((z && z.aktiv) || "ja");
     gemeldet.push({
-      name,
-      geburtsdatum: geb,
+      vorname, nachname, geburtsdatum: geb,
       mannschaft: sauber(z && z.mannschaft, 120) || "",
       aktiv: aktivRoh.toLowerCase() === "nein" ? "nein" : "ja",
-      schluessel: kodexSchluessel(vorname, nachname, geb),
-      teile: kodexTeileListe(vorname, nachname)
+      schluessel: kodexSchluessel(vorname, nachname, geb)
     });
   }
   if (!gemeldet.length) {
@@ -6752,11 +6852,11 @@ async function handleDfbnetAbgleich(body, env, me, corsHeaders) {
 
   // ⚠️ Doppelte werden HIER zusammengefasst, nicht im Browser. Die Datei
   // fuehrt dieselben Spieler mehrfach (ein Blatt je Mannschaft plus ein
-  // Sammelblatt), und wer in zwei Mannschaften spielrecht hat, steht
+  // Sammelblatt), und wer in zwei Mannschaften spielberechtigt ist, steht
   // ohnehin zweimal. Zusammengefasst wird ueber kodexSchluessel -- die
   // EINE Funktion, die auch den Abgleich entscheidet. Eine zweite,
   // aehnliche Zusammenfassung im Client waere genau die Art von zweiter
-  // Liste, die hier schon dreimal auseinandergelaufen ist.
+  // Liste, die in diesem Repo schon dreimal auseinandergelaufen ist.
   const jeSchluessel = new Map();
   const eindeutig = [];
   let doppelt = 0;
@@ -6779,8 +6879,109 @@ async function handleDfbnetAbgleich(body, env, me, corsHeaders) {
     if (g.schluessel) jeSchluessel.set(g.schluessel, g);
     eindeutig.push(g);
   }
-  gemeldet.length = 0;
-  for (const g of eindeutig) gemeldet.push(g);
+
+  const importId = uuid();
+  const dateiname = sauber(body.dateiname, 200);
+  const blaetter = sauber(body.blaetter, 500);
+
+  // ⚠️ Blockweise, und der erste Block traegt das Leeren mit. D1 kennt
+  // kein BEGIN; ein batch ist die groesste Einheit, die diese Datenbank
+  // am Stueck ausfuehrt. Faellt ein spaeterer Block aus, steht eine
+  // unvollstaendige Liste da -- deshalb sagt die Antwort die Zeilenzahl,
+  // und der Abgleich rechnet ausschliesslich mit dem, was wirklich in der
+  // Tabelle steht, nie mit einer mitgefuehrten Summe.
+  const BLOCK = 100;
+  let erster = true;
+  for (let i = 0; i < eindeutig.length; i += BLOCK) {
+    const an = [];
+    if (erster) {
+      an.push(env.VV_DB.prepare("DELETE FROM dfbnet_spieler"));
+      an.push(env.VV_DB.prepare("DELETE FROM dfbnet_import"));
+      an.push(env.VV_DB.prepare(
+        "INSERT INTO dfbnet_import (id, dateiname, eingang_am, erstellt_von, anzahl, " +
+        "doppelt, ohne_geburtsdatum, ohne_geburtsdatum_namen, blaetter) " +
+        "VALUES (?,?,?,?,?,?,?,?,?)"
+      ).bind(importId, dateiname, jetzt, me.username, eindeutig.length, doppelt,
+             ohneDatum.length, JSON.stringify(ohneDatum.slice(0, 50)), blaetter));
+      erster = false;
+    }
+    for (const g of eindeutig.slice(i, i + BLOCK)) {
+      an.push(env.VV_DB.prepare(
+        "INSERT INTO dfbnet_spieler (abgleich_schluessel, import_id, vorname, nachname, " +
+        "geburtsdatum, mannschaft, aktiv) VALUES (?,?,?,?,?,?,?)"
+      ).bind(g.schluessel, importId, g.vorname, g.nachname, g.geburtsdatum,
+             g.mannschaft, g.aktiv));
+    }
+    await env.VV_DB.batch(an);
+  }
+
+  await protokolliere(env, me.username, "dfbnet-liste-eingelesen", "dfbnet_import", importId,
+                      { anzahl: eindeutig.length, doppelt, dateiname });
+
+  return json({ ok: true, anzahl: eindeutig.length, doppelt,
+                ohne_geburtsdatum: ohneDatum.length }, 200, corsHeaders);
+}
+
+// Der Abgleich. LESEN -- er nimmt die gespeicherte Meldeliste und stellt
+// sie dem Bestand gegenueber. Geschrieben wird hier nichts; das tun
+// handleDfbnetImport (die Liste) und handleDfbnetZuordnen (die
+// Handzuordnung), beide an darfSchreiben.
+async function handleDfbnetAbgleich(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfNachwuchs) return json({ error: "Nicht berechtigt" }, 403, corsHeaders);
+
+  // ⚠️ Dieselbe Grenze wie beim Elternkodex, an derselben Stelle gezogen:
+  // die Passstelle bekommt den ABGLEICH, nicht den Bestand. Sie sieht
+  // keine Mitgliedsnummer (handleKodexListe zieht sie ihr ebenfalls ab),
+  // erfaehrt bei einem Spieler ohne Fussball-Mitgliedschaft nicht, in
+  // WELCHER anderen Abteilung er steht, und bekommt keine Vorschlaege --
+  // die greifen in den Gesamtbestand, genau wie bei kodexVorschlaege.
+  const vollbild = !!rolle.darfSchreiben;
+
+  const stichtag = istIsoDatum(sauber(body.stichtag, 10) || "")
+    ? sauber(body.stichtag, 10) : new Date().toISOString().slice(0, 10);
+
+  // ⚠️ Ohne die Tabellen KEIN Fehler, sondern eine leere Antwort. Der
+  // Reiter soll dann sagen "noch nichts eingelesen" -- dieselbe
+  // Entscheidung wie bei handleKodexInfo: die Absage gehoert vor die
+  // Arbeit, nicht hinter sie.
+  if (!(await hatDfbnetTabelle(env))) {
+    return json({ ok: true, leer: true, eingerichtet: false, vollbild }, 200, corsHeaders);
+  }
+
+  const importR = await env.VV_DB.prepare(
+    "SELECT * FROM dfbnet_import ORDER BY eingang_am DESC LIMIT 1").first();
+  const spielerR = await env.VV_DB.prepare(
+    "SELECT abgleich_schluessel, vorname, nachname, geburtsdatum, mannschaft, aktiv " +
+    "FROM dfbnet_spieler").all();
+
+  const gemeldet = [];
+  for (const z of spielerR.results || []) {
+    gemeldet.push({
+      name: ((z.vorname || "") + " " + (z.nachname || "")).trim(),
+      // ⚠️ Vor- und Nachname bleiben GETRENNT stehen, obwohl die Anzeige
+      // nur `name` braucht: die Handzuordnung schickt sie zurueck, und
+      // der Server bildet daraus denselben Schluessel. Aus einem
+      // zusammengesetzten Namen liesse er sich nicht zurueckgewinnen --
+      // "Anna Lena Reibsen Wittko" hat keine eindeutige Trennstelle.
+      vorname: z.vorname || "", nachname: z.nachname || "",
+      geburtsdatum: z.geburtsdatum,
+      mannschaft: z.mannschaft || "",
+      aktiv: z.aktiv === "nein" ? "nein" : "ja",
+      schluessel: z.abgleich_schluessel,
+      teile: kodexTeileListe(z.vorname, z.nachname)
+    });
+  }
+
+  if (!gemeldet.length) {
+    return json({ ok: true, leer: true, eingerichtet: true, vollbild }, 200, corsHeaders);
+  }
+
+  const doppelt = importR ? Number(importR.doppelt || 0) : 0;
+  const ohneDatumAnzahl = importR ? Number(importR.ohne_geburtsdatum || 0) : 0;
+  let ohneDatumNamen = [];
+  try { ohneDatumNamen = JSON.parse((importR && importR.ohne_geburtsdatum_namen) || "[]"); }
+  catch { ohneDatumNamen = []; }
 
   let von = 9999, bis = 0;
   for (const g of gemeldet) {
@@ -6889,28 +7090,60 @@ async function handleDfbnetAbgleich(body, env, me, corsHeaders) {
     }
   }
 
+  // Die Handzuordnungen. ⚠️ Sie SCHLAGEN den Namensschluessel -- sie sind
+  // die Korrektur fuer genau den Fall, in dem er danebengeht. Dieselbe
+  // Reihenfolge wie in handleKodexListe (erst nachPerson, dann
+  // nachSchluessel), und aus demselben Grund.
+  const vonHand = new Map();
+  if (await hatDfbnetTabelle(env)) {
+    const zR = await env.VV_DB.prepare(
+      "SELECT abgleich_schluessel, person_id FROM dfbnet_zuordnung").all();
+    for (const z of zR.results || []) vonHand.set(z.abgleich_schluessel, z.person_id);
+  }
+  const nachPerson = new Map();
+  for (const p of pool.slice().sort((a, b) => rang(a) - rang(b))) {
+    if (!nachPerson.has(p.person_id)) nachPerson.set(p.person_id, p);
+  }
+
   // --- Richtung 1: gemeldet -> Bestand --------------------------------
   const treffer = [];
   const offen = [];
+  let handZuordnungen = 0;
   for (const g of gemeldet) {
-    const m = g.schluessel ? nachSchluessel.get(g.schluessel) : null;
+    const handId = g.schluessel ? vonHand.get(g.schluessel) : null;
+    const hand = handId ? nachPerson.get(handId) : null;
+    if (hand) handZuordnungen++;
+    // ⚠️ Zeigt eine Handzuordnung auf eine Person, die es im Pool nicht
+    // gibt, wird NICHT auf den Namensschluessel zurueckgefallen. Die
+    // Zuordnung ist dann sichtbar wirkungslos, statt lautlos durch etwas
+    // anderes ersetzt zu werden.
+    const m = hand || (!handId && g.schluessel ? nachSchluessel.get(g.schluessel) : null);
     if (m) m.gemeldet = true;
 
     if (m && m.im_bestand && m.im_fussball) {
       treffer.push({
-        name: g.name, geburtsdatum: g.geburtsdatum,
+        name: g.name, vorname: g.vorname, nachname: g.nachname,
+        geburtsdatum: g.geburtsdatum,
         mannschaft: g.mannschaft, aktiv: g.aktiv,
         mitglied: m.name,
         mitgliedsnummer: vollbild ? (m.mitgliedsnummer || "") : null,
-        status: m.status
+        status: m.status,
+        // ⚠️ Ohne diese Flagge saehe eine Handzuordnung aus wie ein
+        // Namenstreffer -- und niemand faende sie wieder, um sie
+        // aufzuheben.
+        von_hand: !!hand,
+        person_id: vollbild ? m.person_id : null
       });
       continue;
     }
 
     const zeile = {
-      name: g.name, geburtsdatum: g.geburtsdatum,
+      name: g.name, vorname: g.vorname, nachname: g.nachname,
+      geburtsdatum: g.geburtsdatum,
       mannschaft: g.mannschaft, aktiv: g.aktiv,
-      lage: "unbekannt", hinweis: "", vorschlaege: []
+      lage: "unbekannt", hinweis: "", vorschlaege: [],
+      von_hand: !!hand,
+      person_id: vollbild && m ? m.person_id : null
     };
     const antrag = !m && g.schluessel ? antragNachSchluessel.get(g.schluessel) : null;
 
@@ -6931,6 +7164,14 @@ async function handleDfbnetAbgleich(body, env, me, corsHeaders) {
         ? "Ein Aufnahmeantrag vom " + antrag.eingang_am + " liegt vor, ist aber noch nicht " +
           "beschlossen (§ 4)."
         : "Nicht als Fußball-Mitglied geführt.";
+    } else if (handId && !hand) {
+      // Die Zuordnung steht in der Datenbank, die Person ist aber nicht
+      // im Pool (geloescht gibt es nicht, also: Datenbank neu aufgesetzt
+      // oder Zuordnung aus einem anderen Bestand). Sichtbar machen, nicht
+      // stillschweigend auf den Namen zurueckfallen.
+      zeile.lage = "unbekannt";
+      zeile.hinweis = "Für diesen Spieler ist von Hand ein Mitglied hinterlegt, das es im " +
+                      "Bestand nicht mehr gibt. Bitte die Zuordnung aufheben und neu setzen.";
     } else {
       zeile.lage = "unbekannt";
       zeile.hinweis = "Zu diesem Namen und Geburtsdatum steht nichts im Bestand.";
@@ -6940,7 +7181,10 @@ async function handleDfbnetAbgleich(body, env, me, corsHeaders) {
     // Fall. Der Lauf greift in den GESAMTBESTAND -- dieselbe Begruendung
     // wie bei kodexVorschlaege. Und wo die Lage bereits geklaert ist,
     // waere ein Vorschlag nur Rauschen.
-    if (vollbild && zeile.lage === "unbekannt") {
+    // ⚠️ Kein Vorschlag, wo bereits von Hand entschieden wurde -- ein
+    // Vorschlag neben einer getroffenen Entscheidung liest sich wie ein
+    // Widerspruch.
+    if (vollbild && zeile.lage === "unbekannt" && !hand) {
       const bewertet = [];
       for (const p of pool) {
         if (!p.teile.length) continue;
@@ -6996,6 +7240,10 @@ async function handleDfbnetAbgleich(body, env, me, corsHeaders) {
     if (!vollbild && !(p.jahre !== null && p.jahre < 18)) { volljaehrigVerborgen++; continue; }
     gesehen.add(p.person_id);
     nichtGemeldet.push({
+      // ⚠️ Die person_id geht nur an darfSchreiben -- nur die kann
+      // zuordnen, und ohne Schreibrecht waere sie eine Angabe ueber den
+      // Bestand mehr, als die Rolle braucht.
+      person_id: vollbild ? p.person_id : null,
       name: p.name, geburtsdatum: p.geburtsdatum,
       mitgliedsnummer: vollbild ? (p.mitgliedsnummer || "") : null,
       status: p.status,
@@ -7020,12 +7268,99 @@ async function handleDfbnetAbgleich(body, env, me, corsHeaders) {
     anzahl_gemeldet: gemeldet.length,
     anzahl_bestand: imBereich,
     doppelt,
-    ohne_geburtsdatum: ohneDatum.length,
-    ohne_geburtsdatum_namen: vollbild ? ohneDatum.slice(0, 20) : [],
+    von_hand: handZuordnungen,
+    eingelesen_am: importR ? importR.eingang_am : null,
+    eingelesen_von: vollbild && importR ? importR.erstellt_von : null,
+    dateiname: vollbild && importR ? (importR.dateiname || "") : null,
+    blaetter: vollbild && importR ? (importR.blaetter || "") : null,
+    ohne_geburtsdatum: ohneDatumAnzahl,
+    ohne_geburtsdatum_namen: vollbild ? ohneDatumNamen.slice(0, 20) : [],
     volljaehrig_verborgen: volljaehrigVerborgen,
     treffer,
     offen,
     nicht_gemeldet: nichtGemeldet
+  }, 200, corsHeaders);
+}
+
+// Einen gemeldeten Spieler von Hand einem Mitglied zuordnen -- oder die
+// Zuordnung wieder aufheben (person_id leer).
+//
+// ⚠️ An darfSchreiben, NICHT an darfNachwuchs. Lesen darf den Abgleich
+// auch die Passstelle; eine Entscheidung darueber, wer welches Mitglied
+// ist, gehoert in die Geschaeftsstelle -- dieselbe Grenze wie bei
+// handleKodexZuordnen.
+//
+// ⚠️ Der Schluessel wird im SERVER gebildet, nicht vom Browser
+// uebernommen. Sonst koennte ein Aufrufer eine Zuordnung unter einem
+// beliebigen Schluessel ablegen und damit einen fremden Spieler
+// umhaengen. Weissliste wie ueberall: vier Felder herein, den Rest baut
+// der Server.
+async function handleDfbnetZuordnen(body, env, me, corsHeaders) {
+  const rolle = await ladeRolle(env, me);
+  if (!rolle.darfSchreiben) {
+    return json({ error: "Nur die Geschaeftsstelle kann zuordnen" }, 403, corsHeaders);
+  }
+  if (!(await hatDfbnetTabelle(env))) {
+    // ⚠️ Vorn sagen, statt hinten in einen SQL-Fehler zu laufen. Die
+    // Tabelle entsteht in handleMigration; wer die Verwaltung einmal
+    // geoeffnet hat, hat sie.
+    return json({ error: "Die Zuordnungstabelle ist noch nicht eingerichtet. Bitte die " +
+                         "Vereinsverwaltung einmal neu laden." }, 409, corsHeaders);
+  }
+
+  const vorname = sauber(body.vorname, 120) || "";
+  const nachname = sauber(body.nachname, 120) || "";
+  const geb = String(sauber(body.geburtsdatum, 10) || "").slice(0, 10);
+  if (!istIsoDatum(geb) || !(vorname + nachname).trim()) {
+    return json({ error: "Name und Geburtsdatum des gemeldeten Spielers fehlen." },
+                400, corsHeaders);
+  }
+  const schluessel = kodexSchluessel(vorname, nachname, geb);
+  if (!schluessel) {
+    return json({ error: "Aus diesem Namen laesst sich kein Abgleichsschluessel bilden." },
+                400, corsHeaders);
+  }
+
+  const personId = sauber(body.person_id, 60);
+  const jetzt = new Date().toISOString();
+
+  if (!personId) {
+    await env.VV_DB.prepare("DELETE FROM dfbnet_zuordnung WHERE abgleich_schluessel = ?")
+      .bind(schluessel).run();
+    await protokolliere(env, me.username, "dfbnet-zuordnung-aufgehoben",
+                        "dfbnet_zuordnung", schluessel, { nachname });
+    return json({ ok: true, zugeordnet: false }, 200, corsHeaders);
+  }
+
+  // ⚠️ Die Person muss es geben. Der Fremdschluessel faengt es zwar auch
+  // ab -- aber als nackter SQL-Fehler beim Nutzer. Und eine geratene Id
+  // soll gar nicht erst schreiben duerfen.
+  const person = await env.VV_DB
+    .prepare("SELECT id, vorname, nachname FROM person WHERE id = ?").bind(personId).first();
+  if (!person) {
+    return json({ error: "Dieses Mitglied gibt es nicht." }, 404, corsHeaders);
+  }
+
+  await env.VV_DB.prepare(
+    "INSERT INTO dfbnet_zuordnung (abgleich_schluessel, person_id, gemeldet_vorname, " +
+    "gemeldet_nachname, gemeldet_geburtsdatum, erstellt_am, erstellt_von) " +
+    "VALUES (?,?,?,?,?,?,?) " +
+    // ⚠️ ON CONFLICT statt erst lesen, dann schreiben: D1 kennt kein
+    // BEGIN, und zwei gleichzeitige Klicks liefen sonst beide durch die
+    // Pruefung und der zweite in eine Indexverletzung.
+    "ON CONFLICT(abgleich_schluessel) DO UPDATE SET person_id = excluded.person_id, " +
+    "gemeldet_vorname = excluded.gemeldet_vorname, " +
+    "gemeldet_nachname = excluded.gemeldet_nachname, " +
+    "gemeldet_geburtsdatum = excluded.gemeldet_geburtsdatum, " +
+    "erstellt_am = excluded.erstellt_am, erstellt_von = excluded.erstellt_von"
+  ).bind(schluessel, personId, vorname, nachname, geb, jetzt, me.username).run();
+
+  await protokolliere(env, me.username, "dfbnet-zugeordnet",
+                      "dfbnet_zuordnung", schluessel, { nachname, person_id: personId });
+
+  return json({
+    ok: true, zugeordnet: true,
+    mitglied: ((person.vorname || "") + " " + (person.nachname || "")).trim()
   }, 200, corsHeaders);
 }
 
@@ -8875,7 +9210,12 @@ export default {
         // DFBnet-Abgleich. Lesen ab darfNachwuchs (die Passstelle macht die
         // Spielerpaesse), Mitgliedsnummern und Vorschlaege erst ab
         // darfSchreiben -- geprueft im Handler. Schreibt nichts.
+        // Einlesen SCHREIBT (die Meldeliste steht in D1), der Abgleich liest.
+        case "vv-dfbnet-import":   return handleDfbnetImport(body, env, me, corsHeaders);
         case "vv-dfbnet-abgleich": return handleDfbnetAbgleich(body, env, me, corsHeaders);
+        // Zuordnen und Aufheben erst ab darfSchreiben -- die Passstelle
+        // liest den Abgleich, entscheidet aber nicht ueber Mitgliedschaften.
+        case "vv-dfbnet-zuordnen": return handleDfbnetZuordnen(body, env, me, corsHeaders);
         default:
           return json({ error: "Unbekannte Aktion" }, 400, corsHeaders);
       }

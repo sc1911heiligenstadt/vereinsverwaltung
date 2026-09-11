@@ -7,7 +7,7 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=1.0">
 <link rel="icon" href="/favicon.png?v=1.0" type="image/png">
 <title>Vereinsverwaltung &mdash; 1. SC 1911 Heiligenstadt</title>
-<link rel="stylesheet" href="style.css?v=1.4">
+<link rel="stylesheet" href="style.css?v=1.5">
 </head>
 <body>
 
@@ -449,17 +449,60 @@
         Der Abgleich gilt der Abteilung Fußball und vergleicht nur die Jahrgänge, die in der
         hochgeladenen Datei wirklich vorkommen — sonst stünde jeder Herrenspieler als
         „nicht gemeldet“ darin.</p>
-        <p class="fussnote"><strong>Es wird nichts gespeichert.</strong> Die Datei bleibt im
-        Browser, der Server vergleicht und antwortet; in der Datenbank ändert sich kein
-        Zeichen. Ein neuer Abgleich ist ein Klick.</p>
-        <div class="knopfreihe">
-          <label class="btn" for="dfb-datei">Spielberechtigungen einlesen</label>
+        <p class="fussnote"><strong>Die eingelesene Liste bleibt gespeichert.</strong> Wer
+        den Reiter öffnet, sieht den aktuellen Abgleich — auch ohne die Datei zur Hand zu
+        haben. Es gilt immer genau eine Liste: ein neuer Export ersetzt den vorigen. Der
+        Vergleich selbst wird bei jedem Öffnen neu gerechnet, damit er zum heutigen
+        Mitgliederbestand passt.</p>
+        <!-- Einlesen und Löschen sind Schreibvorgänge und erscheinen nur
+             mit Bearbeitungsrecht. Die Passstelle liest den Abgleich, lädt
+             aber nichts hoch — der Server weist es ohnehin ab, und ein
+             Knopf, der sicher 403 antwortet, gehört nicht auf die Seite. -->
+        <div class="knopfreihe" id="dfb-knopfreihe" hidden>
+          <label class="btn" for="dfb-datei">Meldeliste einlesen</label>
           <input type="file" id="dfb-datei" accept=".xlsx,.xls" hidden>
-          <button class="btn grau" id="dfb-weg" type="button" hidden>Ergebnis schließen</button>
+          <button class="btn grau" id="dfb-weg" type="button" hidden>Gespeicherte Liste
+            löschen</button>
         </div>
         <div id="dfb-hinweis" class="hinweis info" hidden></div>
         <div id="dfb-fehler" class="hinweis fehler" hidden></div>
         <div id="dfb-stand"></div>
+      </div>
+
+      <!-- Die Filterfelder stehen HIER und nicht im gerenderten Block:
+           dfbZeichne() ersetzt `#dfb-ergebnis` bei jeder Zuordnung
+           komplett, und ein neu erzeugtes Eingabefeld verliert beim
+           Tippen den Cursor. Versteckt, solange kein Ergebnis vorliegt --
+           ein Filter ohne Liste filtert nichts. -->
+      <div class="karte" id="dfb-filter" hidden>
+        <div class="filterleiste">
+          <div class="feld">
+            <label for="dfb-f-suche">Suchen</label>
+            <input id="dfb-f-suche" placeholder="Name eines Spielers oder Mitglieds">
+          </div>
+          <div class="feld">
+            <label for="dfb-f-mannschaft">Mannschaft</label>
+            <select id="dfb-f-mannschaft">
+              <option value="">Alle Mannschaften</option>
+            </select>
+          </div>
+          <div class="feld">
+            <label for="dfb-f-lage">Lage</label>
+            <select id="dfb-f-lage">
+              <option value="">Alle Fälle</option>
+              <option value="unbekannt">Nicht im Bestand</option>
+              <option value="andere_abteilung">Andere Abteilung</option>
+              <option value="ausgetreten">Ausgetreten</option>
+              <option value="antrag">Aufnahmeantrag offen</option>
+            </select>
+          </div>
+        </div>
+        <p class="fussnote">Die Suche gilt für alle drei Listen. Mannschaft und Lage
+        stehen nur in der DFBnet-Datei — die Liste <em>Fußball-Mitglied, aber nicht
+        gemeldet</em> filtert deshalb nur nach dem Namen.</p>
+        <div class="knopfreihe">
+          <button class="btn grau klein" id="dfb-f-weg" type="button">Filter zurücksetzen</button>
+        </div>
       </div>
 
       <div id="dfb-ergebnis"></div>
@@ -1001,7 +1044,7 @@
 
 <footer>1. SC 1911 Heiligenstadt &mdash; interne Vereinsverwaltung</footer>
 
-<script src="config.js?v=2.9"></script>
+<script src="config.js?v=3.0"></script>
 <script src="db.js?v=1.3"></script>
 <script src="import.js?v=1.1"></script>
 <script src="rollen.js?v=1.1"></script>
@@ -1023,7 +1066,7 @@
 <script src="reha.js?v=1.0"></script>
 <script src="lsb.js?v=1.1"></script>
 <script src="kodex-verwaltung.js?v=1.4"></script>
-<script src="dfbnet.js?v=1.0"></script>
+<script src="dfbnet.js?v=1.3"></script>
 <script src="app.js?v=1.4"></script>
 </body>
 </html>

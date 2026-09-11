@@ -1413,3 +1413,12 @@ details.dfb-klapp > summary { cursor: pointer; padding: 4px 0; }
    begrenzt -- die uebrigen Tabellen der App sind davon nicht betroffen. */
 #tab-dfbnet td .fussnote { display: block; margin: 2px 0 0; }
 #tab-dfbnet .dfb-vorschlag-inhalt > .fussnote { margin: 0; }
+
+/* Der Knopf sitzt UNTER der Begruendung, nicht dahinter: am Handy
+   schoebe er sie sonst aus dem Bild. Gleiche Entscheidung wie bei
+   .ko-vorschlagsliste. */
+.dfb-vorschlag .btn { display: inline-block; margin-top: 4px; }
+.dfb-zeilen-knoepfe { margin-top: 8px; }
+/* Die Suchtreffer im Auswahlmodus sind dieselben Kaesten wie die
+   Vorschlaege -- bewusst, damit beide Wege gleich aussehen. */
+.dfb-waehlkarte .feld { max-width: 420px; }

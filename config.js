@@ -101,10 +101,13 @@ const APP_FUNKTIONEN = [
   {
     title: "DFBnet Spieler",
     items: [
-      "Der Reiter „DFBnet Spieler“ hält den Export der Spielberechtigungen aus dem DFBnet gegen den Mitgliederbestand. Die Datei wird eingelesen, verglichen und wieder vergessen — gespeichert wird nichts.",
+      "Der Reiter „DFBnet Spieler“ hält den Export der Spielberechtigungen aus dem DFBnet gegen den Mitgliederbestand. Die eingelesene Liste bleibt gespeichert; wer den Reiter öffnet, sieht den aktuellen Abgleich, ohne die Datei zur Hand zu haben.",
+      "Es gilt immer genau eine Meldeliste — ein neuer Export ersetzt den vorigen. Der Vergleich wird bei jedem Öffnen neu gerechnet und passt damit zum heutigen Mitgliederbestand.",
+      "Passt ein Name nicht, lässt sich der gemeldete Spieler von Hand dem richtigen Mitglied zuordnen; solche Zeilen sind als „von Hand“ gekennzeichnet und überleben den nächsten Export. Drei Filterfelder (Name, Mannschaft, Lage) grenzen die Listen ein, die Namenssuche ist umlautblind.",
       "Er beantwortet zwei Fragen: Wer ist beim Verband gemeldet, zahlt aber keinen Beitrag? Und wer zahlt Beitrag in der Abteilung Fußball, hat aber keine Spielberechtigung?",
       "Verglichen wird über Name und Geburtsdatum, nachsichtig gegenüber Schreibweisen: „Grünbaum“ und „Grunbaum“ gelten als derselbe Name. Zu jedem ungeklärten Fall stehen bis zu drei ähnliche Namen aus dem Bestand samt Begründung.",
-      "Abgeglichen wird nur die Abteilung Fußball und nur die Jahrgänge, die in der Datei vorkommen — ein Export der A- bis E-Junioren stellt also keine Herrenmannschaft als „nicht gemeldet“ hin."
+      "Abgeglichen wird nur die Abteilung Fußball und nur die Jahrgänge, die in der Datei vorkommen — ein Export der A- bis E-Junioren stellt also keine Herrenmannschaft als „nicht gemeldet“ hin.",
+      "Einlesen, Löschen und Zuordnen setzen das Bearbeitungsrecht voraus. Die Passstelle liest den Abgleich; sie sieht keine Mitgliedsnummern und erfährt nicht, in welcher anderen Abteilung ein gemeldeter Spieler steht."
     ]
   },
   {
@@ -181,6 +184,22 @@ const BUCHHALTUNG_FUNKTIONEN = [
 ];
 
 const CHANGELOG = [
+  {
+    version: "1.7",
+    groups: [
+      {
+        title: "DFBnet Spieler: Liste bleibt gespeichert, Zuordnen von Hand, Filter",
+        items: [
+          "Die eingelesene Meldeliste wird gespeichert. Wer den Reiter öffnet, sieht den aktuellen Abgleich, ohne die Datei zur Hand zu haben — auch die Passstelle. Es gilt immer genau eine Liste: ein neuer Export ersetzt den vorigen, mit Rückfrage.",
+          "Der Vergleich selbst wird bei jedem Öffnen neu gerechnet, damit er zum heutigen Mitgliederbestand passt. Oben steht, wann und von wem die Liste eingelesen wurde.",
+          "Passt ein Name nicht, lässt sich der gemeldete Spieler jetzt von Hand dem richtigen Mitglied zuordnen — mit einem Klick auf einen der Vorschläge, durch Anklicken in der Liste „Fußball-Mitglied, aber nicht gemeldet“, oder über eine Suche im ganzen Bestand. Solche Zeilen tragen die Plakette „von Hand“ und lassen sich wieder aufheben.",
+          "Eine Handzuordnung schlägt den Namensabgleich und überlebt den nächsten Export — derselbe Schreibfehler kommt beim nächsten Mal wieder, und niemand soll ihn zweimal auflösen.",
+          "Drei Filterfelder: Suche nach Name, Mannschaft und Lage. Die Suche ist umlautblind — „Grünbaum“ findet auch „Gruenbaum“ und „Grunbaum“.",
+          "Einlesen und Löschen setzen das Bearbeitungsrecht voraus. Die Passstelle liest den Abgleich, lädt aber nichts hoch und ordnet nichts zu."
+        ]
+      }
+    ]
+  },
   {
     version: "1.6",
     groups: [

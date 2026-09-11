@@ -146,9 +146,11 @@ async function start() {
 
       // Der DFBnet-Abgleich ist die Kernarbeit dieser Rolle: sie macht die
       // Spielerpaesse und merkt als erste, wenn jemand spielt, den der
-      // Verein gar nicht kennt. ladeDfbnet() verdrahtet nur den
-      // Einlese-Knopf und ruft den Server nicht -- es haengt an keiner
-      // Migration und darf deshalb neben der Sichtbarkeit stehen.
+      // Verein gar nicht kennt.
+      // ⚠️ Diese Rolle stoesst keine Migration an (sie sieht keine
+      // Personen). Fehlen die Tabellen noch, antwortet der Abgleich mit
+      // "wird gerade eingerichtet" statt mit einem Fehler -- und sobald
+      // jemand mit Bestandssicht die App einmal geoeffnet hat, sind sie da.
       $("nav-dfbnet").hidden = false;
       ladeDfbnet();
     }
@@ -194,7 +196,6 @@ async function start() {
   // Abteilungsleiters einschraenken liesse. Mitgliedsnummern und
   // Vorschlaege zieht der Server ohne darfSchreiben selbst ab.
   $("nav-dfbnet").hidden = !meineRechte.darfNachwuchs;
-  if (meineRechte.darfNachwuchs) ladeDfbnet();
 
   // Der Reiter „Einstellungen“ trägt seit 2026-08-10 drei Blöcke mit drei
   // verschiedenen Rechten. Jeder ist oben einzeln versteckt; der Reiter
@@ -239,6 +240,10 @@ async function start() {
   // elternkodex_bestaetigung entsteht in derselben Migration. Davor
   // antwortete die Liste mit dem Hinweis auf die fehlende Einrichtung.
   if (meineRechte.darfNachwuchs) ladeKodex();
+  // Steht aus demselben Grund hier: die drei dfbnet-Tabellen entstehen in
+  // derselben Migration, die ladeStammdaten() anstoesst. Davor antwortete
+  // der Abgleich mit "wird gerade eingerichtet".
+  if (meineRechte.darfNachwuchs) ladeDfbnet();
 
   if (meineRechte.darfSchreiben) {
     ladeAntraege();
