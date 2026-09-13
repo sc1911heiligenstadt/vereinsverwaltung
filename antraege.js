@@ -1054,14 +1054,33 @@ async function antragAnnehmen() {
   // Die Mitgliederliste zeigt sonst noch den Stand von vorhin.
   if (typeof ladeUndZeige === "function") ladeUndZeige();
 
+  // Die Aufnahmebestaetigung ist an den Antragsteller raus -- oder eben
+  // nicht.
+  // ⚠️ Der Fehlschlag faerbt den ganzen Kasten um: die Aufnahme hat
+  // trotzdem geklappt, aber ein gruener Kasten mit einem Nebensatz darin
+  // wird ueberlesen, und dann wartet eine Familie auf Post, die nie kommt.
+  //
+  // ⚠️ undefined ist NICHT false. Antwortet ein Worker von vor dem
+  // 13.09.2026, gibt es das Feld gar nicht -- dann darf hier auch keine
+  // Warnung stehen, sonst meldet die App einen Fehlschlag, den es nicht
+  // gab. Erst der Rollout beider Worker macht das Feld verlaesslich.
+  const mailStand = antwort.mail_gesendet;
+  const mailSatz = mailStand === undefined ? ""
+    : (mailStand
+        ? " Die Aufnahmebestätigung ging an " +
+          esc(antwort.mail_an || "die hinterlegte Adresse") + "."
+        : " <strong>Es wurde keine Bestätigung verschickt</strong> (" +
+          esc(antwort.mail_grund || "Grund unbekannt") + ") — bitte von Hand nachreichen.");
+
   $("an-erfolg").hidden = false;
-  $("an-erfolg").className = "hinweis erfolg";
+  $("an-erfolg").className = mailStand === false ? "hinweis warn" : "hinweis erfolg";
   $("an-erfolg").innerHTML =
     "Aufgenommen mit der Mitgliedsnummer <strong>" + esc(antwort.mitgliedsnummer) +
     "</strong>, Beschluss vom " + esc(datumDe(beschluss)) + ". " +
     (antwort.mandat_angelegt
       ? "Das SEPA-Mandat wurde aus der Unterschrift angelegt."
-      : (antwort.mandat_hinweis ? esc(antwort.mandat_hinweis) : ""));
+      : (antwort.mandat_hinweis ? esc(antwort.mandat_hinweis) : "")) +
+    mailSatz;
 }
 
 // ---------------------------------------------------------------------

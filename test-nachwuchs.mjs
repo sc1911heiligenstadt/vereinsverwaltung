@@ -74,6 +74,11 @@ const schnitt = roh.indexOf("export default");
 if (schnitt < 0) throw new Error("export default nicht gefunden");
 const quelle = roh.slice(0, schnitt);
 
+// ⚠️ Seit 13.09.2026 traegt handleAntragAnnehmen den Authorization-Header
+// als vierten Parameter -- er wird fuer die Aufnahmebestaetigung an den
+// Gateway durchgereicht. Hier gibt es kein Service Binding; der Versand
+// scheitert deshalb lautlos und beruehrt die Aufnahme nicht (gemessen in
+// test-aufnahme-mail.mjs).
 const namen = ["pruefeAntrag", "pruefeSpielerlaubnis", "handleMigration",
                "handleAntragSenden", "handleAntragAnnehmen", "handleAntragDetail",
                "handleAntraegeListe", "alterAm", "antragKurz", "ibanGueltig",
@@ -350,7 +355,7 @@ db.exec("INSERT INTO beitragssatz (id, beitragsklasse_id, gueltig_ab, betrag_cen
 const ann = await W.handleAntragAnnehmen(
   { id: d1b.id, beschluss_am: HEUTE, eintritt: HEUTE,
     beitragsklasse_id: "bk-1", mitgliedsnummer: "9001" },
-  env, me, cors);
+  env, me, null, cors);
 pruefe("D19 Annahme geht durch", ann.status === 200,
        "status " + ann.status + " " + JSON.stringify(await ann.clone().json()));
 if (ann.status === 200) {

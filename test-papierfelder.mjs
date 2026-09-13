@@ -64,6 +64,11 @@ const schnitt = roh.indexOf("export default");
 if (schnitt < 0) throw new Error("export default nicht gefunden");
 const quelle = roh.slice(0, schnitt);
 
+// ⚠️ Seit 13.09.2026 traegt handleAntragAnnehmen den Authorization-Header
+// als vierten Parameter -- er wird fuer die Aufnahmebestaetigung an den
+// Gateway durchgereicht. Hier gibt es kein Service Binding; der Versand
+// scheitert deshalb lautlos und beruehrt die Aufnahme nicht (gemessen in
+// test-aufnahme-mail.mjs).
 const namen = ["pruefeAntrag", "handleMigration", "handleAntragSenden",
                "handleAntragAnnehmen", "anweisungenFuerAnnahme", "alterAm",
                "hatGesetzl2Spalte", "pruefeMitgliedssatz", "PERSON_FELDER"];
@@ -309,7 +314,7 @@ db.prepare("INSERT INTO beitragsklasse (id, name, aktiv, sortierung, erstellt_am
 const annahme = await W.handleAntragAnnehmen({
   id: gesendet.id, beschluss_am: "2026-08-01", eintritt: "2026-08-01",
   mitgliedsnummer: "9001", beitragsklasse_id: "bk-1", sparte_ids: ["sp-1"]
-}, env, me, cors);
+}, env, me, null, cors);
 pruefe("D7 Annahme antwortet 200", annahme.status === 200, "status " + annahme.status);
 
 const person = db.prepare(
@@ -331,7 +336,7 @@ pruefe("D13 Mandat traegt die Unterschrift des Antragstellers",
 const annahme2 = await W.handleAntragAnnehmen({
   id: gesendet2.id, beschluss_am: "2026-08-01", eintritt: "2026-08-01",
   mitgliedsnummer: "9002", beitragsklasse_id: "bk-1", sparte_ids: []
-}, env, me, cors);
+}, env, me, null, cors);
 pruefe("D14 Annahme des Minderjaehrigen antwortet 200", annahme2.status === 200,
        "status " + annahme2.status);
 const person2 = db.prepare(

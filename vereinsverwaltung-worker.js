@@ -208,6 +208,51 @@ async function ladeGatewayNutzer(env, authHeader) {
   }
 }
 
+// Die Aufnahmebestaetigung geht ueber den Gateway. Dieser Worker hat
+// keinen Brevo-Schluessel, und ALLER Mailversand der Flotte laeuft dort --
+// ein zweiter Versandweg waere ein zweites Absenderprofil, ein zweites
+// Zustellproblem und eine zweite Stelle, an der ein Schluessel liegt.
+//
+// ⚠️ Mitgeschickt werden nur FELDER, nie ein fertiger Betreff oder Text.
+// Der Gateway baut den Brief selbst. Eine Aktion, die fremden Text
+// weiterreicht, waere ein offenes Mailrelais unter der Vereinsadresse.
+//
+// ⚠️ Die IBAN geht bereits VERKUERZT hinaus. Was nie ausgeliefert wird,
+// steht auch in keinem Log des anderen Workers.
+//
+// ⚠️ Wirft NIE. Beim Aufruf ist die Aufnahme laengst geschrieben; ein
+// misslungener Brief darf sie nicht als Fehler erscheinen lassen. Der
+// Grund wird zurueckgegeben und sichtbar gemeldet, nicht verschluckt.
+async function sendeAufnahmeMail(env, authHeader, an, daten) {
+  try {
+    const res = await env.LANDINGPAGE.fetch("https://landingpage/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: authHeader || "" },
+      body: JSON.stringify({ action: "vv-aufnahme-mail", an, daten })
+    });
+    const antwort = await res.json().catch(() => null);
+    if (!res.ok || !antwort) return { gesendet: false, grund: "gateway-" + res.status };
+    return { gesendet: !!antwort.sent, grund: antwort.sent ? null : (antwort.grund || "unbekannt") };
+  } catch (e) {
+    return { gesendet: false, grund: "Gateway nicht erreichbar: " + e.message };
+  }
+}
+
+// Eine vollstaendige IBAN gehoert weder in eine Mail noch in einen fremden
+// Worker. Gleiche Kuerzung wie in der Vorabankuendigung.
+function ibanKurz(iban) {
+  const roh = String(iban || "").replace(/\s+/g, "");
+  return roh.length > 8 ? roh.slice(0, 4) + "…" + roh.slice(-4) : "";
+}
+
+// Der Brief nennt die Mitgliedsart im Klartext -- "ausserordentlich" allein
+// liest sich wie ein Vermerk, nicht wie eine Auskunft.
+const MITGLIEDSART_TEXT = {
+  ordentlich: "ordentliches Mitglied",
+  ausserordentlich: "ausserordentliches Mitglied",
+  ehrenmitglied: "Ehrenmitglied"
+};
+
 // Alles fuer die Rollen-Oberflaeche in einem Aufruf: vergebene Rollen,
 // waehlbare Konten und die verwaisten Eintraege. Drei Aufrufe waeren drei
 // Sitzungspruefungen fuer einen Seitenaufbau.
@@ -5052,7 +5097,7 @@ function anweisungenFuerAnnahme(env, plan, jetzt, username) {
   return { anweisungen: an, personId, mgsId, haushaltId };
 }
 
-async function handleAntragAnnehmen(body, env, me, corsHeaders) {
+async function handleAntragAnnehmen(body, env, me, authHeader, corsHeaders) {
   const rolle = await ladeRolle(env, me);
   if (!rolle.darfSchreiben) {
     return json({ error: "Nur die Geschaeftsstelle kann Aufnahmeantraege bearbeiten" }, 403, corsHeaders);
@@ -5114,6 +5159,10 @@ async function handleAntragAnnehmen(body, env, me, corsHeaders) {
 
   const klasseId = sauber(body.beitragsklasse_id, 40);
   let familienbeitrag = false;
+  // Der Name wird fuer die Aufnahmebestaetigung mitgenommen -- ein zweiter
+  // Lesevorgang weiter unten waere eine Abfrage fuer einen Wert, der hier
+  // schon in der Hand liegt.
+  let klasseName = "";
   if (klasseId) {
     const k = await env.VV_DB.prepare("SELECT id, name FROM beitragsklasse WHERE id = ?")
       .bind(klasseId).first();
@@ -5124,6 +5173,7 @@ async function handleAntragAnnehmen(body, env, me, corsHeaders) {
     // genommen. Sonst steht am Mitglied irgendwann die Familienklasse
     // mit familienbeitrag = 0, und keine Auswertung stimmt mehr.
     familienbeitrag = / \(Familie\)$/.test(k.name);
+    klasseName = k.name;
   }
 
   const gewuenscht = Array.isArray(body.sparte_ids) ? body.sparte_ids.map(String) : [];
@@ -5198,6 +5248,96 @@ async function handleAntragAnnehmen(body, env, me, corsHeaders) {
   await protokolliere(env, me.username, "antrag-angenommen", "aufnahmeantrag", zeile.id,
                       { mitgliedsnummer: nummer, beschluss_am: beschlussAm, mandat: !!mandat });
 
+  // -------------------------------------------------------------------
+  // Aufnahmebestaetigung an den Antragsteller
+  // -------------------------------------------------------------------
+  //
+  // ⚠️ NACH dem batch und NACH dem Protokoll. Die Mail ist die FOLGE der
+  // Aufnahme, nicht ihre Bedingung: schlaegt sie fehl, bleibt das Mitglied
+  // angelegt und der Grund steht in der Antwort. Der umgekehrte Weg haette
+  // einen Brief fuer eine Mitgliedschaft erzeugt, die es nicht gibt.
+  //
+  // ⚠️ Die drei Nachlesevorgaenge stehen ebenfalls hier unten und nicht im
+  // Bau der Anweisungen: sie duerfen den Vorgang nicht aufhalten, und ein
+  // Fehler in ihnen darf ihn nicht kippen.
+
+  let spartenNamen = "";
+  if (sparten.length) {
+    const platz = sparten.map(() => "?").join(",");
+    const rs = await env.VV_DB
+      .prepare("SELECT name FROM sparte WHERE id IN (" + platz + ") ORDER BY sortierung, name")
+      .bind(...sparten).all();
+    spartenNamen = (rs.results || []).map((z) => z.name).join(", ");
+  }
+
+  // ⚠️ Der Satz, der am EINTRITTSTAG gilt -- nicht der neueste. Ein
+  // Beschluss der Mitgliederversammlung fuer das Folgejahr stuende sonst
+  // im Willkommensbrief eines Eintritts von heute.
+  let jahresbeitragCent = null;
+  if (klasseId) {
+    const satz = await env.VV_DB.prepare(
+      "SELECT betrag_cent FROM beitragssatz WHERE beitragsklasse_id = ? " +
+      "  AND gueltig_ab <= ? AND (gueltig_bis IS NULL OR gueltig_bis >= ?) " +
+      "ORDER BY gueltig_ab DESC LIMIT 1"
+    ).bind(klasseId, eintritt, eintritt).first();
+    if (satz) jahresbeitragCent = Number(satz.betrag_cent);
+  }
+
+  const cfg = (await ladeEinstellungen(env)) || {};
+  // ⚠️ Fehlt die Glaeubiger-Id oder ist sie unbrauchbar, faellt die Zeile
+  // im Brief ersatzlos weg -- dieselbe Regel wie im Mandatstext des
+  // Formulars: lieber keine Nummer als eine falsche.
+  const glaeubiger = glaeubigerIdGueltig(cfg.glaeubiger_id)
+    ? String(cfg.glaeubiger_id).toUpperCase().replace(/\s+/g, "") : "";
+
+  // ⚠️ Bei einem Kind geht der Brief an den gesetzlichen Vertreter: das
+  // Formular traegt dessen E-Mail, und ein Siebenjaehriger liest keine Post.
+  // Ohne "Herr"/"Frau" -- das Geschlecht steht im Antrag nicht zuverlaessig,
+  // und eine geratene Anrede waere ein Fehler im ersten Satz.
+  const vollerName = [inhalt.vorname, inhalt.nachname].filter(Boolean).join(" ");
+  const anredeName = (inhalt.minderjaehrig && inhalt.gesetzl_name)
+    ? String(inhalt.gesetzl_name) : vollerName;
+
+  // Der Hinweis fuer die Geschaeftsstelle und der fuer die Familie sind
+  // NICHT derselbe Satz. "Es wurde kein Mandat angelegt" ist ein Vermerk
+  // ueber den Datensatz; im Willkommensbrief muss stehen, was die Familie
+  // davon hat.
+  const mandatHinweisIntern = (inhalt.zahlungsart === "lastschrift" && !mandat)
+    ? (mandatVorhanden
+        ? "Der Haushalt hat bereits ein Mandat; es wurde keines zweites angelegt."
+        : "Es wurde kein Mandat angelegt (keine IBAN oder keine Unterschrift im Antrag).")
+    : null;
+  const mandatHinweisBrief = mandat ? null
+    : (mandatVorhanden
+        ? "Der Beitrag wird ueber das bereits erteilte SEPA-Lastschriftmandat Ihres " +
+          "Haushalts eingezogen."
+        : "Zur Beitragszahlung melden wir uns gesondert bei Ihnen.");
+
+  const mail = await sendeAufnahmeMail(env, authHeader, inhalt.email || "", {
+    name: vollerName,
+    anrede_name: anredeName,
+    mitgliedsnummer: nummer,
+    geburtsdatum: inhalt.geburtsdatum || "",
+    eintritt,
+    beschluss_am: beschlussAm,
+    art_text: MITGLIEDSART_TEXT[art] || art,
+    abteilungen: spartenNamen,
+    beitragsklasse: klasseName,
+    jahresbeitrag_cent: jahresbeitragCent,
+    mandat: mandat ? {
+      referenz: mandat.referenz,
+      glaeubiger_id: glaeubiger,
+      kontoinhaber: mandat.kontoinhaber,
+      iban_kurz: ibanKurz(mandat.iban)
+    } : null,
+    mandat_hinweis: mandatHinweisBrief
+  });
+  // ⚠️ Auch der Fehlschlag wird protokolliert. Sonst laesst sich spaeter
+  // nicht belegen, ob ein Mitglied nie einen Brief bekommen hat oder ihn
+  // nur nicht gefunden hat.
+  await protokolliere(env, me.username, "aufnahme-mail", "aufnahmeantrag", zeile.id,
+                      { an: inhalt.email || null, gesendet: mail.gesendet, grund: mail.grund });
+
   return json({
     ok: true,
     mitgliedschaft_id: gebaut.mgsId,
@@ -5205,11 +5345,10 @@ async function handleAntragAnnehmen(body, env, me, corsHeaders) {
     mandat_angelegt: !!mandat,
     // Wer per Lastschrift zahlen wollte, aber keines bekommen hat, muss
     // das erfahren -- sonst faellt es erst beim Beitragslauf auf.
-    mandat_hinweis: (inhalt.zahlungsart === "lastschrift" && !mandat)
-      ? (mandatVorhanden
-          ? "Der Haushalt hat bereits ein Mandat; es wurde keines zweites angelegt."
-          : "Es wurde kein Mandat angelegt (keine IBAN oder keine Unterschrift im Antrag).")
-      : null
+    mandat_hinweis: mandatHinweisIntern,
+    mail_gesendet: mail.gesendet,
+    mail_an: mail.gesendet ? (inhalt.email || null) : null,
+    mail_grund: mail.gesendet ? null : mail.grund
   }, 200, corsHeaders);
 }
 
@@ -9465,7 +9604,8 @@ export default {
         case "vv-antrag":          return handleAntragDetail(body, env, me, corsHeaders);
         case "vv-antrag-status":   return handleAntragStatus(body, env, me, corsHeaders);
         case "vv-antrag-loeschen": return handleAntragLoeschen(body, env, me, corsHeaders);
-        case "vv-antrag-annehmen": return handleAntragAnnehmen(body, env, me, corsHeaders);
+        case "vv-antrag-annehmen": return handleAntragAnnehmen(body, env, me,
+                                            request.headers.get("Authorization"), corsHeaders);
         case "vv-sparte-aktiv":    return handleSparteAktiv(body, env, me, corsHeaders);
         case "vv-sparte-loeschen": return handleSparteLoeschen(body, env, me, corsHeaders);
         case "vv-sparte-sportart": return handleSparteSportart(body, env, me, corsHeaders);

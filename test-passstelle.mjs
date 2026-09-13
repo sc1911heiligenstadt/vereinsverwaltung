@@ -71,6 +71,11 @@ const schnitt = roh.indexOf("export default");
 if (schnitt < 0) throw new Error("export default nicht gefunden");
 const quelle = roh.slice(0, schnitt);
 
+// ⚠️ Seit 13.09.2026 traegt handleAntragAnnehmen den Authorization-Header
+// als vierten Parameter -- er wird fuer die Aufnahmebestaetigung an den
+// Gateway durchgereicht. Hier gibt es kein Service Binding; der Versand
+// scheitert deshalb lautlos und beruehrt die Aufnahme nicht (gemessen in
+// test-aufnahme-mail.mjs).
 const namen = ["ladeRolle", "handleMe", "handleAntraegeListe", "handleAntragDetail",
                "handleAntragStatus", "handleAntragAnnehmen", "handleAntragSenden",
                "handleRolleSetzen", "ROLLEN"];
@@ -290,7 +295,7 @@ for (const status of ["geprueft", "abgelehnt", "zurueckgezogen"]) {
 }
 const dAnn = await W.handleAntragAnnehmen(
   { id: nwId, beschluss_am: HEUTE, eintritt: HEUTE, mitgliedsnummer: "9001" },
-  env, PASS, cors);
+  env, PASS, null, cors);
 pruefe("D2 Annahme nach § 4 abgewiesen", dAnn.status === 403, "status " + dAnn.status);
 
 // Gegenprobe: die Zeile ist wirklich unangetastet geblieben.

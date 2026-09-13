@@ -185,6 +185,20 @@ const BUCHHALTUNG_FUNKTIONEN = [
 
 const CHANGELOG = [
   {
+    version: "2.1",
+    groups: [
+      {
+        title: "Wer aufgenommen wird, bekommt jetzt eine Bestätigung per E-Mail",
+        items: [
+          "Sobald ein Aufnahmeantrag angenommen wird, geht automatisch ein Willkommensschreiben an die im Antrag angegebene Adresse — bei Kindern also an die Eltern.",
+          "Darin stehen Mitgliedsnummer, Name, Geburtsdatum, Eintrittsdatum, Art der Mitgliedschaft, Abteilung, Beitragsklasse und der Jahresbeitrag. Bei Lastschrift zusätzlich Mandatsreferenz, Gläubiger-Identifikationsnummer und die verkürzte IBAN.",
+          "Dazu der Hinweis auf die Austrittsfrist nach § 5 Abs. 2 der Satzung und die Bitte, Adress- und Bankänderungen zu melden.",
+          "Ob das Schreiben wirklich rausgegangen ist, steht direkt in der Rückmeldung nach dem Annehmen. Konnte es nicht verschickt werden — etwa weil im Antrag keine E-Mail-Adresse steht —, wird der Kasten gelb und nennt den Grund; die Aufnahme selbst ist davon nicht betroffen."
+        ]
+      }
+    ]
+  },
+  {
     version: "2.0",
     groups: [
       {
