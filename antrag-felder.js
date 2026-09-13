@@ -19,6 +19,12 @@
 // werden koennen; wer eine Id auf einer Seite umbenennt, muss es auf
 // beiden tun.
 
+// ⚠️ Zeichengleich zu EMAIL_MUSTER im Worker. Zweite Stelle im Repo, wie
+// ANTRAG_WORKER_URL und VEREIN_NAME_PAPIER -- der Client kann die
+// Worker-Konstante nicht lesen. Wer eine aendert, aendert beide; laesst der
+// Client mehr durch, wandert die Absage zurueck ans Ende des Bogens.
+const EMAIL_MUSTER_CLIENT = /^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/;
+
 function $(id) { return document.getElementById(id); }
 
 function esc(wert) {
@@ -171,6 +177,17 @@ function sammleGemeinsameFelder(padGesetzl2) {
 // ohne Rundlauf sagen lassen — massgeblich ist die Pruefung des Servers.
 // Der Client ist keine Zusage.
 function pruefeGemeinsameFelder(daten) {
+  // ⚠️ Die E-Mail ist auf beiden Seiten mit * als Pflicht ausgezeichnet, aber
+  // ein `required` am Feld wirkte hier NICHT: es gibt kein <form>, der Knopf
+  // ist type="button" und ruft absenden() selbst auf — der Browser prueft
+  // dann gar nichts. Ohne diese Zeile faellt die Absage erst beim Server
+  // (pruefeAntrag, gleiches Muster), also nach dem Absenden eines
+  // vollstaendig ausgefuellten und unterschriebenen Bogens.
+  // ⚠️ Muster zeichengleich zu EMAIL_MUSTER im Worker halten — laesst der
+  // Client mehr durch als der Server, wandert die Absage zurueck ans Ende.
+  if (!EMAIL_MUSTER_CLIENT.test(daten.email.trim())) {
+    return "Bitte tragen Sie oben eine gültige E-Mail-Adresse ein.";
+  }
   // ⚠️ Nur verlangt, solange es KEINE Erziehungsberechtigten-Karte gibt.
   // Ist sie da, unterschreibt der gesetzliche Vertreter (§ 4 der Satzung),
   // und die Unterschrift des Kindes ist freiwillig — das Feld heißt auf

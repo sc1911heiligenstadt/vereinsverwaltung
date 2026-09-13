@@ -75,6 +75,17 @@ const ANTRAG_FUNKTIONEN = [
 
 const ANTRAG_CHANGELOG = [
   {
+    version: "1.3",
+    groups: [
+      {
+        title: "Die E-Mail-Adresse wird sofort geprüft",
+        items: [
+          "Fehlt die E-Mail-Adresse oder ist sie unvollständig, steht das jetzt da, bevor der Antrag abgeschickt wird. Bisher kam die Absage erst danach — bei einem Bogen, der längst ausgefüllt und unterschrieben war."
+        ]
+      }
+    ]
+  },
+  {
     version: "1.2",
     groups: [
       {
@@ -193,6 +204,17 @@ const NACHWUCHS_FUNKTIONEN = [
 // der beschreibt den allgemeinen Aufnahmeantrag, und was den Nachwuchs
 // betrifft, geht dort zwischen Beitragsart und Familienverbund unter.
 const NACHWUCHS_CHANGELOG = [
+  {
+    version: "1.4",
+    groups: [
+      {
+        title: "Die E-Mail-Adresse wird sofort geprüft",
+        items: [
+          "Fehlt die E-Mail-Adresse oder ist sie unvollständig, steht das jetzt da, bevor die Anmeldung abgeschickt wird. Bisher kam die Absage erst danach — bei einem Bogen, der längst ausgefüllt und unterschrieben war."
+        ]
+      }
+    ]
+  },
   {
     version: "1.3",
     groups: [
